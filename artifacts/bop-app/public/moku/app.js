@@ -6,10 +6,11 @@
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "moku_rt005_v2_premium";
+  const STORAGE_KEY  = "moku_rt005_v2_premium";
   const DEFAULT_TYPES = ["Foto Sebelum", "Foto Proses", "Foto Sesudah", "Foto Nota/Kuitansi", "Foto Serah Terima"];
-  const GPS_MAX_MS   = 120_000;
-  const GPS_GOOD_ACC = 30; // metres — threshold for "good enough"
+  const GPS_MAX_MS   = 15_000;  /* batas waktu absolut (15s, turun dari 120s) */
+  const GPS_GOOD_ACC = 50;      /* akurasi "cukup bagus" dalam meter           */
+  const GPS_ACCEPT_MS = 5_000;  /* terima posisi terbaik setelah 5 detik       */
 
   /* ── State ─────────────────────────────────────────────── */
   let state        = loadState();
@@ -194,18 +195,38 @@
       return null;
     }
 
-    // Cancel any existing watch
+    /* Batalkan watch sebelumnya */
     if (gpsWatchId !== null) { try { navigator.geolocation.clearWatch(gpsWatchId); } catch(_){} gpsWatchId = null; }
     if (gpsTimer)            { clearTimeout(gpsTimer); gpsTimer = null; }
 
-    setGpsStatus("searching", "Mengunci GPS presisi tinggi... mohon tunggu.", state.gps);
+    setGpsStatus("searching", "Mengambil lokasi…", state.gps);
 
     return new Promise(resolve => {
-      let settled   = false;
-      let best      = state.gps || null;
-      const started = Date.now();
+      let settled        = false;
+      let best           = null;
+      let geocodeStarted = false;
+      const started      = Date.now();
+      const elapsed      = () => Math.round((Date.now() - started) / 1000);
 
-      const elapsed = () => Math.round((Date.now() - started) / 1000);
+      /* Mulai reverse-geocoding segera setelah ada posisi pertama */
+      const startGeocode = (gps) => {
+        if (geocodeStarted || !gps) return;
+        geocodeStarted = true;
+        setGpsStatus("searching", `Koordinat diterima ±${Math.round(gps.accuracy||0)}m • mengambil nama jalan…`, gps);
+        reverseGeocode(gps.lat, gps.lng).then(addr => {
+          if (!addr) return;
+          const g = state.gps || gps;
+          g.address = addr;
+          state.gps = g;
+          const accStr = `±${Math.round(g.accuracy||0)}m`;
+          if (settled) {
+            setGpsStatus("locked", `${addr} ${accStr}`, g);
+          } else {
+            setGpsStatus("searching", `${addr} ${accStr} • memperhalus…`, g);
+          }
+          saveState();
+        }).catch(() => {});
+      };
 
       const finish = (gps, status = "locked", message) => {
         if (settled) return;
@@ -213,15 +234,11 @@
         if (gpsWatchId !== null) { try { navigator.geolocation.clearWatch(gpsWatchId); } catch(_){} gpsWatchId = null; }
         if (gpsTimer) { clearTimeout(gpsTimer); gpsTimer = null; }
         if (gps) {
-          const msg = message || `GPS terkunci ±${Math.round(gps.accuracy||0)}m`;
+          const addr    = gps.address || (state.gps?.address) || null;
+          const accStr  = `±${Math.round(gps.accuracy||0)}m`;
+          const msg     = message || (addr ? `${addr} ${accStr}` : `Lokasi diterima ${accStr}`);
           setGpsStatus("locked", msg, gps);
-          // Attempt reverse geocode silently, update if success
-          reverseGeocode(gps.lat, gps.lng).then(addr => {
-            if (addr && state.gps) {
-              state.gps.address = addr;
-              setGpsStatus("locked", `GPS terkunci • ${addr} ±${Math.round(state.gps.accuracy||0)}m`, state.gps);
-            }
-          });
+          if (!geocodeStarted) startGeocode(gps); /* pastikan geocoding dimulai */
           resolve(gps);
         } else {
           setGpsStatus(status, message || gpsBlockedMsg(), null);
@@ -232,81 +249,89 @@
 
       const keepBest = (pos) => {
         const g = {
-          lat:           pos.coords.latitude,
-          lng:           pos.coords.longitude,
-          accuracy:      pos.coords.accuracy,
-          altitude:      pos.coords.altitude,
-          heading:       pos.coords.heading,
-          speed:         pos.coords.speed,
-          capturedAt:    now().toISOString(),
+          lat:            pos.coords.latitude,
+          lng:            pos.coords.longitude,
+          accuracy:       pos.coords.accuracy,
+          altitude:       pos.coords.altitude,
+          heading:        pos.coords.heading,
+          speed:          pos.coords.speed,
+          capturedAt:     now().toISOString(),
           capturedAtText: fmtFull(),
-          provider:      "geolocation-v2"
+          provider:       "geolocation-v2"
         };
-        if (!best || Number(g.accuracy||99999) < Number(best.accuracy||99999)) best = g;
+        /* Pertahankan address yang sudah ada jika akurasi baru lebih baik */
+        if (!best || Number(g.accuracy||99999) < Number(best.accuracy||99999)) {
+          if (best?.address) g.address = best.address;
+          best = g;
+        }
         state.gps = best;
         saveState();
         return best;
       };
 
-      const onSuccess = pos => {
+      /* ── Tahap 1: Lokasi jaringan/WiFi (cepat, 1-3 detik) ─── */
+      try {
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            if (settled) return;
+            const got = keepBest(pos);
+            startGeocode(got); /* mulai geocoding sekarang, jangan tunggu GPS */
+          },
+          () => { /* jaringan tidak tersedia, lanjut ke tahap 2 */ },
+          { enableHighAccuracy: false, timeout: 4000, maximumAge: 60_000 }
+        );
+      } catch(_) {}
+
+      /* ── Tahap 2: GPS presisi tinggi (watchPosition) ────────── */
+      const onGpsSuccess = pos => {
+        if (settled) return;
         const got = keepBest(pos);
-        const acc = Number(got.accuracy||99999);
-        const msg = `GPS masuk ±${Math.round(acc)}m • ${elapsed()}s`;
-        setGpsStatus("searching", msg, got);
-        if (acc <= GPS_GOOD_ACC || elapsed() >= 30) {
-          finish(got);
-        }
+        const acc = got.accuracy || 99999;
+        const t   = elapsed();
+
+        if (!geocodeStarted) startGeocode(got);
+
+        const accStr = `±${Math.round(acc)}m`;
+        setGpsStatus("searching", `Mengunci… ${accStr} (${t}s)`, got);
+
+        /* Terima jika akurasi bagus, atau sudah cukup lama */
+        if (acc <= GPS_GOOD_ACC)          finish(got, "locked", `GPS presisi ${accStr}`);
+        else if (t >= 8 && acc <= 150)    finish(got, "locked", `Lokasi ${accStr}`);
       };
 
-      const onError = err => {
-        // Try low-accuracy network position as fallback
-        try {
-          navigator.geolocation.getCurrentPosition(
-            pos => { const got = keepBest(pos); setGpsStatus("searching", `Lokasi jaringan ±${Math.round(got.accuracy||0)}m • menunggu GPS...`, got); },
-            () => {},
-            { enableHighAccuracy:false, timeout:12000, maximumAge:600000 }
-          );
-        } catch(_){}
-
+      const onGpsError = err => {
         if (best) {
-          setGpsStatus("searching", `Memakai lokasi sementara ±${Math.round(best.accuracy||0)}m • menunggu sinyal lebih presisi...`, best);
+          /* Sudah punya lokasi jaringan — tetap tampilkan, tunggu GPS */
+          setGpsStatus("searching", `Lokasi jaringan ±${Math.round(best.accuracy||0)}m • menunggu GPS…`, best);
           return;
         }
-        let msg = "Sinyal GPS belum terdeteksi. Aktifkan Akurasi Tinggi dan coba di luar ruangan.";
-        if (err?.code === 1) { msg = "Izin lokasi ditolak. Aktifkan di Pengaturan Situs."; }
-        if (err?.code === 3) { msg = "GPS timeout. Masih mencoba..."; }
+        let msg = "Menunggu sinyal GPS…";
+        if (err?.code === 1) msg = "Izin lokasi ditolak. Aktifkan di Pengaturan Situs.";
+        if (err?.code === 3) msg = "GPS timeout. Masih mencari sinyal…";
         setGpsStatus("searching", msg, null);
       };
 
       try {
-        // Start high-accuracy watch
-        gpsWatchId = navigator.geolocation.watchPosition(onSuccess, onError, {
+        gpsWatchId = navigator.geolocation.watchPosition(onGpsSuccess, onGpsError, {
           enableHighAccuracy: true,
-          timeout: GPS_MAX_MS,
+          timeout:    10_000,
           maximumAge: 0
         });
+      } catch(err) { onGpsError(err); }
 
-        // Periodic progress update
-        const tick = setInterval(() => {
-          if (settled) { clearInterval(tick); return; }
-          if (best) setGpsStatus("searching", `Mengunci GPS... ${elapsed()}s • lokasi sementara ±${Math.round(best.accuracy||0)}m`, best);
-          else      setGpsStatus("searching", `Mengunci GPS... ${elapsed()}s dari 120s. Layar harus tetap aktif.`, null);
-        }, 8000);
+      /* ── Tahap 3: Terima posisi terbaik setelah GPS_ACCEPT_MS ─ */
+      setTimeout(() => {
+        if (!settled && best) {
+          finish(best, "locked", `Lokasi ±${Math.round(best.accuracy||0)}m`);
+        }
+      }, GPS_ACCEPT_MS);
 
-        // Absolute timeout
-        gpsTimer = setTimeout(() => {
-          clearInterval(tick);
-          if (best) finish(best, "locked", `GPS terkunci (${elapsed()}s) ±${Math.round(best.accuracy||0)}m`);
-          else      finish(null, "failed", "GPS belum terkunci dalam 120 detik. Buka MoKu via HTTPS untuk GPS stabil.");
-        }, GPS_MAX_MS);
-
-      } catch(err) {
-        onError(err);
-        setTimeout(() => {
-          if (best) finish(best);
-          else      finish(null, "failed", "Browser gagal menjalankan GPS. Gunakan Chrome terbaru.");
-        }, 8000);
-      }
+      /* ── Timeout absolut ──────────────────────────────────────── */
+      gpsTimer = setTimeout(() => {
+        if (settled) return;
+        if (best) finish(best, "locked", `Lokasi ±${Math.round(best.accuracy||0)}m`);
+        else      finish(null, "failed", "Lokasi tidak tersedia. Pastikan izin GPS diaktifkan.");
+      }, GPS_MAX_MS);
     });
   }
 

@@ -1,0 +1,761 @@
+Kamu adalah developer senior yang harus memperbaiki aplikasi **BOP RT 005 Offline Manager** secara tuntas dan hati-hati.
+
+
+
+Saya sudah menyediakan file aplikasi dalam project ini. Di dalam aplikasi terdapat folder:
+
+
+
+`Docx Syarat/`
+
+
+
+Folder tersebut berisi file DOCX resmi yang menjadi **format baku dokumen**. Semua hasil cetak aplikasi wajib mengikuti format DOCX tersebut, bukan dibuat ulang bebas dengan HTML.
+
+
+
+## TUJUAN UTAMA
+
+
+
+Perbaiki sistem Generate Dokumen Pengajuan agar hasil cetak dari aplikasi **sama dengan file DOCX di folder Docx Syarat**.
+
+
+
+Aplikasi ini dibuat untuk mempermudah saya agar bisa langsung mencetak dokumen dari aplikasi tanpa harus export DOCX lalu edit manual satu per satu.
+
+
+
+Jadi alur yang saya inginkan:
+
+
+
+Data aplikasi → isi template DOCX resmi → hasil PDF siap preview → langsung cetak dari aplikasi.
+
+
+
+## ATURAN PENTING
+
+
+
+1. Jangan membuat ulang dokumen resmi memakai HTML biasa.
+
+2. Jangan membuat layout surat hanya dengan CSS browser karena hasil print sering berubah.
+
+3. Jangan membuat logo menjadi besar.
+
+4. Jangan mengubah desain aplikasi utama yang sudah berjalan.
+
+5. Jangan menghapus fitur BOP dan MoKu yang sudah baik.
+
+6. Jangan membuat aplikasi baru terpisah.
+
+7. Kerjakan langsung di aplikasi yang ada.
+
+8. Jangan menambahkan folder patch, backup, atau runtime percobaan yang berantakan.
+
+9. Hasil akhir harus clean.
+
+10. Semua format cetak harus mengacu pada file DOCX di folder `Docx Syarat/`.
+
+
+
+## STRATEGI TEKNIS YANG WAJIB DIPAKAI
+
+
+
+Gunakan sistem **DOCX Template Engine**.
+
+
+
+Rekomendasi implementasi:
+
+
+
+* Backend Node.js/Express untuk generate dokumen.
+
+* Gunakan `pizzip` + `docxtemplater` untuk mengisi template DOCX.
+
+* Gunakan LibreOffice headless untuk convert DOCX hasil generate menjadi PDF.
+
+* PDF hasil generate ditampilkan di aplikasi dalam iframe/modal preview.
+
+* Tombol cetak mencetak PDF tersebut, bukan mencetak HTML browser.
+
+
+
+Jika LibreOffice belum tersedia di Replit, konfigurasi environment Replit agar bisa menjalankan `soffice` / `libreoffice` secara headless. Jangan fallback ke HTML print biasa.
+
+
+
+## FILE TEMPLATE
+
+
+
+Gunakan file dalam folder:
+
+
+
+`Docx Syarat/`
+
+
+
+Contoh dokumen yang harus dipakai sebagai template resmi:
+
+
+
+* Surat Permohonan.docx
+
+* RAP 1 Tahun.docx
+
+* RBB.docx
+
+* Berita Acara.docx
+
+* Daftar Hadir.docx
+
+* SPTJM.docx
+
+
+
+Jika nanti ada SK RT dan Buku Rekening, sistem harus siap menerima template tambahan:
+
+
+
+* SK RT.Pdf 
+
+* Buku Rekening.Pdf 
+
+
+
+Jika template belum ada, tampilkan status “Template belum tersedia”, jangan mengarang format sendiri.
+
+
+
+## FORMAT WAJIB
+
+
+
+Semua hasil cetak harus mempertahankan:
+
+
+
+* ukuran kertas A4;
+
+* margin dari file Word asli;
+
+* ukuran logo dari file Word asli;
+
+* posisi logo;
+
+* kop surat;
+
+* font Arial ukuran 12;
+
+* struktur tabel;
+
+* border tabel;
+
+* lebar kolom;
+
+* posisi tanda tangan;
+
+* jarak paragraf;
+
+* penomoran tanda tangan;
+
+* halaman tidak terpotong;
+
+* tabel tidak keluar halaman;
+
+* hasil PDF harus sama dengan template DOCX.
+
+
+
+## DATA OTOMATIS
+
+
+
+Dokumen harus menarik data dari input aplikasi, bukan hardcode.
+
+
+
+Cari struktur data di aplikasi saat ini, termasuk localStorage/state yang sudah dipakai. Buat adapter data, misalnya:
+
+
+
+`buildOfficialDocumentData(docType)`
+
+
+
+Data yang perlu ditarik:
+
+
+
+* RT
+
+* RW
+
+* Kelurahan
+
+* Kecamatan
+
+* Kota
+
+* alamat sekretariat
+
+* nama Ketua RT
+
+* nama Sekretaris RT
+
+* nama Bendahara RT
+
+* nama Lurah
+
+* nama Ketua RW
+
+* nomor surat
+
+* tanggal surat
+
+* bulan dan tahun
+
+* nominal BOP
+
+* rekening Bank Jateng
+
+* nama pemilik rekening
+
+* nomor rekening
+
+* nomor KTP Ketua RT
+
+* data RAP 1 tahun
+
+* data RAP bulanan/RBB
+
+* data peserta rapat
+
+* tempat rapat
+
+* waktu rapat
+
+* agenda rapat
+
+
+
+Jangan hardcode data sensitif seperti nomor rekening atau KTP. Ambil dari input aplikasi.
+
+
+
+## PLACEHOLDER TEMPLATE
+
+
+
+Buat sistem placeholder yang rapi. Gunakan nama placeholder yang jelas, misalnya:
+
+
+
+`{{nomor_surat}}`
+
+`{{tanggal_surat}}`
+
+`{{nama_lurah}}`
+
+`{{rt}}`
+
+`{{rw}}`
+
+`{{nama_ketua_rt}}`
+
+`{{nama_sekretaris_rt}}`
+
+`{{nama_bendahara_rt}}`
+
+`{{nama_ketua_rw}}`
+
+`{{nominal_bop}}`
+
+`{{nominal_bop_terbilang}}`
+
+`{{nama_bank}}`
+
+`{{nama_pemilik_rekening}}`
+
+`{{nomor_rekening}}`
+
+`{{no_ktp_ketua_rt}}`
+
+
+
+Untuk tabel RAP gunakan loop, contoh:
+
+
+
+`{{#rap_items}}`
+
+
+
+* no
+
+* uraian kegiatan
+
+* satuan/volume
+
+* rencana anggaran
+
+* keterangan
+
+  `{{/rap_items}}`
+
+
+
+Untuk peserta rapat gunakan loop:
+
+
+
+`{{#peserta_rapat}}`
+
+
+
+* no
+
+* nama
+
+* jabatan
+
+* tanda tangan
+
+  `{{/peserta_rapat}}`
+
+
+
+## ATURAN KHUSUS DOKUMEN
+
+
+
+### Surat Permohonan
+
+
+
+Harus mengikuti file `Docx Syarat/Surat Permohonan.docx`.
+
+
+
+Data yang wajib otomatis:
+
+
+
+* nomor surat;
+
+* tanggal surat;
+
+* nama Lurah;
+
+* RT/RW;
+
+* nominal BOP;
+
+* dasar Perwal Nomor 20 Tahun 2026;
+
+* nama bank;
+
+* nama pemilik rekening;
+
+* nomor rekening;
+
+* nama Ketua RT.
+
+
+
+### RAP 1 Tahun
+
+
+
+Harus mengikuti file `Docx Syarat/RAP 1 Tahun.docx`.
+
+
+
+Tabel RAP harus menarik data RAP dari aplikasi.
+
+
+
+Kolom:
+
+
+
+* No
+
+* Uraian Kegiatan
+
+* Satuan/Volume
+
+* Rencana Anggaran
+
+* Keterangan
+
+
+
+Total harus otomatis dijumlahkan.
+
+
+
+Kolom No harus kecil/autofit.
+
+
+
+Tabel tidak boleh terpotong.
+
+
+
+### RBB / RAP Bulanan
+
+
+
+Harus mengikuti file `Docx Syarat/RBB.docx`.
+
+
+
+Data harus ditarik dari RAP bulanan/kegiatan bulanan aplikasi.
+
+
+
+Jika bulan tidak ada kegiatan, tampilkan kalimat sesuai template:
+
+
+
+“Belum ada rencana kegiatan untuk bulan [bulan] [tahun].”
+
+
+
+Jangan selalu kosong jika data bulan sebenarnya ada.
+
+
+
+### Berita Acara
+
+
+
+Harus mengikuti file `Docx Syarat/Berita Acara.docx`.
+
+
+
+Tabel hasil pertemuan harus menarik data RAP.
+
+
+
+Tabel tanda tangan peserta harus menarik data peserta.
+
+
+
+Aturan khusus:
+
+
+
+* hanya 3 pengurus yang memakai jabatan:
+
+
+
+  * Ketua RT
+
+  * Sekretaris RT
+
+  * Bendahara RT
+
+* peserta selain 3 pengurus tidak perlu dicantumkan jabatan;
+
+* jangan otomatis menulis “Warga RT 005 RW 012” pada kolom jabatan peserta biasa;
+
+* penomoran tanda tangan dibuat menyilang/bergantian kiri-kanan jika format template memerlukan.
+
+
+
+### Daftar Hadir
+
+
+
+Harus mengikuti file `Docx Syarat/Daftar Hadir.docx`.
+
+
+
+Data peserta harus otomatis dari aplikasi.
+
+
+
+Penomoran tanda tangan harus menyilang:
+
+
+
+* nomor ganjil di kiri;
+
+* nomor genap di kanan.
+
+
+
+### SPTJM
+
+
+
+Harus mengikuti file `Docx Syarat/SPTJM.docx`.
+
+
+
+No. KTP Ketua RT harus otomatis dari data input aplikasi.
+
+
+
+Jangan dibiarkan kosong.
+
+
+
+Jangan hardcode No. KTP di source code.
+
+
+
+## FITUR DI APLIKASI
+
+
+
+Di menu:
+
+
+
+`Pengajuan Dana Operasional → Generate Dokumen Pengajuan`
+
+
+
+Tambahkan tombol untuk setiap dokumen:
+
+
+
+* Preview/Cetak Surat Permohonan
+
+* Preview/Cetak RAP 1 Tahun
+
+* Preview/Cetak RBB/RAP Bulanan
+
+* Preview/Cetak Berita Acara
+
+* Preview/Cetak Daftar Hadir
+
+* Preview/Cetak SPTJM
+
+
+
+Tombol tersebut harus:
+
+
+
+1. mengambil data aplikasi;
+
+2. mengisi template DOCX;
+
+3. menghasilkan PDF;
+
+4. menampilkan PDF preview di aplikasi;
+
+5. menyediakan tombol Cetak PDF.
+
+
+
+Tidak perlu membuka Microsoft Word untuk proses cetak utama.
+
+
+
+Export DOCX boleh disediakan sebagai opsi tambahan, tetapi fungsi utama wajib **preview dan cetak langsung dari aplikasi**.
+
+
+
+## STRUKTUR TEKNIS YANG DIHARAPKAN
+
+
+
+Tambahkan folder jika diperlukan:
+
+
+
+`server/`
+
+
+
+* `server.js`
+
+* `document-generator.js`
+
+* `template-map.js`
+
+* `pdf-converter.js`
+
+
+
+`templates/`
+
+
+
+* berisi template hasil placeholder dari folder Docx Syarat
+
+
+
+`generated/`
+
+
+
+* tempat sementara hasil generate, boleh otomatis dibersihkan
+
+
+
+`public/`
+
+
+
+* jika perlu menyajikan hasil PDF preview
+
+
+
+Endpoint API yang disarankan:
+
+
+
+`POST /api/documents/:docType/preview-pdf`
+
+
+
+Body:
+
+
+
+```json
+
+{
+
+  "data": {}
+
+}
+
+```
+
+
+
+Response:
+
+
+
+```json
+
+{
+
+  "ok": true,
+
+  "pdfUrl": "/generated/....pdf"
+
+}
+
+```
+
+
+
+Endpoint opsional:
+
+
+
+`POST /api/documents/:docType/export-docx`
+
+
+
+## VALIDASI
+
+
+
+Sebelum selesai, lakukan pengujian:
+
+
+
+1. Generate Surat Permohonan.
+
+2. Bandingkan PDF hasil aplikasi dengan `Docx Syarat/Surat Permohonan.docx`.
+
+3. Pastikan logo tidak membesar.
+
+4. Pastikan halaman tetap A4.
+
+5. Pastikan tabel tidak terpotong.
+
+6. Pastikan font Arial 12.
+
+7. Pastikan data otomatis masuk.
+
+8. Generate minimal:
+
+
+
+   * Surat Permohonan
+
+   * RAP 1 Tahun
+
+   * Berita Acara
+
+   * Daftar Hadir
+
+   * SPTJM
+
+9. Pastikan tidak ada error browser console.
+
+10. Pastikan tidak ada error server.
+
+
+
+## LARANGAN
+
+
+
+Jangan menggunakan solusi seperti:
+
+
+
+* `window.print()` langsung pada HTML biasa;
+
+* recreate dokumen dengan div CSS tanpa template DOCX;
+
+* memperbesar logo dari file asli;
+
+* menghapus fitur MoKu;
+
+* menghapus data aplikasi;
+
+* membuat aplikasi baru terpisah;
+
+* membuat patch folder di dalam aplikasi;
+
+* meninggalkan backup dan file percobaan;
+
+* mengganti format DOCX resmi dengan format karangan sendiri.
+
+
+
+## OUTPUT YANG HARUS DIBERIKAN
+
+
+
+Setelah selesai, laporkan:
+
+
+
+1. file apa saja yang diubah;
+
+2. folder baru yang dibuat;
+
+3. cara menjalankan aplikasi;
+
+4. cara generate dan cetak dokumen;
+
+5. hasil test setiap dokumen;
+
+6. jika ada template yang belum tersedia, sebutkan dengan jelas.
+
+
+
+Target akhir:
+
+
+
+Aplikasi BOP RT 005 bisa langsung mencetak dokumen resmi dari aplikasi, dengan hasil cetak sesuai file DOCX dalam folder `Docx Syarat`, tanpa saya harus export dan edit Word satu per satu.

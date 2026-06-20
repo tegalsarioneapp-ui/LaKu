@@ -6,6 +6,7 @@
   <title>BOP RT 005 Offline Manager</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="document-studio/document-studio.css" />
 </head>
 <body>
   <div class="app-shell access-lock-v30" id="appShell">
@@ -327,30 +328,202 @@
 
 
         <div class="tab-content" id="tab-dokumen">
-          <div class="generate-layout">
-            <div class="panel">
-              <h3>Generate Dokumen Pengajuan</h3>
-              <div class="doc-buttons">
-                <button class="doc-btn" data-doc="permohonan">1. Surat Permohonan</button>
-                <button class="doc-btn" data-doc="rap">2. RAP BOP RT 1 Tahun</button>
-                <button class="doc-btn" data-doc="rapbulanan">2A. RAP Bulanan Otomatis</button>
-                <button class="doc-btn" data-doc="ba">3. Berita Acara RAP</button>
-                <button class="doc-btn" data-doc="hadir">4. Daftar Hadir</button>
-                <button class="doc-btn" data-doc="sptjm">5. SPTJM</button>
-                <button class="doc-btn" data-doc="rbb">6. RBB / Pengambilan Operasional</button>
-                <button class="doc-btn" data-doc="checklist">7. Checklist Upload</button>
-                <button class="doc-btn" data-doc="undangan">Undangan Rapat/Kegiatan</button>
-                <button class="doc-btn" data-doc="notulen">Notulen Rapat/Kegiatan</button>
-              </div>
-              <div class="action-row">
-                <button class="primary" id="saveToHistory">Simpan ke Riwayat</button>
-                <button class="secondary" id="printDoc">Cetak / Simpan PDF</button>
-                <button class="secondary" id="exportHtml">Export HTML</button>
+
+          <!-- ═══════ DOCUMENT STUDIO ═══════════════════════════════ -->
+          <div class="ds-wrap" id="docStudioWrap">
+
+            <!-- Toggle bar -->
+            <div class="ds-toggle-bar">
+              <button class="ds-toggle-btn" id="dsToggleGenPanel" title="Sembunyikan/tampilkan daftar dokumen">▼ Panel Dokumen</button>
+              <button class="ds-toggle-btn" id="dsToggleSidebar" title="Sembunyikan/tampilkan sidebar kiri">▼ Sidebar</button>
+              <button class="ds-toggle-btn" id="dsFocusMode" title="Mode fokus — hanya editor yang tampil">⛶ Mode Fokus</button>
+              <span class="ds-doc-name" id="dsDocName">Pilih dokumen untuk mulai mengedit</span>
+              <span class="ds-template-badge" id="dsTemplateBadge" style="display:none">⭐ Format Baku Aktif</span>
+            </div>
+
+            <!-- Gen panel (collapsible) -->
+            <div class="ds-gen-panel" id="dsGenPanel">
+              <div class="ds-gen-inner">
+                <div class="ds-gen-left">
+                  <div class="ds-gen-label">Generate Dokumen Pengajuan</div>
+                  <div class="doc-buttons" style="display:flex;flex-wrap:wrap;gap:5px">
+                    <button class="doc-btn" data-doc="permohonan">1. Surat Permohonan</button>
+                    <button class="doc-btn" data-doc="rap">2. RAP 1 Tahun</button>
+                    <button class="doc-btn" data-doc="rapbulanan">2A. RAP Bulanan</button>
+                    <button class="doc-btn" data-doc="ba">3. Berita Acara RAP</button>
+                    <button class="doc-btn" data-doc="hadir">4. Daftar Hadir</button>
+                    <button class="doc-btn" data-doc="sptjm">5. SPTJM</button>
+                    <button class="doc-btn" data-doc="rbb">6. RBB</button>
+                    <button class="doc-btn" data-doc="checklist">7. Checklist</button>
+                    <button class="doc-btn" data-doc="undangan">Undangan</button>
+                    <button class="doc-btn" data-doc="notulen">Notulen</button>
+                  </div>
+                </div>
+                <div class="ds-gen-right">
+                  <div class="ds-gen-label">Simpan &amp; Backup</div>
+                  <div class="ds-gen-actions">
+                    <button class="ds-gen-btn ds-gen-btn-secondary" id="saveToHistory">📋 Simpan Riwayat</button>
+                    <button class="ds-gen-btn ds-gen-btn-secondary" id="dsReloadFresh" title="Hapus format baku & generate ulang dari data terkini">🔄 Generate Ulang</button>
+                  </div>
+                  <div class="ds-gen-actions" style="margin-top:5px">
+                    <button class="ds-gen-btn ds-gen-btn-gold" id="dsBackupTemplates" title="Download semua format baku sebagai file JSON">💾 Backup Format Baku</button>
+                    <label class="ds-gen-btn ds-gen-btn-secondary" style="cursor:pointer" title="Import format baku dari file JSON">
+                      📂 Import Format Baku
+                      <input id="dsImportTemplates" type="file" accept=".json" style="display:none">
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="doc-paper" id="docOutput"></div>
-          </div>
-        </div>
+
+            <!-- Toolbar -->
+            <div class="ds-toolbar" id="dsToolbar">
+
+              <!-- Font -->
+              <div class="ds-tb-group">
+                <select id="dsFontFamily" title="Font">
+                  <option value="Arial" selected>Arial</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Calibri">Calibri</option>
+                  <option value="Georgia">Georgia</option>
+                </select>
+                <select id="dsFontSize" title="Ukuran Font (pt)">
+                  <option value="9">9pt</option>
+                  <option value="10">10pt</option>
+                  <option value="11">11pt</option>
+                  <option value="12" selected>12pt</option>
+                  <option value="14">14pt</option>
+                  <option value="16">16pt</option>
+                  <option value="18">18pt</option>
+                  <option value="20">20pt</option>
+                </select>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Text formatting -->
+              <div class="ds-tb-group">
+                <button data-ds-cmd="bold"          title="Bold (Ctrl+B)"><b>B</b></button>
+                <button data-ds-cmd="italic"        title="Italic (Ctrl+I)" style="font-style:italic"><i>I</i></button>
+                <button data-ds-cmd="underline"     title="Underline (Ctrl+U)"><u>U</u></button>
+                <button data-ds-cmd="strikeThrough" title="Coret"><s>S</s></button>
+                <button data-ds-cmd="removeFormat"  title="Hapus Pemformatan">✕</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Alignment -->
+              <div class="ds-tb-group">
+                <button data-ds-cmd="justifyLeft"   title="Rata Kiri">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                </button>
+                <button data-ds-cmd="justifyCenter" title="Rata Tengah">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                </button>
+                <button data-ds-cmd="justifyRight"  title="Rata Kanan">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <button data-ds-cmd="justifyFull"   title="Justify">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Indent & spacing -->
+              <div class="ds-tb-group">
+                <button data-ds-cmd="outdent" title="Kurangi Indent">⇤</button>
+                <button data-ds-cmd="indent"  title="Tambah Indent">⇥</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+              <div class="ds-tb-group">
+                <select id="dsLineSpacing" title="Spasi Baris">
+                  <option value="1">×1</option>
+                  <option value="1.15" selected>×1.15</option>
+                  <option value="1.5">×1.5</option>
+                  <option value="2">×2</option>
+                </select>
+                <select id="dsParaSpacingTop" title="Jarak Atas Paragraf">
+                  <option value="0pt">↑ 0pt</option>
+                  <option value="4pt">↑ 4pt</option>
+                  <option value="8pt" selected>↑ 8pt</option>
+                  <option value="12pt">↑ 12pt</option>
+                  <option value="16pt">↑ 16pt</option>
+                </select>
+                <select id="dsParaSpacingBottom" title="Jarak Bawah Paragraf">
+                  <option value="0pt">↓ 0pt</option>
+                  <option value="4pt">↓ 4pt</option>
+                  <option value="8pt" selected>↓ 8pt</option>
+                  <option value="12pt">↓ 12pt</option>
+                  <option value="16pt">↓ 16pt</option>
+                </select>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Layout tools -->
+              <div class="ds-tb-group">
+                <button id="dsMoveParaUp"   title="Pindah Paragraf Naik">↑ Para</button>
+                <button id="dsMoveParaDown" title="Pindah Paragraf Turun">↓ Para</button>
+                <button id="dsAddEmptyLine" title="Tambah Baris Kosong">↵ Baris</button>
+                <button id="dsAddPageBreak" title="Tambah Ganti Halaman">‖ Break</button>
+                <select id="dsZoom" title="Zoom Editor">
+                  <option value="0.75">75%</option>
+                  <option value="0.9">90%</option>
+                  <option value="1" selected>100%</option>
+                  <option value="1.25">125%</option>
+                </select>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Table ops -->
+              <div class="ds-tb-group">
+                <button data-ds-table="addRowAbove"  title="Tambah Baris di Atas (klik sel dulu)">⬆ Baris</button>
+                <button data-ds-table="addRowBelow"  title="Tambah Baris di Bawah">⬇ Baris</button>
+                <button data-ds-table="deleteRow"    title="Hapus Baris">✕ Baris</button>
+                <span class="ds-tb-sep"></span>
+                <button data-ds-table="addColLeft"   title="Tambah Kolom Kiri">⬅ Kol</button>
+                <button data-ds-table="addColRight"  title="Tambah Kolom Kanan">➡ Kol</button>
+                <button data-ds-table="deleteCol"    title="Hapus Kolom">✕ Kol</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Save / template / export / print -->
+              <div class="ds-tb-group">
+                <button id="dsSaveEdit"       class="ds-btn-save"     title="Simpan editan (Ctrl+S)">💾 Simpan</button>
+                <button id="dsSaveAsTemplate" class="ds-btn-template" title="Simpan sebagai format baku dokumen ini">⭐ Format Baku</button>
+                <button id="dsResetTemplate"  class="ds-btn-reset"    title="Hapus format baku — kembali ke template bawaan">↺ Reset</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+              <div class="ds-tb-group">
+                <button id="dsExportHtml" title="Export HTML" style="font-size:11px">⬇ HTML</button>
+                <button id="dsExportJson" title="Export JSON Template" style="font-size:11px">⬇ JSON</button>
+                <button id="dsPrintDoc" class="ds-btn-print" title="Cetak / Simpan PDF (Ctrl+P)">🖨 Cetak/PDF</button>
+              </div>
+
+            </div><!-- /.ds-toolbar -->
+
+            <!-- A4 canvas -->
+            <div class="ds-canvas" id="dsCanvas" data-zoom="1">
+              <div class="ds-page" id="dsPage" contenteditable="true" spellcheck="false">
+                <div class="ds-page-placeholder">
+                  <div class="ds-ph-icon">📄</div>
+                  <div>Klik salah satu tombol dokumen di panel atas untuk mulai mengedit</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Status bar -->
+            <div class="ds-status-bar">
+              <span id="dsStatusText" class="ds-status-saved">Siap</span>
+              <span style="flex:1"></span>
+              <span class="ds-status-hint">Ctrl+S simpan · Ctrl+P cetak · Tab navigasi tabel · Esc keluar fokus</span>
+            </div>
+
+          </div><!-- /.ds-wrap -->
+
+          <!-- Hidden compat elements (app.js binds to these IDs) -->
+          <div class="doc-paper" id="docOutput" style="display:none;position:absolute;left:-9999px;top:-9999px;visibility:hidden"></div>
+          <button id="printDoc"   style="display:none" aria-hidden="true"></button>
+          <button id="exportHtml" style="display:none" aria-hidden="true"></button>
+
+        </div><!-- /#tab-dokumen -->
 
         <div class="tab-content" id="tab-riwayat-pengajuan">
           <div class="panel">
@@ -739,6 +912,7 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="document-studio/document-studio.js"></script>
 </body>
 </html>
 

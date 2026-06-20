@@ -1,0 +1,505 @@
+/* =====================================================================
+   Document Studio – BOP RT 005 — CSS
+   ===================================================================== */
+
+/* ── Wrap: outer container ─────────────────────────────────────────── */
+.ds-wrap {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 140px);
+  min-height: 580px;
+  border: 1px solid #dde6f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #eaedf2;
+  margin: 0;
+}
+
+/* ── Focus mode ────────────────────────────────────────────────────── */
+body.ds-focus-mode .ds-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+  margin: 0;
+}
+body.ds-focus-mode .sidebar,
+body.ds-focus-mode .topbar,
+body.ds-focus-mode .section-title,
+body.ds-focus-mode .subnav {
+  display: none !important;
+}
+body.ds-focus-mode .app-shell {
+  grid-template-columns: 0 1fr !important;
+}
+
+/* ── Toggle bar ────────────────────────────────────────────────────── */
+.ds-toggle-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: linear-gradient(90deg, #1b3f6e 0%, #1e4d82 100%);
+  color: #fff;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-height: 42px;
+}
+
+.ds-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  background: rgba(255,255,255,.11);
+  border: 1px solid rgba(255,255,255,.2);
+  color: #fff;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.ds-toggle-btn:hover { background: rgba(255,255,255,.2); }
+.ds-toggle-btn.ds-active {
+  background: rgba(255,255,255,.25);
+  border-color: rgba(255,255,255,.45);
+}
+
+.ds-doc-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255,255,255,.85);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 8px;
+}
+
+.ds-template-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(212,168,67,.28);
+  border: 1px solid rgba(212,168,67,.5);
+  color: #f0d080;
+  white-space: nowrap;
+}
+
+/* ── Gen panel ─────────────────────────────────────────────────────── */
+.ds-gen-panel {
+  background: #fff;
+  border-bottom: 1px solid #dde6f0;
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: max-height .25s ease, opacity .2s;
+  max-height: 200px;
+}
+.ds-gen-panel.ds-panel-hidden {
+  max-height: 0;
+  opacity: 0;
+  border-bottom: none;
+}
+
+.ds-gen-inner {
+  display: flex;
+  gap: 16px;
+  padding: 10px 14px;
+  flex-wrap: wrap;
+}
+.ds-gen-left { flex: 1; min-width: 260px; }
+.ds-gen-right { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.ds-gen-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #6b7c90;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 6px;
+}
+
+.ds-gen-left .doc-buttons {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 5px !important;
+}
+.ds-gen-left .doc-btn {
+  font-size: 12px !important;
+  padding: 5px 10px !important;
+  border-radius: 7px !important;
+}
+
+.ds-gen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ds-gen-actions .ds-gen-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+  border: 1px solid;
+}
+.ds-gen-btn-secondary {
+  background: #f0f4fa;
+  border-color: #c5d5e8;
+  color: #2d4060;
+}
+.ds-gen-btn-secondary:hover { background: #e0e8f4; }
+.ds-gen-btn-gold {
+  background: #faf4e0;
+  border-color: #d4a843;
+  color: #a07010;
+}
+.ds-gen-btn-gold:hover { background: #f4e8c0; }
+
+/* ── Toolbar ───────────────────────────────────────────────────────── */
+.ds-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: 5px 10px;
+  background: #fff;
+  border-bottom: 1px solid #dde6f0;
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
+.ds-tb-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.ds-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #2d4060;
+  cursor: pointer;
+  transition: background .1s, border-color .1s;
+  white-space: nowrap;
+  gap: 3px;
+}
+.ds-toolbar button:hover {
+  background: #edf2f9;
+  border-color: #c5d5e8;
+}
+.ds-toolbar button.ds-active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1a6fc4;
+}
+
+.ds-toolbar select {
+  height: 28px;
+  border: 1px solid #dde6f0;
+  border-radius: 5px;
+  padding: 0 5px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #2d4060;
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+}
+.ds-toolbar select:focus { border-color: #93c5fd; }
+
+.ds-tb-sep {
+  width: 1px;
+  height: 20px;
+  background: #dde6f0;
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+
+/* Toolbar action buttons */
+.ds-btn-save {
+  background: #1a6fc4 !important;
+  color: #fff !important;
+  border-color: #1a6fc4 !important;
+  font-size: 11.5px !important;
+}
+.ds-btn-save:hover { background: #1562ae !important; border-color: #1562ae !important; }
+
+.ds-btn-template {
+  background: #c89520 !important;
+  color: #fff !important;
+  border-color: #c89520 !important;
+  font-size: 11.5px !important;
+}
+.ds-btn-template:hover { background: #b38318 !important; border-color: #b38318 !important; }
+
+.ds-btn-reset {
+  background: #fdecea !important;
+  color: #c0392b !important;
+  border-color: #f5c6c2 !important;
+  font-size: 11.5px !important;
+}
+.ds-btn-reset:hover { background: #fbd8d5 !important; }
+
+.ds-btn-print {
+  background: #14a85a !important;
+  color: #fff !important;
+  border-color: #14a85a !important;
+  font-size: 11.5px !important;
+}
+.ds-btn-print:hover { background: #108a4b !important; border-color: #108a4b !important; }
+
+/* ── Canvas ────────────────────────────────────────────────────────── */
+.ds-canvas {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  background: #dde3ea;
+  padding: 28px 20px 40px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+/* ── A4 Page ───────────────────────────────────────────────────────── */
+.ds-page {
+  width: 210mm;
+  min-height: 297mm;
+  background: #fff;
+  box-shadow: 0 6px 28px rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08);
+  padding: 20mm 20mm 20mm 25mm;
+  outline: none;
+  font-family: Arial, sans-serif;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #000;
+  flex-shrink: 0;
+  cursor: text;
+  box-sizing: border-box;
+  border-radius: 2px;
+  transform-origin: top center;
+}
+
+/* Zoom levels */
+.ds-canvas[data-zoom="0.75"] .ds-page { zoom: 0.75; }
+.ds-canvas[data-zoom="0.9"]  .ds-page { zoom: 0.9;  }
+.ds-canvas[data-zoom="1"]    .ds-page { zoom: 1;    }
+.ds-canvas[data-zoom="1.25"] .ds-page { zoom: 1.25; }
+
+/* Styling inside the A4 page */
+.ds-page .official,
+.ds-page .official-v36,
+.ds-page .official-v37 {
+  font-family: "Times New Roman", serif;
+  font-size: 12pt;
+  line-height: 1.26;
+  color: #000;
+}
+.ds-page .official .title,
+.ds-page .official-v36 .title,
+.ds-page .official-v37 .title {
+  text-align: center;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin: 10px 0 16px;
+}
+.ds-page table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.ds-page th,
+.ds-page td {
+  border: 1px solid #000;
+  padding: 5px 8px;
+}
+.ds-page .no-border td,
+.ds-page .no-border th {
+  border: none;
+}
+.ds-page .signature-space,
+.ds-page .sign-space-v36 {
+  height: 62px;
+  display: block;
+}
+.ds-page p { margin: 8px 0; }
+.ds-page ol { margin: 8px 0; padding-left: 24px; }
+.ds-page li { margin-bottom: 6px; }
+
+/* Focused ring */
+.ds-page:focus-visible {
+  outline: 3px solid rgba(26,111,196,.22);
+  outline-offset: 4px;
+}
+
+/* Table resize handles (hover) */
+.ds-page td,
+.ds-page th {
+  position: relative;
+  min-width: 20px;
+}
+.ds-page td:hover::after,
+.ds-page th:hover::after {
+  content: "";
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  background: rgba(26,111,196,.15);
+}
+
+/* Page break visual */
+.ds-page-break {
+  display: block;
+  border: none;
+  border-top: 2px dashed #c0c8d4;
+  margin: 18px 0;
+  position: relative;
+  page-break-after: always;
+}
+.ds-page-break::after {
+  content: "── Ganti Halaman ──";
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: #a0aab8;
+  background: #fff;
+  padding: 0 10px;
+  white-space: nowrap;
+  font-family: Arial, sans-serif;
+}
+
+/* Placeholder state */
+.ds-page-placeholder {
+  text-align: center;
+  color: #b0b8c4;
+  padding: 60px 0;
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  user-select: none;
+}
+.ds-page-placeholder .ds-ph-icon {
+  font-size: 52px;
+  line-height: 1;
+  margin-bottom: 14px;
+}
+
+/* ── Status bar ────────────────────────────────────────────────────── */
+.ds-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 14px;
+  background: #f4f7fa;
+  border-top: 1px solid #dde6f0;
+  font-size: 11.5px;
+  color: #6b7c90;
+  flex-shrink: 0;
+}
+.ds-status-text { flex: 1; }
+.ds-status-saved   { color: #14a85a; font-weight: 700; }
+.ds-status-unsaved { color: #c47a00; font-weight: 700; }
+.ds-status-hint {
+  font-size: 10.5px;
+  color: #a0aab8;
+  font-style: italic;
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────── */
+#dsToast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e3a5f;
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  font-family: inherit;
+  z-index: 9999;
+  box-shadow: 0 8px 28px rgba(0,0,0,.25);
+  pointer-events: none;
+  transition: opacity .3s, transform .3s;
+  text-align: center;
+  max-width: 90vw;
+  white-space: pre-wrap;
+}
+#dsToast.ds-toast-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
+/* ── Column resizer ────────────────────────────────────────────────── */
+.ds-col-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+}
+.ds-col-resize-handle:hover,
+.ds-col-resize-handle.dragging {
+  background: rgba(26,111,196,.4);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .ds-wrap {
+    height: auto;
+    min-height: 500px;
+    border-radius: 0;
+  }
+  .ds-page {
+    width: 100%;
+    min-height: 0;
+    padding: 12px;
+  }
+  .ds-canvas {
+    padding: 10px;
+  }
+  .ds-canvas[data-zoom] .ds-page {
+    zoom: 1 !important;
+  }
+  .ds-gen-right { display: none; }
+}
+
+/* ── Print (from Document Studio) ─────────────────────────────────── */
+@media print {
+  body.ds-printing > * { display: none !important; }
+  body.ds-printing #dsPagePrintTarget { display: block !important; }
+  #dsPagePrintTarget {
+    display: none;
+  }
+}

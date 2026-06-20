@@ -10,6 +10,7 @@
   <title>MoKu Mobile · RT 005</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="db.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -65,9 +66,13 @@
             </div>
           </div>
           <div class="active-card-actions">
-            <label class="btn-primary btn-sm file-btn">
+            <button id="bopSyncBtn" class="btn-bop-sync btn-sm" type="button" title="Sinkronisasi kegiatan RAP dari BOP utama">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>
+              Sinkron BOP
+            </button>
+            <label class="btn-ghost btn-sm file-btn">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Import Kegiatan
+              Import JSON
               <input id="importActivityFile" type="file" accept=".json,application/json" hidden>
             </label>
             <button id="addManualBtn" class="btn-ghost btn-sm" type="button">

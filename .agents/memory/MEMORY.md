@@ -1,2 +1,3 @@
 - [MoKu v2 GPS + Geocoding](moku-v2.md) — MoKu rebuilt at public/moku/; uses Nominatim reverse geocoding, auto GPS on load, GPS_GOOD_ACC=30m threshold.
 - [Document Studio](document-studio.md) — Editor Dokumen Pro di tab-dokumen; MutationObserver sync dari #docOutput; template localStorage prefix bop_rt005_ds_template_{type}.
+- [MoKu IndexedDB + BOP Sync](moku-idb-sync.md) — Photos stored in IndexedDB (db.js) + photoCache Map; BOP sync reads bop_rt005_data_v1_25; PostgreSQL tables: moku_photos, bop_snapshots, moku_results_sync.

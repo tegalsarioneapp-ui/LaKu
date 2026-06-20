@@ -22,6 +22,7 @@
   let facingMode   = "environment";
   let lightboxPhoto = null;
   let geocodeCache  = {};
+  const photoCache  = new Map(); /* photoId → dataUrl, loaded from IndexedDB on boot */
 
   /* ── Helpers ────────────────────────────────────────────── */
   const $ = id => document.getElementById(id);
@@ -572,8 +573,9 @@
     const gps = p.location
       ? `±${Math.round(p.location.accuracy||0)}m${p.location.address ? " · " + p.location.address : ""}`
       : "GPS tidak tersedia";
+    const src = photoCache.get(p.id) || p.dataUrl || "";
     return `<article class="photo-card" data-open-photo="${esc(p.id)}">
-      <img src="${p.dataUrl}" alt="${esc(p.type)}" loading="lazy">
+      <img src="${esc(src)}" alt="${esc(p.type)}" loading="lazy">
       <div class="photo-card-body">
         <b>${esc(p.type)}</b>
         <small>${esc(p.capturedAtText||"")}</small>
@@ -771,10 +773,10 @@
     if (!act) return;
     const res = resultFor(act);
     res.note = $("resultNote").value || res.note || "";
-    const photo = {
-      id:           `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+    const photoId = `photo-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+    const photoMeta = {
+      id:           photoId,
       type:         selectedType || checklistOf(act)[0],
-      dataUrl,
       fileName:     `moku_rt005_${dateCode(capturedAt)}.jpg`,
       capturedAt:   capturedAt.toISOString(),
       capturedAtText,
@@ -782,7 +784,14 @@
       stampEmbedded: true,
       captureMode:  "moku-v2-premium"
     };
-    res.photos       = [...(res.photos||[]), photo];
+    /* ── Simpan ke IndexedDB (tanpa dataUrl di state) ────── */
+    photoCache.set(photoId, dataUrl);
+    if (typeof MokuDB !== "undefined" && MokuDB.isAvailable()) {
+      MokuDB.savePhoto({ ...photoMeta, activityId: idOf(act), dataUrl })
+        .catch(() => {});
+    }
+    /* ── Simpan metadata di state (tanpa dataUrl) ───────── */
+    res.photos       = [...(res.photos||[]), photoMeta];
     res.updatedAt    = now().toISOString();
     res.status       = isDone(act) ? "Lengkap" : "Proses";
     state.results[idOf(act)] = res;
@@ -797,31 +806,49 @@
     const res = resultFor(act);
     res.photos    = (res.photos||[]).filter(p => p.id !== photoId);
     res.updatedAt = now().toISOString();
+    photoCache.delete(photoId);
+    if (typeof MokuDB !== "undefined" && MokuDB.isAvailable())
+      MokuDB.deletePhoto(photoId).catch(() => {});
     saveState();
     render();
   }
 
-  function downloadPhoto(photoId) {
+  async function downloadPhoto(photoId) {
     const act = currentActivity();
     if (!act) return;
     const res   = resultFor(act);
     const photo = (res.photos||[]).find(p => p.id === photoId);
     if (!photo) return;
-    const a   = document.createElement("a");
-    a.href    = photo.dataUrl;
+    let dataUrl = photoCache.get(photoId) || photo.dataUrl;
+    if (!dataUrl && typeof MokuDB !== "undefined" && MokuDB.isAvailable()) {
+      try {
+        const idb = await MokuDB.getPhoto(photoId);
+        if (idb?.dataUrl) { dataUrl = idb.dataUrl; photoCache.set(photoId, dataUrl); }
+      } catch(_) {}
+    }
+    if (!dataUrl) { showToast("Foto tidak tersedia — coba ambil ulang", "warn"); return; }
+    const a = document.createElement("a");
+    a.href     = dataUrl;
     a.download = photo.fileName || `moku_${dateCode()}.jpg`;
     a.click();
   }
 
   /* ── Lightbox ───────────────────────────────────────────── */
-  function openLightbox(photoId) {
+  async function openLightbox(photoId) {
     const act = currentActivity();
     if (!act) return;
     const res   = resultFor(act);
     const photo = (res.photos||[]).find(p => p.id === photoId);
     if (!photo) return;
-    lightboxPhoto = photo;
-    $("lightboxImg").src         = photo.dataUrl;
+    let dataUrl = photoCache.get(photoId) || photo.dataUrl;
+    if (!dataUrl && typeof MokuDB !== "undefined" && MokuDB.isAvailable()) {
+      try {
+        const idb = await MokuDB.getPhoto(photoId);
+        if (idb?.dataUrl) { dataUrl = idb.dataUrl; photoCache.set(photoId, dataUrl); }
+      } catch(_) {}
+    }
+    lightboxPhoto = { ...photo, dataUrl };
+    $("lightboxImg").src         = dataUrl || "";
     $("lightboxTitle").textContent = photo.type;
     const gpsText = photo.location
       ? `${coordsToText(photo.location)}${photo.location.address ? " · " + photo.location.address : ""}`
@@ -863,14 +890,177 @@
   }
 
   function clearData() {
-    if (!confirm("Reset semua data MoKu di perangkat ini? Semua foto akan dihapus.")) return;
+    if (!confirm("Reset semua data MoKu di perangkat ini? Semua foto dan kegiatan akan dihapus permanen.")) return;
     localStorage.removeItem(STORAGE_KEY);
+    photoCache.clear();
+    if (typeof MokuDB !== "undefined" && MokuDB.isAvailable()) {
+      /* Hapus semua foto dari IndexedDB */
+      MokuDB.getAllPhotos().then(photos => {
+        photos.forEach(p => MokuDB.deletePhoto(p.id).catch(()=>{}));
+      }).catch(()=>{});
+    }
     state        = defaultState();
     selectedType = null;
     saveState();
     render();
     showTab("home");
     showToast("Data MoKu berhasil direset");
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     INDEXEDDB — Muat cache foto dari IndexedDB saat boot
+  ════════════════════════════════════════════════════════════════ */
+  async function loadPhotoCache() {
+    if (typeof MokuDB === "undefined" || !MokuDB.isAvailable()) return;
+    try {
+      /* Migrasi foto lama yang masih punya dataUrl di state */
+      let migrated = false;
+      for (const [actId, res] of Object.entries(state.results || {})) {
+        for (const photo of (res.photos || [])) {
+          if (photo.dataUrl) {
+            await MokuDB.savePhoto({ ...photo, activityId: actId }).catch(() => {});
+            photoCache.set(photo.id, photo.dataUrl);
+            delete photo.dataUrl; /* hemat localStorage */
+            migrated = true;
+          }
+        }
+      }
+      if (migrated) {
+        saveState();
+        console.log("[MokuDB] Migrasi foto lama ke IndexedDB selesai");
+      }
+      /* Muat semua foto dari IDB ke cache */
+      const photos = await MokuDB.getAllPhotos();
+      photos.forEach(p => { if (p.dataUrl) photoCache.set(p.id, p.dataUrl); });
+      if (photos.length || migrated) render(); /* refresh tampilan */
+    } catch(e) {
+      console.warn("[MokuDB] Gagal muat cache foto:", e);
+    }
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     BOP SYNC — Sinkronisasi otomatis kegiatan RAP dari BOP utama
+  ════════════════════════════════════════════════════════════════ */
+  function getBopData() {
+    try {
+      const raw = localStorage.getItem("bop_rt005_data_v1_25");
+      return raw ? JSON.parse(raw) : null;
+    } catch(_) { return null; }
+  }
+
+  function rapToActivity(r, idx) {
+    const slug = `bop-rap-${String(r.uraian||"").replace(/\s+/g,"_").slice(0,30)}-${String(r.bulan||"").replace(/\s/g,"")}`;
+    return {
+      id:          slug,
+      jenis:       r.kategori || "Kegiatan BOP",
+      nama:        r.uraian   || `Kegiatan RAP ${idx + 1}`,
+      hariTanggal: r.bulan    || "",
+      waktu:       "",
+      tempat:      "Wilayah RT 005 RW 012 Tegalsari",
+      agenda:      [r.subKategori, r.keterangan].filter(Boolean).join(" · "),
+      nominal:     Number(r.jumlah || 0),
+      checklist:   DEFAULT_TYPES,
+      source:      "BOP Sync",
+      syncedAt:    new Date().toISOString()
+    };
+  }
+
+  function syncFromBOP(opts = {}) {
+    const bop = getBopData();
+    if (!bop) {
+      if (!opts.silent) showToast("Data BOP tidak ditemukan di perangkat ini", "warn");
+      return 0;
+    }
+    /* Normalize format RAP (bisa array lama atau object baru) */
+    const rawRap = bop.pengajuan?.rap || [];
+    if (!rawRap.length) {
+      if (!opts.silent) showToast("Belum ada item RAP di BOP", "warn");
+      return 0;
+    }
+    const normRap = rawRap.map(r => Array.isArray(r)
+      ? { uraian:r[0]||"", volume:r[1]||"1 Paket", jumlah:Number(r[2]||0), keterangan:r[3]||"", kategori:"Operasional", subKategori:"", bulan:"", tipe:"" }
+      : r
+    );
+
+    const existingIds = new Set((state.activities||[]).map(a => a.id));
+    const mapped      = normRap.map((r, i) => rapToActivity(r, i));
+    const newActs     = mapped.filter(a => !existingIds.has(a.id));
+    const updActs     = mapped.filter(a =>  existingIds.has(a.id));
+
+    let changed = 0;
+    if (newActs.length) {
+      state.activities = [...(state.activities||[]), ...newActs];
+      changed += newActs.length;
+    }
+    /* Update kegiatan BOP yang sudah ada (jika data RAP berubah) */
+    if (updActs.length) {
+      state.activities = state.activities.map(a => {
+        const upd = updActs.find(u => u.id === a.id);
+        return (upd && a.source === "BOP Sync") ? { ...a, ...upd } : a;
+      });
+    }
+
+    if (changed > 0 || updActs.length > 0) {
+      if (!state.currentId && state.activities.length)
+        state.currentId = state.activities[0].id;
+      saveState();
+      render();
+      /* Simpan snapshot BOP ke IndexedDB */
+      if (typeof MokuDB !== "undefined" && MokuDB.isAvailable())
+        MokuDB.saveBopSnapshot(bop).catch(() => {});
+      /* Sync metadata ke cloud (background) */
+      cloudSyncResults();
+    }
+
+    if (!opts.silent) {
+      if (changed > 0)
+        showToast(`✓ Sinkron BOP: ${changed} kegiatan baru ditambahkan`);
+      else
+        showToast(`✓ Semua ${mapped.length} kegiatan BOP sudah tersinkron`);
+    }
+    return changed;
+  }
+
+  function checkBopSync() {
+    const bop = getBopData();
+    if (!bop) return;
+    const rawRap = bop.pengajuan?.rap || [];
+    if (!rawRap.length) return;
+    const normRap = rawRap.map((r, i) => rapToActivity(
+      Array.isArray(r) ? { uraian:r[0]||"", bulan:r[3]||"", kategori:"Operasional" } : r, i
+    ));
+    const existingIds = new Set((state.activities||[]).map(a => a.id));
+    const newCount = normRap.filter(a => !existingIds.has(a.id)).length;
+    if (newCount > 0) {
+      const btn = document.getElementById("bopSyncBtn");
+      if (btn) {
+        btn.setAttribute("data-badge", String(newCount));
+        btn.title = `${newCount} kegiatan BOP baru — klik untuk sinkronisasi`;
+      }
+    }
+  }
+
+  /* ── Cloud sync hasil ke PostgreSQL (background, best-effort) ─ */
+  function cloudSyncResults() {
+    try {
+      const results = (state.activities||[]).map(act => {
+        const res = state.results[idOf(act)] || {};
+        return {
+          activityId:   idOf(act),
+          activityName: act.nama,
+          status:       isDone(act) ? "Lengkap" : "Proses",
+          photoCount:   (res.photos||[]).length,
+          note:         res.note || "",
+          updatedAt:    res.updatedAt || null
+        };
+      });
+      if (!results.length) return;
+      fetch("/api/db/results-sync", {
+        method:  "POST",
+        headers: { "Content-Type":"application/json" },
+        body:    JSON.stringify({ results })
+      }).catch(() => {}); /* best-effort */
+    } catch(_) {}
   }
 
   /* ── GPS Sheet ──────────────────────────────────────────── */
@@ -994,6 +1184,15 @@
       saveState();
     });
 
+    // BOP Sync button
+    const bopSyncBtn = $("bopSyncBtn");
+    if (bopSyncBtn) {
+      bopSyncBtn.addEventListener("click", () => {
+        bopSyncBtn.removeAttribute("data-badge");
+        syncFromBOP();
+      });
+    }
+
     // Import file
     $("importActivityFile").addEventListener("change", e => {
       const file = e.target.files?.[0];
@@ -1051,5 +1250,19 @@
       lockGps({ silent:true });
     }
   }, 1200);
+
+  /* ── IndexedDB: muat cache foto (async, tidak block UI) ── */
+  loadPhotoCache();
+
+  /* ── BOP Sync: auto-sinkron kegiatan saat boot ──────────
+     Pertama cek apakah ada kegiatan baru (tidak bikin notif),
+     lalu sinkronkan secara otomatis tanpa gangguan.          */
+  setTimeout(() => {
+    const added = syncFromBOP({ silent: true });
+    if (added > 0)
+      showToast(`📋 ${added} kegiatan BOP otomatis disinkronkan`, "info");
+    else
+      checkBopSync(); /* cek badge jika ada yg belum disinkron */
+  }, 600);
 
 })();

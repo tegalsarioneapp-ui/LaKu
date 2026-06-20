@@ -1,0 +1,447 @@
+Kamu adalah developer senior. Kerjakan aplikasi **BOP RT 005 Offline Manager** dengan teliti dan tuntas.
+
+Saya ingin aplikasi ini memiliki fitur **Editor Dokumen Pro langsung di dalam aplikasi**, seperti pengalaman Google Docs / Office Word sederhana, agar hasil generate dokumen bisa diedit langsung sebelum dicetak.
+
+Tujuan akhirnya:
+
+**Data aplikasi → Generate dokumen → tampil di editor pro → bisa edit layout/paragraf/tabel → simpan sebagai format baku aplikasi → cetak langsung dari aplikasi.**
+
+## KONTEKS APLIKASI
+
+Aplikasi ini adalah aplikasi administrasi BOP RT 005. Jangan membuat aplikasi baru. Kerjakan di aplikasi yang sudah ada.
+
+Jangan menghapus fitur yang sudah berjalan, terutama:
+
+* BOP Dashboard
+* Pengajuan Dana Operasional
+* Persiapan Kegiatan Operasional
+* Laporan Pertanggungjawaban
+* MoKu Mobile
+* Monitoring Administrasi
+* Setting
+* Data yang tersimpan di localStorage
+
+## MASALAH SAAT INI
+
+Editor sebelumnya masih susah dipakai. Hanya bisa edit teks, tetapi sulit mengatur:
+
+* posisi paragraf;
+* jarak paragraf;
+* indent;
+* spasi;
+* posisi tanda tangan;
+* tabel;
+* lebar kolom;
+* page break;
+* tampilan A4.
+
+Saya ingin editor hasil generate terasa seperti editor dokumen sungguhan.
+
+## FITUR UTAMA YANG HARUS DIBUAT
+
+Buat modul baru bernama:
+
+**Document Studio / Editor Dokumen Pro**
+
+Letakkan di menu:
+
+`Pengajuan Dana Operasional → Generate Dokumen Pengajuan`
+
+Setelah dokumen digenerate, hasilnya jangan hanya tampil preview. Hasilnya harus masuk ke **Editor Dokumen Pro**.
+
+## WAJIB ADA TOGGLE HIDE
+
+Tambahkan toggle hide agar layar terasa lega saat edit.
+
+Minimal toggle:
+
+1. **Sembunyikan Panel Generate Dokumen**
+
+   * menyembunyikan daftar tombol dokumen seperti Surat Permohonan, RAP, Berita Acara, Daftar Hadir, SPTJM, SK RT, Buku Rekening.
+
+2. **Sembunyikan Sidebar Aplikasi**
+
+   * menyembunyikan sidebar kiri agar area editor lebih luas.
+
+3. **Sembunyikan Panel Data/Form**
+
+   * jika ada panel input data di samping, bisa disembunyikan.
+
+4. **Mode Fokus / Full Editor**
+
+   * editor menjadi hampir full screen.
+   * hanya toolbar dan lembar A4 yang terlihat.
+
+Tambahkan tombol:
+
+* Tampilkan Panel
+* Sembunyikan Panel
+* Mode Fokus
+* Keluar Mode Fokus
+
+## TAMPILAN EDITOR
+
+Editor harus memiliki tampilan seperti lembar dokumen A4.
+
+Buat area:
+
+* background abu-abu muda seperti Google Docs;
+* lembar putih A4 di tengah;
+* bayangan kertas;
+* margin visual;
+* zoom 75%, 90%, 100%, 125%;
+* scroll nyaman;
+* hasil tetap terbaca.
+
+Ukuran lembar:
+
+* A4 portrait;
+* ukuran visual konsisten;
+* jangan melebar liar;
+* saat cetak, tetap A4.
+
+## ENGINE EDITOR
+
+Jangan hanya pakai `contenteditable` mentah tanpa pengelolaan.
+
+Gunakan salah satu editor yang stabil:
+
+* TipTap / ProseMirror, atau
+* Lexical, atau
+* Quill, atau
+* editor rich text lain yang rapi dan bisa dibuat offline.
+
+Jika aplikasi harus offline, vendor/bundle library ke dalam project. Jangan bergantung pada CDN online.
+
+Jika project belum memakai bundler, boleh tetap static HTML/JS, tetapi library editor harus disimpan lokal di folder aplikasi.
+
+## TOOLBAR EDITOR WAJIB
+
+Toolbar harus rapi dan mudah dipakai.
+
+Fitur toolbar:
+
+### Teks
+
+* Bold
+* Italic
+* Underline
+* Font size
+* Font family default Arial
+* Warna teks opsional
+* Clear formatting
+
+### Paragraf
+
+* Rata kiri
+* Rata tengah
+* Rata kanan
+* Justify
+* Indent kurang
+* Indent tambah
+* Spasi 1
+* Spasi 1.15
+* Spasi 1.5
+* Spasi 2
+* Jarak paragraf atas
+* Jarak paragraf bawah
+
+### Layout
+
+* Tambah baris kosong
+* Tambah page break
+* Pindah paragraf naik
+* Pindah paragraf turun
+* Margin dokumen
+* Zoom editor
+
+### Tabel
+
+* Tambah baris atas
+* Tambah baris bawah
+* Hapus baris
+* Tambah kolom kiri
+* Tambah kolom kanan
+* Hapus kolom
+* Merge cell jika memungkinkan
+* Split cell jika memungkinkan
+* Atur lebar kolom
+* Autofit kolom No/Nomor
+* Border tabel tetap rapi
+
+### Dokumen
+
+* Simpan Editan
+* Simpan Sebagai Format Baku
+* Gunakan Format Baku
+* Reset ke Template Awal
+* Preview Cetak
+* Cetak / Simpan PDF
+* Export HTML backup
+* Export JSON template backup
+
+## FITUR SIMPAN SEBAGAI FORMAT BAKU APLIKASI
+
+Ini bagian paling penting.
+
+Setelah saya edit hasil generate dan layout sudah sesuai, saya ingin klik:
+
+**Simpan Sebagai Format Baku Aplikasi**
+
+Maka aplikasi harus menyimpan format dokumen tersebut sebagai template baku untuk jenis dokumen tersebut.
+
+Contoh:
+
+Jika saya sedang mengedit **Surat Permohonan**, lalu saya klik **Simpan Sebagai Format Baku**, maka untuk generate Surat Permohonan berikutnya aplikasi memakai format yang sudah saya edit.
+
+Simpan data template ke localStorage atau IndexedDB dengan key yang jelas, contoh:
+
+`bop_rt005_template_surat_permohonan`
+`bop_rt005_template_rap_1_tahun`
+`bop_rt005_template_berita_acara`
+`bop_rt005_template_daftar_hadir`
+`bop_rt005_template_sptjm`
+
+Format baku yang disimpan harus memuat:
+
+* struktur HTML dokumen;
+* style utama;
+* placeholder data;
+* pengaturan margin;
+* pengaturan tabel;
+* pengaturan tanda tangan;
+* tanggal terakhir disimpan;
+* versi template.
+
+Tambahkan juga tombol:
+
+* Backup Format Baku
+* Import Format Baku
+* Reset Format Baku
+
+Backup harus menghasilkan file `.json`.
+
+Import harus bisa membaca file `.json` dan memulihkan template.
+
+## PLACEHOLDER DATA
+
+Saat menyimpan format baku, jangan menyimpan data statis saja. Gunakan placeholder agar data bisa berubah otomatis.
+
+Contoh placeholder:
+
+`{{nomor_surat}}`
+`{{tanggal_surat}}`
+`{{nama_lurah}}`
+`{{rt}}`
+`{{rw}}`
+`{{nama_ketua_rt}}`
+`{{nama_sekretaris_rt}}`
+`{{nama_bendahara_rt}}`
+`{{nama_ketua_rw}}`
+`{{nominal_bop}}`
+`{{nama_bank}}`
+`{{nama_pemilik_rekening}}`
+`{{nomor_rekening}}`
+`{{no_ktp_ketua_rt}}`
+
+Untuk tabel dinamis gunakan blok khusus, misalnya:
+
+`{{#rap_items}}`
+`{{no}}`
+`{{uraian_kegiatan}}`
+`{{satuan_volume}}`
+`{{rencana_anggaran}}`
+`{{keterangan}}`
+`{{/rap_items}}`
+
+Untuk peserta:
+
+`{{#peserta_rapat}}`
+`{{no}}`
+`{{nama}}`
+`{{jabatan}}`
+`{{ttd_nomor}}`
+`{{/peserta_rapat}}`
+
+Saat dokumen digenerate, placeholder diganti dengan data terbaru dari aplikasi.
+
+## MODE EDIT DATA DAN MODE EDIT LAYOUT
+
+Buat dua mode:
+
+### 1. Mode Data
+
+Untuk mengubah isi data dari aplikasi:
+
+* nomor surat;
+* tanggal;
+* nama lurah;
+* nama ketua RT;
+* nominal;
+* rekening;
+* peserta;
+* data RAP.
+
+### 2. Mode Layout
+
+Untuk mengubah tampilan dokumen:
+
+* posisi paragraf;
+* spasi;
+* tabel;
+* tanda tangan;
+* margin;
+* page break;
+* ukuran font.
+
+Tujuannya agar aplikasi tidak membingungkan. Data dan layout harus jelas.
+
+## PRINT / PDF
+
+Fungsi cetak harus mengambil isi dari Editor Dokumen Pro, bukan dari halaman aplikasi penuh.
+
+Saat klik **Cetak / Simpan PDF**:
+
+* hanya lembar dokumen yang dicetak;
+* sidebar tidak ikut;
+* toolbar tidak ikut;
+* panel generate tidak ikut;
+* hasil A4;
+* logo tidak membesar;
+* tabel tidak terpotong;
+* font Arial;
+* layout sama dengan yang terlihat di editor.
+
+Gunakan CSS print khusus:
+
+* `@page { size: A4; margin: ... }`
+* `.document-page` hanya yang dicetak;
+* semua panel UI disembunyikan saat print;
+* gambar/logo punya ukuran tetap;
+* table width 100%;
+* border-collapse collapse;
+* page-break rules rapi.
+
+## FORMAT DOKUMEN
+
+Default font dokumen:
+
+* Arial
+* 12 pt
+
+Tabel boleh memakai:
+
+* Arial 10 atau 11 jika perlu agar tidak terpotong
+
+Kop surat dan judul:
+
+* mengikuti format yang sudah ada di aplikasi / template dokumen.
+
+## DOKUMEN YANG PERLU DIDUKUNG
+
+Minimal siapkan sistem untuk dokumen:
+
+1. Surat Permohonan
+2. RAP BOP RT 1 Tahun
+3. RAP Bulanan / RBB
+4. Berita Acara RAP
+5. Daftar Hadir
+6. SPTJM
+7. SK RT
+8. Buku Rekening
+
+Tetapi jika implementasi bertahap, mulai dari **Surat Permohonan** dulu sampai sempurna, lalu terapkan pola yang sama ke dokumen lain.
+
+## MENU GENERATE DOKUMEN
+
+Di menu Generate Dokumen Pengajuan, tampilkan daftar dokumen seperti biasa.
+
+Tetapi setelah klik salah satu dokumen:
+
+1. data dokumen digenerate;
+2. hasil masuk ke Editor Dokumen Pro;
+3. pengguna bisa edit;
+4. pengguna bisa simpan sebagai format baku;
+5. pengguna bisa cetak langsung.
+
+## JANGAN MERUSAK APLIKASI
+
+Larangan:
+
+* jangan menghapus data localStorage pengguna;
+* jangan menghapus fitur MoKu;
+* jangan menghapus menu utama;
+* jangan membuat aplikasi baru;
+* jangan meninggalkan folder patch/backup;
+* jangan membuat fitur uji coba yang tampil ke user;
+* jangan membuat logo membesar saat print;
+* jangan menambahkan CDN yang membuat aplikasi gagal offline;
+* jangan membuat editor menumpuk di bawah panel sehingga sulit dipakai.
+
+## STRUKTUR FILE YANG DISARANKAN
+
+Boleh menambahkan folder:
+
+`document-studio/`
+
+Isi:
+
+* `document-studio.js`
+* `document-studio.css`
+* `template-store.js`
+* `placeholder-engine.js`
+* `print-engine.js`
+* `editor-adapter.js`
+
+Jika memakai library lokal:
+
+`libs/editor/`
+
+Contoh:
+
+* TipTap bundle
+* ProseMirror bundle
+* Quill bundle
+
+Pastikan library bisa berjalan offline.
+
+## VALIDASI WAJIB
+
+Sebelum selesai, lakukan test:
+
+1. Buka aplikasi.
+2. Masuk Pengajuan Dana Operasional.
+3. Klik Generate Dokumen Pengajuan.
+4. Pilih Surat Permohonan.
+5. Pastikan dokumen tampil di Editor Dokumen Pro.
+6. Klik Sembunyikan Panel Generate.
+7. Klik Mode Fokus.
+8. Edit paragraf.
+9. Edit posisi tanda tangan.
+10. Edit tabel jika ada.
+11. Klik Simpan Editan.
+12. Klik Simpan Sebagai Format Baku.
+13. Refresh aplikasi.
+14. Generate ulang dokumen yang sama.
+15. Pastikan format baku yang disimpan tetap dipakai.
+16. Klik Cetak / PDF.
+17. Pastikan yang tercetak hanya dokumen A4, bukan UI aplikasi.
+18. Pastikan logo tidak membesar.
+19. Pastikan console browser tidak error.
+
+## OUTPUT AKHIR YANG HARUS DILAPORKAN
+
+Setelah selesai, laporkan:
+
+1. file yang ditambah;
+2. file yang diubah;
+3. cara membuka editor;
+4. cara menyembunyikan panel;
+5. cara simpan format baku;
+6. cara reset format baku;
+7. cara print/PDF;
+8. hasil pengujian.
+
+Target akhirnya:
+
+Aplikasi BOP RT 005 memiliki editor dokumen profesional langsung di aplikasi, terasa lega saat edit karena ada toggle hide, hasil edit bisa disimpan sebagai format baku aplikasi, dan hasil cetak langsung dari aplikasi mengikuti layout yang sudah diedit tanpa perlu membuka Word satu per satu.

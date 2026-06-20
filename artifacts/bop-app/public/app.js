@@ -3455,8 +3455,8 @@ function goPage(page){
     const frame = $("mokuFrameV29");
     if(frame){
       const current = frame.getAttribute("src") || "";
-      if(!current || current === "about:blank") frame.setAttribute("src", "moku/index.html?v=1.30");
-      else if(!current.includes("v=1.30")) frame.setAttribute("src", "moku/index.html?v=1.30");
+      if(!current || current === "about:blank") frame.setAttribute("src", "moku/index.html?v=2.0");
+      else if(!current.includes("v=2.0")) frame.setAttribute("src", "moku/index.html?v=2.0");
     }
   }
   if(window.innerWidth < 1000 && $("sidebar")) $("sidebar").classList.remove("open");
@@ -3511,9 +3511,9 @@ function showOnlyPageV31(page){
 function loadMokuFrameV31(){
   const frame = $("mokuFrameV29");
   if(!frame) return;
-  const desired = "moku/index.html?v=1.34";
+  const desired = "moku/index.html?v=2.0";
   const current = frame.getAttribute("src") || "";
-  if(!current || current === "about:blank" || !current.includes("v=1.34")){
+  if(!current || current === "about:blank" || !current.includes("v=2.0")){
     frame.setAttribute("src", desired);
   }
 }

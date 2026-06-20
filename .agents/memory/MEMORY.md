@@ -1,0 +1,1 @@
+- [MoKu v2 GPS + Geocoding](moku-v2.md) — MoKu rebuilt at public/moku/; uses Nominatim reverse geocoding, auto GPS on load, GPS_GOOD_ACC=30m threshold.

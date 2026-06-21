@@ -4609,48 +4609,75 @@ async function goPage(page){
     });
   }
 
+  /* CSS cetak A4 bersama — dipakai oleh doExportPdf */
+  const PDF_PRINT_CSS = `
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 20px; font-family: "Times New Roman", serif; font-size: 12pt; color: #000; background: #fff; }
+    .official, .official-v36, .official-v37 { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.26; color: #000; }
+    .official .title, .official-v36 .title, .official-v37 .title { text-align: center; font-weight: bold; text-transform: uppercase; margin: 10px 0 16px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #000; padding: 5px 8px; font-size: 11pt; }
+    .no-border td, .no-border th { border: none; }
+    .kop { display: grid; grid-template-columns: 70px 1fr 70px; gap: 12px; align-items: center; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 12px; }
+    .kop table { border: none !important; } .kop table td { border: none !important; padding: 0 !important; }
+    .kop-logo, .kop img { width: 64px !important; max-width: 64px !important; height: auto; }
+    .kop-text { text-align: center; line-height: 1.3; }
+    .kop h1 { font-size: 15px; text-transform: uppercase; margin: 0; text-align: center; }
+    .kop h2 { font-size: 13px; text-transform: uppercase; margin: 2px 0; text-align: center; }
+    .kop p { font-size: 11px; margin: 2px 0; text-align: center; }
+    .title { text-align: center; font-weight: bold; text-transform: uppercase; margin: 12px 0 16px; }
+    .ttd-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 70px; text-align: center; margin-top: 22px; }
+    .ttd-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 20px; text-align: center; margin-top: 22px; }
+    .ttd-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 35px; text-align: center; margin-top: 22px; }
+    .signature-space, .sign-space-v36 { height: 62px; display: block; }
+    .date-right-v36 { text-align: right; }
+    .center-v36 { text-align: center; }
+    .money-cell { text-align: right; white-space: nowrap; }
+    .col-no { width: 38px; text-align: center; }
+    .sign-note-v36 { font-size: 9pt; color: #555; display: block; }
+    .sign-right-v36 td, .sign-right-v36 th,
+    .letter-head-v36 td, .letter-head-v36 th,
+    .identity-table-v36 td, .identity-table-v36 th,
+    .sign-two-v36 td, .sign-two-v36 th { border: none; }
+    .sign-two-v36 { width: 100%; }
+    .sign-list-v36 th, .rap-table-v36 th { background: #f5f5f5; }
+    .ds-page-break { page-break-after: always; border: none; margin: 0; }
+    .ds-page-break::after { display: none; }
+    p { margin: 8px 0; }
+    ol { margin: 8px 0; padding-left: 24px; }
+    li { margin-bottom: 6px; }
+    b, strong { font-weight: bold; }
+    .mengetahui-v36 { margin-top: 20px; }
+    .ket-v36 { font-size: 10pt; color: #555; margin-top: 8px; }
+  `;
+
   async function doExportPdf(el, filename){
     try {
-      const lib = await loadHtml2PdfV38();
-      if(typeof bopToast === "function") bopToast("Membuat PDF", "Proses export sedang berjalan...", "info");
+      const inner = el ? el.innerHTML : "";
+      if(!inner || !inner.trim()){
+        if(typeof bopAlert === "function") bopAlert("Export PDF", "Konten dokumen kosong.", "warning");
+        return;
+      }
+      if(typeof bopToast === "function") bopToast("Membuka Cetak PDF", "Gunakan dialog cetak browser → Simpan sebagai PDF.", "info");
 
-      // Sementara ubah overflow agar html2canvas capture semua konten
-      const prevOverflow = el.style.overflow;
-      const prevHeight   = el.style.height;
-      el.style.overflow  = "visible";
-      el.style.height    = "auto";
+      const printWin = window.open("", "_blank", "width=900,height=1100");
+      if(!printWin){
+        if(typeof bopAlert === "function") bopAlert("Popup Diblokir", "Izinkan popup untuk halaman ini di browser, lalu coba lagi.", "warning");
+        return;
+      }
 
-      // Beri waktu browser reflow
-      await new Promise(r => setTimeout(r, 80));
-
-      const opt = {
-        margin: [12, 12, 12, 12],
-        filename: filename,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          scrollX: 0,
-          scrollY: 0,
-          backgroundColor: "#ffffff",
-          width: el.scrollWidth,
-          height: el.scrollHeight,
-          windowWidth: el.scrollWidth,
-          windowHeight: el.scrollHeight,
-          allowTaint: true,
-        },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-      };
-
-      await lib().set(opt).from(el).save();
-
-      // Kembalikan style semula
-      el.style.overflow = prevOverflow;
-      el.style.height   = prevHeight;
+      const title = filename.replace(/_/g," ").replace(".pdf","");
+      printWin.document.write(`<!doctype html><html lang="id"><head>
+<meta charset="UTF-8"><title>${title}</title>
+<style>${PDF_PRINT_CSS}</style>
+</head><body>${inner}</body></html>`);
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(() => printWin.print(), 600);
     } catch(e){
       console.error(PATCH_ID, e);
-      if(typeof bopAlert === "function") bopAlert("Gagal Export PDF", e.message || "Terjadi kesalahan saat membuat PDF.", "error");
+      if(typeof bopAlert === "function") bopAlert("Gagal Export PDF", e.message || "Terjadi kesalahan.", "error");
     }
   }
 
@@ -5156,9 +5183,9 @@ async function goPage(page){
     }
   }
 
-  /* ── Periodic check: ping + pull data baru setiap 30 detik ── */
+  /* ── Periodic check: ping + pull data baru setiap 10 detik ── */
   function startPeriodicCheck() {
-    setInterval(() => silentPoll(), 30000);
+    setInterval(() => silentPoll(), 10000);
   }
 
   /* ── Init ─────────────────────────────────────────────────── */
@@ -5284,4 +5311,83 @@ async function goPage(page){
     document.addEventListener("DOMContentLoaded", ()=>setTimeout(tryInitSeed, 600));
   else
     setTimeout(tryInitSeed, 600);
+})();
+
+/* PATCH v1.41 — Live Preview Side-by-Side di Tab Data Pengajuan */
+(function bopLivePreviewV41(){
+  const FORM_IDS = [
+    'nomorSurat','tanggalSurat','sifatSurat','lampiranSurat',
+    'namaRekening','nomorRekening','namaLurah','namaKetuaRw'
+  ];
+  let _debounce = null;
+  let _ready = false;
+
+  function refreshPreview(immediate){
+    const sel     = document.getElementById('pqPreviewDocType');
+    const content = document.getElementById('pqPreviewContent');
+    if(!sel || !content) return;
+
+    const type = sel.value || 'permohonan';
+    content.innerHTML = '<div class="pq-loading">Membuat pratinjau…</div>';
+
+    const run = () => {
+      try {
+        if(typeof collectAll === 'function') collectAll();
+        if(typeof previewDoc === 'function'){
+          previewDoc(type);
+          const docOut = document.getElementById('docOutput');
+          content.innerHTML = docOut && docOut.innerHTML.trim()
+            ? docOut.innerHTML
+            : '<div class="pq-placeholder">Tidak ada konten untuk dokumen ini.</div>';
+        } else {
+          content.innerHTML = '<div class="pq-placeholder">Fungsi pratinjau belum siap.</div>';
+        }
+      } catch(e){
+        content.innerHTML = '<div class="pq-placeholder">Gagal render pratinjau.</div>';
+      }
+    };
+
+    if(immediate){ run(); }
+    else {
+      clearTimeout(_debounce);
+      _debounce = setTimeout(run, 420);
+    }
+  }
+
+  function init(){
+    if(_ready) return;
+    const sel = document.getElementById('pqPreviewDocType');
+    if(!sel){ setTimeout(init, 500); return; }
+    _ready = true;
+
+    /* Ganti tipe dokumen */
+    sel.addEventListener('change', () => refreshPreview(true));
+
+    /* Refresh button */
+    const refreshBtn = document.getElementById('pqRefreshBtn');
+    if(refreshBtn) refreshBtn.addEventListener('click', () => refreshPreview(true));
+
+    /* Input changes → debounce refresh */
+    FORM_IDS.forEach(id => {
+      const el = document.getElementById(id);
+      if(el){
+        el.addEventListener('input', () => refreshPreview(false));
+        el.addEventListener('change', () => refreshPreview(false));
+      }
+    });
+
+    /* Refresh saat klik tab Data Pengajuan */
+    document.querySelectorAll('[data-tab="data-pengajuan"]').forEach(btn => {
+      btn.addEventListener('click', () => setTimeout(() => refreshPreview(true), 200));
+    });
+
+    /* Initial render setelah data dimuat */
+    setTimeout(() => refreshPreview(true), 1500);
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 900));
+  } else {
+    setTimeout(init, 900);
+  }
 })();

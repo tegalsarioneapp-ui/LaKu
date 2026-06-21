@@ -146,23 +146,52 @@
         </div>
 
         <div class="tab-content active" id="tab-data-pengajuan">
-          <div class="panel">
-            <h3>Data Surat Permohonan & Rekening</h3>
-            <div class="form-grid">
-              <label>Nomor Surat <input id="nomorSurat" placeholder=".../RT005/VII/2026"></label>
-              <label>Tanggal Surat <input id="tanggalSurat" value="Semarang, 01 Juli 2026"></label>
-              <label>Sifat <input id="sifatSurat" value="Segera"></label>
-              <label>Lampiran <input id="lampiranSurat" value="1 (satu) berkas"></label>
-              <label>Nama Rekening Bank Jateng <input id="namaRekening" placeholder="Nama rekening RT"></label>
-              <label>Nomor Rekening <input id="nomorRekening" placeholder="Nomor rekening"></label>
-              <label>Nama Lurah <input id="namaLurah" placeholder="Nama Lurah Tegalsari"></label>
-              <label>Nama Ketua RW <input id="namaKetuaRw" placeholder="Nama Ketua RW 012"></label>
-            </div>
-          </div>
+          <div class="pq-split-wrap">
+            <!-- ── Kolom Kiri: Form ── -->
+            <div class="pq-left">
+              <div class="panel">
+                <h3>Data Surat Permohonan & Rekening</h3>
+                <div class="form-grid">
+                  <label>Nomor Surat <input id="nomorSurat" placeholder=".../RT005/VII/2026"></label>
+                  <label>Tanggal Surat <input id="tanggalSurat" value="Semarang, 01 Juli 2026"></label>
+                  <label>Sifat <input id="sifatSurat" value="Segera"></label>
+                  <label>Lampiran <input id="lampiranSurat" value="1 (satu) berkas"></label>
+                  <label>Nama Rekening Bank Jateng <input id="namaRekening" placeholder="Nama rekening RT"></label>
+                  <label>Nomor Rekening <input id="nomorRekening" placeholder="Nomor rekening"></label>
+                  <label>Nama Lurah <input id="namaLurah" placeholder="Nama Lurah Tegalsari"></label>
+                  <label>Nama Ketua RW <input id="namaKetuaRw" placeholder="Nama Ketua RW 012"></label>
+                </div>
+              </div>
 
-          <div class="panel">
-            <h3>Checklist 7 Syarat</h3>
-            <div class="doc-check-grid" id="syaratChecklist"></div>
+              <div class="panel">
+                <h3>Checklist 7 Syarat</h3>
+                <div class="doc-check-grid" id="syaratChecklist"></div>
+              </div>
+            </div>
+
+            <!-- ── Kolom Kanan: Pratinjau Langsung ── -->
+            <div class="pq-right">
+              <div class="pq-preview-panel">
+                <div class="pq-preview-header">
+                  <span>📄 Pratinjau Langsung</span>
+                  <select id="pqPreviewDocType" title="Pilih dokumen untuk pratinjau">
+                    <option value="permohonan">Surat Permohonan</option>
+                    <option value="rap">RAP</option>
+                    <option value="ba">Berita Acara</option>
+                    <option value="hadir">Daftar Hadir</option>
+                    <option value="sptjm">SPTJM</option>
+                    <option value="rbb">RBB</option>
+                    <option value="checklist">Checklist</option>
+                  </select>
+                  <button class="pq-refresh-btn" id="pqRefreshBtn" title="Refresh pratinjau">↺</button>
+                </div>
+                <div class="pq-preview-viewport" id="pqPreviewViewport">
+                  <div class="pq-preview-content" id="pqPreviewContent">
+                    <div class="pq-placeholder">Memuat pratinjau…</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

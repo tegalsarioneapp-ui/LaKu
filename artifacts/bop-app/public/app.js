@@ -4925,8 +4925,9 @@ async function goPage(page){
       const res = await fetch("/api/bop/data", {
         signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined,
       });
-      if (!res.ok) { setBadge("☁ !", "#b91c1c"); return; }
+      if (!res.ok) { setBadge("☁ !", "#b91c1c"); setTopbarStatus(false); return; }
       const result = await res.json();
+      setTopbarStatus(true);
 
       if (!result.ok || !result.data) {
         // Server kosong → upload data lokal ke server (inisialisasi)
@@ -4976,6 +4977,7 @@ async function goPage(page){
     } catch (e) {
       console.warn(PATCH, "Boot load gagal (offline?):", e.message);
       setBadge("☁ ?", "#78716c");
+      setTopbarStatus(false);
     }
   }
 
@@ -5046,11 +5048,46 @@ async function goPage(page){
     }
   }
 
+  /* ── Update topbar Online/Offline indicator ───────────────── */
+  function setTopbarStatus(online) {
+    const dot  = document.getElementById("topbarDot");
+    const text = document.getElementById("topbarStatusText");
+    if (!dot || !text) return;
+    if (online) {
+      dot.style.background  = "#16a34a";
+      text.textContent      = "Online Mode";
+    } else {
+      dot.style.background  = "#dc2626";
+      text.textContent      = "Offline Mode";
+    }
+  }
+
+  /* ── Cek koneksi ke server (lokal dalam IIFE ini) ─────────── */
+  async function pingServer() {
+    try {
+      const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout
+        ? { signal: AbortSignal.timeout(3000) } : {};
+      const r = await fetch("/api/sync/status", c);
+      return r.ok;
+    } catch (e) { return false; }
+  }
+
+  /* ── Periodic connectivity check setiap 30 detik ─────────── */
+  function startPeriodicCheck() {
+    setInterval(async () => {
+      const ok = await pingServer();
+      setTopbarStatus(ok);
+    }, 30000);
+  }
+
   /* ── Init ─────────────────────────────────────────────────── */
   function init() {
     injectSyncBadge();
     patchSyncPanelV39();
+    // Cek status awal topbar sebelum boot load
+    pingServer().then(ok => setTopbarStatus(ok));
     bootLoadFromServer();
+    startPeriodicCheck();
   }
 
   if (document.readyState === "loading") {

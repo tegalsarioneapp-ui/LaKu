@@ -5448,3 +5448,194 @@ async function goPage(page){
     setTimeout(init, 900);
   }
 })();
+
+/* PATCH 010 - Print fix KOP + Daftar Hadir F4/Folio */
+function printCssV22(){
+  return `
+  @page{size:215mm 330mm;margin:9mm 10mm}
+  html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
+  body{font-family:"Times New Roman",serif!important}
+  .print-page{width:195mm;max-width:195mm;box-sizing:border-box;margin:0 auto;background:#fff}
+
+  .official{
+    font-family:"Times New Roman",serif!important;
+    color:#000!important;
+    font-size:10.6pt!important;
+    line-height:1.13!important;
+    width:100%!important;
+    box-sizing:border-box!important;
+  }
+
+  .official .kop,.kop{
+    display:block!important;
+    position:relative!important;
+    width:100%!important;
+    min-height:0!important;
+    border-bottom:3px double #000!important;
+    padding:0 0 6px 0!important;
+    margin:0 0 8px 0!important;
+    text-align:center!important;
+    break-after:avoid!important;
+    page-break-after:avoid!important;
+  }
+
+  .official .kop table,.kop table{
+    width:100%!important;
+    max-width:100%!important;
+    table-layout:auto!important;
+    border-collapse:collapse!important;
+    border:0!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  .official .kop td,.official .kop th,.kop td,.kop th{
+    border:0!important;
+    padding:0!important;
+    vertical-align:middle!important;
+  }
+
+  .official .kop-logo,.kop-logo{
+    width:50px!important;
+    max-width:50px!important;
+    max-height:60px!important;
+    object-fit:contain!important;
+    display:block!important;
+  }
+
+  .official .kop-text,.kop-text{
+    width:100%!important;
+    text-align:center!important;
+  }
+
+  .official .kop h1,.official .kop-text h1{
+    font-size:15pt!important;
+    line-height:1.05!important;
+    margin:0!important;
+    padding:0!important;
+    white-space:nowrap!important;
+    text-align:center!important;
+    text-transform:uppercase!important;
+  }
+
+  .official .kop h2,.official .kop-text h2{
+    font-size:12.8pt!important;
+    line-height:1.05!important;
+    margin:1px 0!important;
+    padding:0!important;
+    white-space:nowrap!important;
+    text-align:center!important;
+    text-transform:uppercase!important;
+  }
+
+  .official .kop p,.official .kop-text p{
+    font-size:8.8pt!important;
+    line-height:1.05!important;
+    margin:1px 0!important;
+    padding:0!important;
+    text-align:center!important;
+  }
+
+  .official .title{
+    text-align:center!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    margin:6px 0 6px!important;
+    font-size:11.8pt!important;
+    line-height:1.1!important;
+    break-after:avoid!important;
+    page-break-after:avoid!important;
+  }
+
+  .official table{
+    width:100%!important;
+    border-collapse:collapse!important;
+  }
+
+  .official table:not(.no-border){
+    table-layout:fixed!important;
+    page-break-inside:auto!important;
+  }
+
+  .official thead{display:table-header-group!important}
+  .official tr{page-break-inside:avoid!important;break-inside:avoid!important}
+
+  .official th,.official td{
+    border:1px solid #000!important;
+    padding:3px 4px!important;
+    vertical-align:top!important;
+    font-size:9.6pt!important;
+    line-height:1.08!important;
+    overflow-wrap:anywhere!important;
+    word-break:normal!important;
+  }
+
+  .official th{
+    text-align:center!important;
+    font-weight:bold!important;
+  }
+
+  .official table.no-border,
+  .official table.no-border *{
+    border:0!important;
+    table-layout:auto!important;
+  }
+
+  .official table.no-border td,
+  .official table.no-border th{
+    padding:1px 2px!important;
+    font-size:9.7pt!important;
+    line-height:1.05!important;
+    overflow-wrap:normal!important;
+  }
+
+  .official .title + table.no-border{
+    margin-bottom:2px!important;
+  }
+
+  .official .title + table.no-border + br{
+    display:none!important;
+  }
+
+  .official .title + table.no-border + br + table th,
+  .official .title + table.no-border + br + table td{
+    font-size:8.8pt!important;
+    line-height:1.02!important;
+    padding:1.5px 3px!important;
+    height:4.4mm!important;
+  }
+
+  .official .title + table.no-border + br + table th:first-child,
+  .official .title + table.no-border + br + table td:first-child{
+    width:9mm!important;
+    max-width:9mm!important;
+    text-align:center!important;
+  }
+
+  .official .title + table.no-border + br + table th:last-child,
+  .official .title + table.no-border + br + table td:last-child{
+    width:32mm!important;
+    max-width:32mm!important;
+  }
+
+  .official p{margin:5px 0!important}
+
+  .ttd-grid,.ttd-4,.ttd-3{
+    display:grid!important;
+    gap:14px!important;
+    text-align:center!important;
+    margin-top:12px!important;
+    page-break-inside:avoid!important;
+    break-inside:avoid!important;
+  }
+
+  .ttd-grid{grid-template-columns:1fr 1fr!important}
+  .ttd-4{grid-template-columns:repeat(4,1fr)!important}
+  .ttd-3{grid-template-columns:repeat(3,1fr)!important}
+  .signature-space{height:48px!important}
+
+  @media print{
+    html,body{width:215mm!important;min-height:330mm!important}
+    .print-page{width:195mm!important;margin:0 auto!important}
+  }`;
+}

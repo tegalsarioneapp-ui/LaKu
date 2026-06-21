@@ -769,3 +769,59 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 .pq-placeholder{color:#94a3b8;text-align:center;padding:60px 20px;font-family:Inter,sans-serif;font-size:13px}
 .pq-loading{color:#64748b;text-align:center;padding:40px 20px;font-family:Inter,sans-serif;font-size:13px}
 @media(max-width:960px){.pq-split-wrap{grid-template-columns:1fr}.pq-right{position:static;top:0}}
+
+/* PATCH 010 - Print fallback KOP + Daftar Hadir */
+@media print{
+  @page{size:215mm 330mm;margin:9mm 10mm}
+
+  .official .kop,
+  .kop{
+    display:block!important;
+    width:100%!important;
+    border-bottom:3px double #000!important;
+    padding:0 0 6px 0!important;
+    margin:0 0 8px 0!important;
+    text-align:center!important;
+  }
+
+  .official .kop table,
+  .kop table{
+    width:100%!important;
+    table-layout:auto!important;
+    border:0!important;
+    border-collapse:collapse!important;
+  }
+
+  .official .kop td,
+  .official .kop th,
+  .kop td,
+  .kop th{
+    border:0!important;
+    padding:0!important;
+  }
+
+  .official .kop h1,
+  .official .kop h2,
+  .kop h1,
+  .kop h2{
+    white-space:nowrap!important;
+  }
+
+  .official .kop-logo,
+  .kop-logo{
+    width:50px!important;
+    max-height:60px!important;
+  }
+
+  .official .title + table.no-border + br{
+    display:none!important;
+  }
+
+  .official .title + table.no-border + br + table th,
+  .official .title + table.no-border + br + table td{
+    font-size:8.8pt!important;
+    line-height:1.02!important;
+    padding:1.5px 3px!important;
+    height:4.4mm!important;
+  }
+}

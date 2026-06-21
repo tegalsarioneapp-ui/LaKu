@@ -192,18 +192,18 @@ function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw|
 
 function kopHTML(){
   const k=data.kop;
-  return `<div class="kop">
-    <table style="width:100%;border:0;border-collapse:collapse;margin:0;padding:0"><tbody><tr>
-      <td style="width:70px;vertical-align:middle;text-align:left;border:0;padding:0">
-        <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" style="position:static;transform:none;width:62px;height:auto;display:block" alt="Logo Kota Semarang">
-      </td>
-      <td style="text-align:center;vertical-align:middle;border:0;padding:0">
-        <div class="kop-text"><h1>${k.baris1}</h1><h2>${k.baris2}</h2><h2>${k.baris3}</h2><h2>${k.baris4}</h2><p>${k.alamat||data.master.alamat||""}</p></div>
-      </td>
-      <td style="width:70px;border:0;padding:0"></td>
-    </tr></tbody></table>
+  return `<div class="kop" style="display:block!important;position:relative!important;width:100%!important;min-height:78px!important;text-align:center!important;border-bottom:3px double #000!important;padding:4px 0 8px 0!important;margin:0 0 10px 0!important;box-sizing:border-box!important;">
+    <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" style="position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;width:58px!important;max-width:58px!important;max-height:70px!important;height:auto!important;object-fit:contain!important;display:block!important;" alt="Logo Kota Semarang">
+    <div class="kop-text" style="display:block!important;width:100%!important;box-sizing:border-box!important;text-align:center!important;padding:0 76px!important;line-height:1.15!important;">
+      <h1 style="margin:0!important;padding:0!important;text-align:center!important;font-size:16pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris1}</h1>
+      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris2}</h2>
+      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris3}</h2>
+      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris4}</h2>
+      <p style="margin:4px 0 0 0!important;padding:0!important;text-align:center!important;font-size:9.5pt!important;line-height:1.05!important;">${k.alamat||data.master.alamat||""}</p>
+    </div>
   </div>`;
 }
+
 function official(body){ return `<div class="official">${kopHTML()}${body}</div>`; }
 
 function renderRap(){
@@ -5639,3 +5639,51 @@ function printCssV22(){
     .print-page{width:195mm!important;margin:0 auto!important}
   }`;
 }
+
+
+/* PATCH 011 - Force KOP center on print/preview */
+(function kopCenterPatch011(){
+  const css = `
+  .official .kop,
+  .kop{
+    display:block!important;
+    position:relative!important;
+    width:100%!important;
+    min-height:78px!important;
+    text-align:center!important;
+    box-sizing:border-box!important;
+  }
+  .official .kop-logo,
+  .kop-logo{
+    position:absolute!important;
+    left:0!important;
+    top:50%!important;
+    transform:translateY(-50%)!important;
+    width:58px!important;
+    max-width:58px!important;
+    max-height:70px!important;
+    height:auto!important;
+    object-fit:contain!important;
+  }
+  .official .kop-text,
+  .kop-text{
+    display:block!important;
+    width:100%!important;
+    box-sizing:border-box!important;
+    padding-left:76px!important;
+    padding-right:76px!important;
+    text-align:center!important;
+  }
+  .official .kop h1,
+  .official .kop h2,
+  .official .kop p,
+  .kop h1,
+  .kop h2,
+  .kop p{
+    text-align:center!important;
+  }`;
+  const style=document.createElement("style");
+  style.id="kop-center-patch-011";
+  style.textContent=css;
+  document.head.appendChild(style);
+})();

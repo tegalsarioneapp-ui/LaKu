@@ -54,7 +54,7 @@
       version  : "1.0",
       docName  : DOC_NAMES[type] || type
     };
-    localStorage.setItem(tplKey(type), JSON.stringify(tpl));
+    try{ localStorage.setItem(tplKey(type), JSON.stringify(tpl)); }catch(e){ console.warn("[DS] Gagal simpan template:",e); }
     return tpl;
   }
 

@@ -7,12 +7,12 @@ function terbilang(n){
   n=Math.floor(Number(n||0));
   if(n<12)return a[n]||"Nol";
   if(n<20)return terbilang(n-10)+" Belas";
-  if(n<100)return terbilang(n/10)+" Puluh "+terbilang(n%10);
-  if(n<200)return "Seratus "+terbilang(n-100);
-  if(n<1000)return terbilang(n/100)+" Ratus "+terbilang(n%100);
-  if(n<2000)return "Seribu "+terbilang(n-1000);
-  if(n<1000000)return terbilang(n/1000)+" Ribu "+terbilang(n%1000);
-  if(n<1000000000)return terbilang(n/1000000)+" Juta "+terbilang(n%1000000);
+  if(n<100){const s=terbilang(Math.floor(n/10))+" Puluh";const r=n%10;return r?s+" "+terbilang(r):s;}
+  if(n<200)return "Seratus"+(n-100?" "+terbilang(n-100):"");
+  if(n<1000){const s=terbilang(Math.floor(n/100))+" Ratus";const r=n%100;return r?s+" "+terbilang(r):s;}
+  if(n<2000)return "Seribu"+(n-1000?" "+terbilang(n-1000):"");
+  if(n<1000000){const s=terbilang(Math.floor(n/1000))+" Ribu";const r=n%1000;return r?s+" "+terbilang(r):s;}
+  if(n<1000000000){const s=terbilang(Math.floor(n/1000000))+" Juta";const r=n%1000000;return r?s+" "+terbilang(r):s;}
   return String(n);
 }
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -92,22 +92,32 @@ function migrateOld(old){
   return d;
 }
 function loadData(){
-  for(const k of [STORE,...OLD_KEYS]){
+  try{
+    const raw = localStorage.getItem(STORE);
+    if(raw) return migrateOld(JSON.parse(raw));
+  }catch(e){ console.warn("[BOP] Gagal memuat data utama:",e); }
+  for(const k of OLD_KEYS){
     try{
       const raw = localStorage.getItem(k);
-      if(raw) return migrateOld(JSON.parse(raw));
-    }catch(e){}
+      if(raw){
+        const migrated = migrateOld(JSON.parse(raw));
+        try{ localStorage.removeItem(k); }catch(e2){}
+        try{ localStorage.setItem(STORE, JSON.stringify(migrated)); }catch(e2){}
+        console.info("[BOP] Data lama berhasil dimigrasikan dari:",k);
+        return migrated;
+      }
+    }catch(e){ console.warn("[BOP] Gagal membaca key lama:",k,e); }
   }
   return clone(defaultData);
 }
 function saveData(){
   collectAll();
-  localStorage.setItem(STORE, JSON.stringify(data));
+  try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ bopAlert("Penyimpanan Gagal","Penyimpanan lokal penuh. Silakan backup data dan bersihkan ruang.","warning"); }
   render();
 }
 function autosave(){
   collectAll();
-  localStorage.setItem(STORE, JSON.stringify(data));
+  try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ console.warn("[BOP] Autosave gagal:",e); }
   updateDashboard();
 }
 function collectAll(){
@@ -184,13 +194,13 @@ function kopHTML(){
   const k=data.kop;
   return `<div class="kop">
     <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang">
-    <div><h1>${k.baris1}</h1><h2>${k.baris2}</h2><h2>${k.baris3}</h2><h2>${k.baris4}</h2><p>${k.alamat||data.master.alamat||""}</p></div>
+    <div class="kop-text"><h1>${k.baris1}</h1><h2>${k.baris2}</h2><h2>${k.baris3}</h2><h2>${k.baris4}</h2><p>${k.alamat||data.master.alamat||""}</p></div>
   </div>`;
 }
 function official(body){ return `<div class="official">${kopHTML()}${body}</div>`; }
 
 function renderRap(){
-  const tb=$("rapTable").querySelector("tbody"); tb.innerHTML="";
+  const tb=$("rapTable")?.querySelector("tbody"); if(!tb) return; tb.innerHTML="";
   data.pengajuan.rap.forEach((r,i)=>{
     tb.insertAdjacentHTML("beforeend",`<tr>
       <td>${i+1}</td>
@@ -213,7 +223,7 @@ function addRap(){ updateRapFromInputs(); data.pengajuan.rap.push(["","1 Paket",
 function deleteRap(i){ updateRapFromInputs(); data.pengajuan.rap.splice(i,1); saveData(); activateTab("rap"); }
 
 function renderPeserta(){
-  const tb=$("pesertaTable").querySelector("tbody"); tb.innerHTML="";
+  const tb=$("pesertaTable")?.querySelector("tbody"); if(!tb) return; tb.innerHTML="";
   data.pengajuan.peserta.forEach((r,i)=>{
     tb.insertAdjacentHTML("beforeend",`<tr>
       <td>${i+1}</td><td><input class="mini-input" data-pes="${i},0" value="${escapeAttr(r[0])}"></td>
@@ -256,7 +266,7 @@ function addActionPlan(){ updateActionPlanFromInputs(); data.pengajuan.meeting.a
 function deleteActionPlan(i){ updateActionPlanFromInputs(); data.pengajuan.meeting.actionPlan.splice(i,1); saveData(); activateTab("undangan-notulen"); }
 
 function renderExpenses(){
-  const tb=$("expenseTable").querySelector("tbody"); tb.innerHTML="";
+  const tb=$("expenseTable")?.querySelector("tbody"); if(!tb) return; tb.innerHTML="";
   data.lpj.pengeluaran.forEach((r,i)=>{
     tb.insertAdjacentHTML("beforeend",`<tr>
       <td>${i+1}</td><td><input class="mini-input" data-exp="${i},0" value="${escapeAttr(r[0])}"></td>
@@ -424,9 +434,10 @@ function previewDoc(type=currentDoc){
 function addHistory(kind,type,title,html){
   collectAll();
   data.history.unshift({id:Date.now().toString(),kind,type,title,date:new Date().toLocaleString("id-ID"),html});
-  localStorage.setItem(STORE,JSON.stringify(data));
+  try{ localStorage.setItem(STORE,JSON.stringify(data)); }catch(e){ console.warn("[BOP] Gagal simpan history:",e); }
   renderHistory();
   updateDashboard();
+  bopToast("Dokumen Disimpan",`${title} berhasil disimpan ke riwayat.`,"success");
 }
 function renderHistory(){
   const all=data.history || [];
@@ -452,8 +463,13 @@ function editHistory(id){
   else{goPage("pengajuan"); activateTab("data-pengajuan");}
 }
 function deleteHistory(id){
-  if(!confirm("Hapus riwayat dokumen ini?"))return;
-  data.history=data.history.filter(x=>x.id!==id); localStorage.setItem(STORE,JSON.stringify(data)); renderHistory(); updateDashboard();
+  bopConfirm("Hapus Riwayat","Hapus dokumen ini dari riwayat?","warning","Hapus","Batal").then(ok=>{
+    if(!ok) return;
+    data.history=data.history.filter(x=>x.id!==id);
+    try{ localStorage.setItem(STORE,JSON.stringify(data)); }catch(e){}
+    renderHistory(); updateDashboard();
+    bopToast("Riwayat Dihapus","Dokumen berhasil dihapus dari riwayat.","success");
+  });
 }
 
 function goPage(page){
@@ -474,17 +490,65 @@ function backup(name="backup_data_bop_rt005.json"){
 }
 function restoreFile(file){
   const reader=new FileReader();
-  reader.onload=()=>{try{data=migrateOld(JSON.parse(reader.result));localStorage.setItem(STORE,JSON.stringify(data));render();alert("Restore berhasil.");}catch(e){alert("File backup tidak valid.");}};
+  reader.onload=()=>{
+    try{
+      data=migrateOld(JSON.parse(reader.result));
+      try{ localStorage.setItem(STORE,JSON.stringify(data)); }catch(e){}
+      render();
+      bopAlert("Restore Berhasil","Data backup berhasil dipulihkan ke aplikasi.","success");
+    }catch(e){
+      bopAlert("File Tidak Valid","File backup tidak dapat dibaca. Pastikan file backup yang benar.","error");
+    }
+  };
   reader.readAsText(file);
 }
 function resetAll(){
-  if(!confirm("Yakin reset semua data aplikasi? Seluruh data lokal akan kembali ke data awal."))return;
-  Object.keys(localStorage).forEach(k=>{if(k.startsWith("bop_rt005_data"))localStorage.removeItem(k)});
-  data=clone(defaultData); localStorage.setItem(STORE,JSON.stringify(data)); render(); alert("Data berhasil direset.");
+  bopConfirm("Reset Semua Data","Seluruh data lokal akan dikembalikan ke data awal. Tindakan ini tidak dapat dibatalkan!","warning","Ya, Reset","Batal").then(ok=>{
+    if(!ok) return;
+    Object.keys(localStorage).forEach(k=>{if(k.startsWith("bop_rt005_data"))localStorage.removeItem(k)});
+    data=clone(defaultData);
+    try{ localStorage.setItem(STORE,JSON.stringify(data)); }catch(e){}
+    render();
+    bopAlert("Reset Selesai","Semua data aplikasi telah direset ke kondisi awal.","success");
+  });
 }
 function download(blob,name){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);}
 function escapeAttr(s){return String(s??"").replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;").replaceAll(">","&gt;")}
 function esc(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")}
+
+/* ===== SweetAlert2 Helpers ===== */
+function bopAlert(title, text, icon="info"){
+  if(typeof Swal === "undefined"){ alert(`${title}: ${text}`); return Promise.resolve(); }
+  const iconMap = {success:"success",error:"error",warning:"warning",info:"info",question:"question"};
+  return Swal.fire({
+    title, text, icon: iconMap[icon]||"info",
+    confirmButtonColor:"#0b2e59",
+    confirmButtonText:"OK",
+    customClass:{popup:"swal-bop-popup"}
+  });
+}
+function bopConfirm(title, text, icon="question", confirmText="Ya", cancelText="Batal"){
+  if(typeof Swal === "undefined"){ return Promise.resolve(confirm(`${title}\n${text}`)); }
+  return Swal.fire({
+    title, text, icon: icon||"question",
+    showCancelButton: true,
+    confirmButtonColor:"#0b2e59",
+    cancelButtonColor:"#6b7280",
+    confirmButtonText: confirmText,
+    cancelButtonText: cancelText,
+    customClass:{popup:"swal-bop-popup"}
+  }).then(r => r.isConfirmed);
+}
+function bopToast(title, text, icon="success"){
+  if(typeof Swal === "undefined"){ return; }
+  const Toast = Swal.mixin({
+    toast:true, position:"top-end", showConfirmButton:false,
+    timer:3000, timerProgressBar:true,
+    customClass:{popup:"swal-bop-toast"}
+  });
+  Toast.fire({icon: icon||"success", title, text});
+}
+/* =============================== */
 
 
 function cleanPrint(target){
@@ -680,7 +744,7 @@ function saveActivityToMobileQueue(){
   const act = createActivityFromPersiapan();
   data.mobileSync.activities.push(act);
   saveData();
-  alert("Kegiatan berhasil dikirim ke daftar sinkronisasi MoKu.");
+  bopToast("Kegiatan Dikirim","Kegiatan berhasil dikirim ke daftar sinkronisasi MoKu.","success");
 }
 function exportActivitiesForMobile(){
   collectPersiapan(); ensureMobileSync();
@@ -709,9 +773,9 @@ function importMobileResultFile(file){
       data.mobileSync.imported = items;
       saveData();
       renderMobileDocumentationToLPJ(); cleanPreviewGridV23(); insertAiNotulenPanelsV25(); renderMonitoringV24();
-      alert("Hasil dokumentasi MoKu berhasil di-import.");
+      bopToast("Import Berhasil","Hasil dokumentasi MoKu berhasil di-import.","success");
     }catch(err){
-      alert("File hasil mobile tidak valid.");
+      bopAlert("File Tidak Valid","File hasil mobile tidak dapat dibaca. Pastikan format file yang benar.","error");
     }
   };
   fr.readAsText(file);
@@ -762,13 +826,14 @@ function saveMokuImportedV34(){
   renderMobileDocumentationToLPJ();
   if(typeof renderMonitoringV24 === "function") renderMonitoringV24();
 }
-function deleteMokuActivityV34(actIdx){
+async function deleteMokuActivityV34(actIdx){
   ensureMobileSync();
   const items = data.mobileSync.imported || [];
   const act = items[actIdx];
   if(!act) return;
   const name = act.nama || `Kegiatan ${actIdx+1}`;
-  if(!confirm(`Hapus seluruh dokumentasi MoKu untuk kegiatan:\n\n${name}?`)) return;
+  const _delAct = await bopConfirm("Hapus Dokumentasi Kegiatan",`Hapus seluruh dokumentasi MoKu untuk kegiatan: ${name}?`,"warning","Hapus","Batal");
+  if(!_delAct) return;
   items.splice(actIdx,1);
   data.mobileSync.imported = items;
   saveMokuImportedV34();
@@ -824,16 +889,17 @@ function openMokuPhotoViewerV34(actIdx, bucket="all"){
 function openMokuImageNewTabV34(actIdx, photoIdx){
   ensureMobileSync();
   const p = data.mobileSync.imported?.[actIdx]?.photos?.[photoIdx];
-  if(!p?.dataUrl) return alert("Data foto tidak tersedia.");
+  if(!p?.dataUrl){ bopAlert("Foto Tidak Tersedia","Data foto tidak ditemukan.","error"); return; }
   const w = window.open();
-  if(!w) return alert("Popup diblokir browser. Izinkan popup untuk membuka foto.");
+  if(!w){ bopAlert("Popup Diblokir","Izinkan popup di browser untuk membuka foto.","warning"); return; }
   w.document.write(`<title>Foto MoKu</title><img src="${p.dataUrl}" style="max-width:100%;height:auto;display:block;margin:auto">`);
 }
-function deleteMokuPhotoV34(actIdx, photoIdx, bucket="all"){
+async function deleteMokuPhotoV34(actIdx, photoIdx, bucket="all"){
   ensureMobileSync();
   const act = data.mobileSync.imported?.[actIdx];
   if(!act || !Array.isArray(act.photos) || !act.photos[photoIdx]) return;
-  if(!confirm("Hapus foto dokumentasi ini?")) return;
+  const _delPhoto = await bopConfirm("Hapus Foto","Hapus foto dokumentasi ini?","warning","Hapus","Batal");
+  if(!_delPhoto) return;
   act.photos.splice(photoIdx,1);
   saveMokuImportedV34();
   openMokuPhotoViewerV34(actIdx,bucket);
@@ -3407,7 +3473,7 @@ function bind(){
     if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();} if(e.target.dataset.breakdown){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));}
     localStorage.setItem(STORE,JSON.stringify(data));
   });
-  ["savePengajuan","saveSetting","saveLpj"].forEach(id=>$(id).onclick=()=>{saveData();alert("Data tersimpan.");}); if($("savePersiapan")) $("savePersiapan").onclick=()=>{collectPersiapan();ensureMobileSync();localStorage.setItem(STORE,JSON.stringify(data));renderPersiapan();renderMobileDocumentationToLPJ();alert("Data persiapan kegiatan tersimpan.");}; if($("sendToMobile")) $("sendToMobile").onclick=saveActivityToMobileQueue; if($("exportActivities")) $("exportActivities").onclick=exportActivitiesForMobile; if($("importMobileResult")) $("importMobileResult").onchange=(e)=>{if(e.target.files[0]) importMobileResultFile(e.target.files[0]);};
+  ["savePengajuan","saveSetting","saveLpj"].forEach(id=>$(id).onclick=()=>{saveData();bopToast("Tersimpan","Data berhasil disimpan.","success");}); if($("savePersiapan")) $("savePersiapan").onclick=()=>{collectPersiapan();ensureMobileSync();try{localStorage.setItem(STORE,JSON.stringify(data));}catch(e){}renderPersiapan();renderMobileDocumentationToLPJ();bopToast("Tersimpan","Data persiapan kegiatan berhasil disimpan.","success");}; if($("sendToMobile")) $("sendToMobile").onclick=saveActivityToMobileQueue; if($("exportActivities")) $("exportActivities").onclick=exportActivitiesForMobile; if($("importMobileResult")) $("importMobileResult").onchange=(e)=>{if(e.target.files[0]) importMobileResultFile(e.target.files[0]);};
   $("addRap").onclick=addRap; $("addPeserta").onclick=addPeserta; $("addExpense").onclick=addExpense; if($("addActionPlan")) $("addActionPlan").onclick=addActionPlan; if($("addPkPeserta")) $("addPkPeserta").onclick=addPkPeserta; if($("addPkAction")) $("addPkAction").onclick=addPkAction;
   document.querySelectorAll(".doc-btn").forEach(b=>b.onclick=()=>previewDoc(b.dataset.doc)); document.querySelectorAll(".pk-doc-btn").forEach(b=>b.onclick=()=>previewPkDoc(b.dataset.pkdoc));
   $("saveToHistory").onclick=()=>{previewDoc(currentDoc); addHistory("Pengajuan",currentDoc,`Dokumen Pengajuan - ${currentDoc.toUpperCase()}`,$("docOutput").innerHTML);};
@@ -3492,11 +3558,47 @@ function setAccessModeV31(mode){
   });
 }
 
-function requireBopPinV31(){
-  const pin = window.prompt("Masukkan PIN Admin BOP untuk membuka menu administrasi:");
-  if(pin === null) return false;
-  if(String(pin).trim() === String(BOP_ADMIN_PIN_V31).trim()) return true;
-  alert("PIN Admin BOP salah. Akses administrasi tidak dibuka.");
+async function requireBopPinV31(){
+  if(typeof Swal === "undefined"){
+    const pin = window.prompt("Masukkan PIN Admin BOP:");
+    if(pin === null) return false;
+    if(String(pin).trim() === String(BOP_ADMIN_PIN_V31).trim()) return true;
+    bopAlert("PIN Salah","PIN Admin BOP yang Anda masukkan tidak sesuai.","error");
+    return false;
+  }
+  const {value: pin, isConfirmed} = await Swal.fire({
+    title: "🔐 Akses BOP Admin",
+    html: `<p style="margin:0 0 10px;color:#667085;font-size:13px">Masukkan PIN untuk membuka menu administrasi BOP RT 005</p>`,
+    input: "password",
+    inputPlaceholder: "Masukkan PIN...",
+    inputAttributes: { autocomplete: "off", maxlength: "12" },
+    showCancelButton: true,
+    confirmButtonText: "Buka Akses",
+    cancelButtonText: "Batal",
+    confirmButtonColor: "#0b2e59",
+    cancelButtonColor: "#6b7280",
+    customClass: { popup: "swal-bop-popup" },
+    preConfirm: (v) => {
+      if(!v) return Swal.showValidationMessage("PIN tidak boleh kosong");
+      return v;
+    }
+  });
+  if(!isConfirmed) return false;
+  if(String(pin).trim() === String(BOP_ADMIN_PIN_V31).trim()){
+    await Swal.fire({
+      icon: "success", title: "Akses Diberikan",
+      text: "Selamat datang di BOP Administrasi RT 005!",
+      timer: 1400, showConfirmButton: false,
+      customClass: { popup: "swal-bop-popup" }
+    });
+    return true;
+  }
+  await Swal.fire({
+    icon: "error", title: "PIN Salah",
+    text: "PIN Admin BOP tidak valid. Akses ditolak.",
+    confirmButtonColor: "#0b2e59",
+    customClass: { popup: "swal-bop-popup" }
+  });
   return false;
 }
 
@@ -3518,17 +3620,15 @@ function loadMokuFrameV31(){
   }
 }
 
-function goPage(page){
+async function goPage(page){
   if(!$("page-" + page)) page = "akses";
 
-  // Halaman awal: reset semua akses dan tampil full-screen pilih akses.
   if(page === "akses"){
     setAccessModeV31(null);
     showOnlyPageV31("akses");
     return;
   }
 
-  // Dari halaman gate, pilihan BOP wajib PIN.
   if(!ACCESS_MODE_V31){
     if(page === "moku"){
       setAccessModeV31("moku");
@@ -3536,7 +3636,8 @@ function goPage(page){
       showOnlyPageV31("moku");
       return;
     }
-    if(!requireBopPinV31()){
+    const ok = await requireBopPinV31();
+    if(!ok){
       setAccessModeV31(null);
       showOnlyPageV31("akses");
       return;
@@ -3544,9 +3645,8 @@ function goPage(page){
     setAccessModeV31("bop");
   }
 
-  // Mode warga/MoKu hanya boleh membuka halaman MoKu atau kembali ke Pilih Akses.
   if(ACCESS_MODE_V31 === "moku" && page !== "moku"){
-    alert("Mode MoKu hanya untuk dokumentasi kegiatan. Menu administrasi BOP dikunci agar data tidak berubah.");
+    bopToast("Akses Terbatas","Mode MoKu: menu administrasi BOP dikunci.","warning");
     loadMokuFrameV31();
     showOnlyPageV31("moku");
     return;
@@ -4276,9 +4376,12 @@ function goPage(page){
     body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.24}
     .print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}
     .official,.official-v37{font-family:"Times New Roman",serif;color:#000;font-size:11.5pt;line-height:1.24;width:100%;box-sizing:border-box;text-align:justify}
-    .kop{display:grid;grid-template-columns:76px 1fr;align-items:center;border-bottom:3px double #000;padding-bottom:8px;margin-bottom:14px;text-align:center}
-    .kop-logo{width:58px;max-height:70px;object-fit:contain;margin:auto;display:block}
-    .kop h1{margin:0;font-size:16px;text-transform:uppercase}.kop h2{margin:2px 0;font-size:15px;text-transform:uppercase}.kop p{margin:2px 0;font-size:11px}
+    .kop{position:relative;text-align:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;min-height:72px;display:flex;align-items:center;justify-content:center}
+    .kop-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);width:58px;max-height:70px;object-fit:contain;display:block}
+    .kop-text{text-align:center;width:100%}
+    .kop h1,.kop-text h1{margin:0;font-size:16px;text-transform:uppercase;text-align:center}
+    .kop h2,.kop-text h2{margin:2px 0;font-size:15px;text-transform:uppercase;text-align:center}
+    .kop p,.kop-text p{margin:2px 0;font-size:11px;text-align:center}
     .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt;line-height:1.2}
     .official p{margin:7px 0;text-align:justify}.center-v37{text-align:center!important}.date-right-v37{text-align:right!important}.ket-v37{font-size:10pt}.mengetahui-v37{margin-top:14px!important}
     .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:normal}

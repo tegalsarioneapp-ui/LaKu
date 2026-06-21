@@ -1242,8 +1242,16 @@
       a.click();
     });
 
-    // Close camera on tab change / visibility
-    document.addEventListener("visibilitychange", () => { if (document.hidden) closeCamera(); });
+    // Close camera and stop GPS on tab hide
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        closeCamera();
+        if (gpsWatchId !== null) {
+          try { navigator.geolocation.clearWatch(gpsWatchId); } catch(_){}
+          gpsWatchId = null;
+        }
+      }
+    });
 
     // PWA install
     window.addEventListener("beforeinstallprompt", e => {

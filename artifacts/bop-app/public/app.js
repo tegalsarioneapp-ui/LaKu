@@ -193,8 +193,15 @@ function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw|
 function kopHTML(){
   const k=data.kop;
   return `<div class="kop">
-    <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang">
-    <div class="kop-text"><h1>${k.baris1}</h1><h2>${k.baris2}</h2><h2>${k.baris3}</h2><h2>${k.baris4}</h2><p>${k.alamat||data.master.alamat||""}</p></div>
+    <table style="width:100%;border:0;border-collapse:collapse;margin:0;padding:0"><tbody><tr>
+      <td style="width:70px;vertical-align:middle;text-align:left;border:0;padding:0">
+        <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" style="position:static;transform:none;width:62px;height:auto;display:block" alt="Logo Kota Semarang">
+      </td>
+      <td style="text-align:center;vertical-align:middle;border:0;padding:0">
+        <div class="kop-text"><h1>${k.baris1}</h1><h2>${k.baris2}</h2><h2>${k.baris3}</h2><h2>${k.baris4}</h2><p>${k.alamat||data.master.alamat||""}</p></div>
+      </td>
+      <td style="width:70px;border:0;padding:0"></td>
+    </tr></tbody></table>
   </div>`;
 }
 function official(body){ return `<div class="official">${kopHTML()}${body}</div>`; }

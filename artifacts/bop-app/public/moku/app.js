@@ -8,6 +8,8 @@
 
   const STORAGE_KEY  = "moku_rt005_v2_premium";
   const DEFAULT_TYPES = ["Foto Sebelum", "Foto Proses", "Foto Sesudah", "Foto Nota/Kuitansi", "Foto Serah Terima"];
+  const MOKU_MONTHS  = ["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+  const MOKU_MONTH_ALL = "Januari-Desember 2026";
   const GPS_MAX_MS   = 15_000;  /* batas waktu absolut (15s, turun dari 120s) */
   const GPS_GOOD_ACC = 50;      /* akurasi "cukup bagus" dalam meter           */
   const GPS_ACCEPT_MS = 5_000;  /* terima posisi terbaik setelah 5 detik       */
@@ -58,6 +60,7 @@
       gpsStatus: "idle",
       gpsMessage: "",
       gpsDebug: {},
+      historyFilter: "",
       lastUpdated: null
     };
   }
@@ -466,6 +469,7 @@
     renderActivityList();
     renderCameraTab();
     renderResults();
+    renderHistory();
     renderGps();
   }
 
@@ -591,6 +595,104 @@
           <button class="btn-ghost btn-sm" data-select-activity="${esc(idOf(act))}" type="button">Buka Kamera</button>
         </div>
       </article>`;
+    }).join("");
+  }
+
+  /* ── Riwayat Kegiatan (History by Month) ───────────────── */
+  function getActivityMonths() {
+    const months = new Set();
+    (state.activities || []).forEach(a => {
+      const b = a.bulan || a.hariTanggal || "";
+      if (b) months.add(b);
+    });
+    return MOKU_MONTHS.filter(m => months.has(m));
+  }
+
+  function renderHistory() {
+    const el = $("historyList");
+    const filterSel = $("historyMonthFilter");
+    if (!el || !filterSel) return;
+
+    const activities   = state.activities || [];
+    const activeMonths = getActivityMonths();
+
+    /* Isi dropdown filter jika belum */
+    const currentFilter = state.historyFilter || "";
+    filterSel.innerHTML =
+      `<option value="">Semua Bulan</option>` +
+      MOKU_MONTHS.map(m =>
+        `<option value="${esc(m)}" ${m === currentFilter ? "selected" : ""}>${esc(m)}</option>`
+      ).join("");
+
+    /* Filter activities */
+    const filtered = currentFilter
+      ? activities.filter(a => (a.bulan || a.hariTanggal || "") === currentFilter)
+      : activities;
+
+    if (!filtered.length) {
+      el.innerHTML = `<div class="empty-state"><b>Belum ada riwayat</b>${currentFilter ? `Tidak ada kegiatan untuk ${esc(currentFilter)}.` : "Sinkronisasi BOP atau tambah kegiatan manual."}</div>`;
+      return;
+    }
+
+    /* Group by month */
+    const groups = {};
+    filtered.forEach(act => {
+      const m = act.bulan || act.hariTanggal || "Tanpa Bulan";
+      if (!groups[m]) groups[m] = [];
+      groups[m].push(act);
+    });
+
+    const monthOrder = currentFilter
+      ? [currentFilter]
+      : MOKU_MONTHS.filter(m => groups[m]);
+    if (groups["Tanpa Bulan"]) monthOrder.push("Tanpa Bulan");
+
+    el.innerHTML = monthOrder.map(month => {
+      const acts = groups[month] || [];
+      const doneCount  = acts.filter(isDone).length;
+      const photoCount = acts.reduce((s, a) => s + (resultFor(a).photos||[]).length, 0);
+      const totalNom   = acts.reduce((s, a) => s + Number(a.nominal || 0), 0);
+      const pct        = acts.length ? Math.round(doneCount / acts.length * 100) : 0;
+
+      return `<div class="riwayat-month-group">
+        <div class="riwayat-month-hdr">
+          <div>
+            <b class="riwayat-month-title">${esc(month)}</b>
+            <span class="riwayat-month-meta">${acts.length} kegiatan · ${photoCount} foto · ${money(totalNom)}</span>
+          </div>
+          <span class="state-chip ${doneCount === acts.length && acts.length ? "done" : ""}">${doneCount}/${acts.length} Lengkap</span>
+        </div>
+        <div class="riwayat-progress-bar"><div class="riwayat-progress-fill" style="width:${pct}%"></div></div>
+        <div class="riwayat-act-list">
+          ${acts.map(act => {
+            const res       = resultFor(act);
+            const photos    = res.photos || [];
+            const done      = isDone(act);
+            const types     = checklistOf(act);
+            const doneT     = types.filter(t => photos.some(p => p.type === t)).length;
+            const actPct    = types.length ? Math.round(doneT / types.length * 100) : 0;
+            return `<article class="riwayat-act-card">
+              <div class="card-row">
+                <div style="flex:1;min-width:0">
+                  <div class="card-title">${esc(act.nama)}</div>
+                  <div class="card-meta">
+                    <span>${esc(act.jenis || "Kegiatan BOP")}</span>
+                    ${act.volume ? `<span>${esc(act.volume)}</span>` : ""}
+                    ${photos.length ? `<span>${photos.length} foto</span>` : ""}
+                    ${Number(act.nominal) ? `<span>${money(act.nominal)}</span>` : ""}
+                  </div>
+                  <div class="mini-progress"><div class="mini-progress-fill" style="width:${actPct}%"></div></div>
+                </div>
+                <span class="state-chip ${done ? "done" : ""}">${done ? "✓" : `${doneT}/${types.length}`}</span>
+              </div>
+              <div class="card-actions">
+                <button class="btn-ghost btn-sm" data-select-activity="${esc(idOf(act))}" type="button">Dokumentasi</button>
+                ${act.agenda ? `<span style="font-size:11px;color:var(--muted);flex:1;padding-left:8px">${esc(act.agenda.slice(0,60))}${act.agenda.length>60?"…":""}</span>` : ""}
+              </div>
+            </article>`;
+          }).join("")}
+        </div>
+      </div>`;
     }).join("");
   }
 
@@ -974,16 +1076,22 @@
   }
 
   function rapToActivity(r, idx) {
-    const slug = `bop-rap-${String(r.uraian||"").replace(/\s+/g,"_").slice(0,30)}-${String(r.bulan||"").replace(/\s/g,"")}`;
+    const bulan  = r.bulan || "";
+    const uraian = r.uraian || `Kegiatan RAP ${idx + 1}`;
+    const slug   = `bop-rap-${String(uraian).replace(/\s+/g,"_").slice(0,25)}-${String(bulan).replace(/[\s/]/g,"")}`;
+    const agendaParts = [r.subKategori, r.keterangan, r.tipe ? `Tipe: ${r.tipe}` : ""].filter(Boolean);
     return {
       id:          slug,
-      jenis:       r.kategori || "Kegiatan BOP",
-      nama:        r.uraian   || `Kegiatan RAP ${idx + 1}`,
-      hariTanggal: r.bulan    || "",
+      jenis:       r.kategori   || "Kegiatan BOP",
+      nama:        uraian,
+      hariTanggal: bulan,
+      bulan:       bulan,
       waktu:       "",
       tempat:      "Wilayah RT 005 RW 012 Tegalsari",
-      agenda:      [r.subKategori, r.keterangan].filter(Boolean).join(" · "),
+      agenda:      agendaParts.join(" · "),
       nominal:     Number(r.jumlah || 0),
+      volume:      r.volume || "1 Paket",
+      tipe:        r.tipe || "",
       checklist:   DEFAULT_TYPES,
       source:      "BOP Sync",
       syncedAt:    new Date().toISOString()
@@ -996,19 +1104,44 @@
       if (!opts.silent) showToast("Data BOP tidak ditemukan di perangkat ini", "warn");
       return 0;
     }
-    /* Normalize format RAP (bisa array lama atau object baru) */
     const rawRap = bop.pengajuan?.rap || [];
     if (!rawRap.length) {
       if (!opts.silent) showToast("Belum ada item RAP di BOP", "warn");
       return 0;
     }
+
+    /* Normalize format RAP (array lama → object baru) */
     const normRap = rawRap.map(r => Array.isArray(r)
       ? { uraian:r[0]||"", volume:r[1]||"1 Paket", jumlah:Number(r[2]||0), keterangan:r[3]||"", kategori:"Operasional", subKategori:"", bulan:"", tipe:"" }
       : r
     );
 
+    /* Expand RAP_MONTH_ALL & range bulan → satu entry per bulan */
+    const expanded = [];
+    normRap.forEach((r, origIdx) => {
+      const bulan = r.bulan || "";
+      const isAll = bulan === MOKU_MONTH_ALL || bulan === "" ||
+                    (r.bulanMulai && r.bulanSelesai); /* format range */
+      if (isAll) {
+        /* Cek range bulan (bulanMulai - bulanSelesai) */
+        let months = MOKU_MONTHS;
+        if (r.bulanMulai && r.bulanSelesai) {
+          const iStart = MOKU_MONTHS.indexOf(r.bulanMulai);
+          const iEnd   = MOKU_MONTHS.indexOf(r.bulanSelesai);
+          if (iStart >= 0 && iEnd >= iStart)
+            months = MOKU_MONTHS.slice(iStart, iEnd + 1);
+        }
+        const nominalPerBulan = Math.round(Number(r.jumlah || 0) / months.length);
+        months.forEach(m => {
+          expanded.push({ ...r, bulan: m, jumlah: nominalPerBulan, _origIdx: origIdx });
+        });
+      } else {
+        expanded.push({ ...r, _origIdx: origIdx });
+      }
+    });
+
     const existingIds = new Set((state.activities||[]).map(a => a.id));
-    const mapped      = normRap.map((r, i) => rapToActivity(r, i));
+    const mapped      = expanded.map((r, i) => rapToActivity(r, i));
     const newActs     = mapped.filter(a => !existingIds.has(a.id));
     const updActs     = mapped.filter(a =>  existingIds.has(a.id));
 
@@ -1017,7 +1150,6 @@
       state.activities = [...(state.activities||[]), ...newActs];
       changed += newActs.length;
     }
-    /* Update kegiatan BOP yang sudah ada (jika data RAP berubah) */
     if (updActs.length) {
       state.activities = state.activities.map(a => {
         const upd = updActs.find(u => u.id === a.id);
@@ -1030,10 +1162,8 @@
         state.currentId = state.activities[0].id;
       saveState();
       render();
-      /* Simpan snapshot BOP ke IndexedDB */
       if (typeof MokuDB !== "undefined" && MokuDB.isAvailable())
         MokuDB.saveBopSnapshot(bop).catch(() => {});
-      /* Sync metadata ke cloud (background) */
       cloudSyncResults();
     }
 
@@ -1051,17 +1181,37 @@
     if (!bop) return;
     const rawRap = bop.pengajuan?.rap || [];
     if (!rawRap.length) return;
-    const normRap = rawRap.map((r, i) => rapToActivity(
-      Array.isArray(r) ? { uraian:r[0]||"", bulan:r[3]||"", kategori:"Operasional" } : r, i
-    ));
-    const existingIds = new Set((state.activities||[]).map(a => a.id));
-    const newCount = normRap.filter(a => !existingIds.has(a.id)).length;
-    if (newCount > 0) {
-      const btn = document.getElementById("bopSyncBtn");
-      if (btn) {
-        btn.setAttribute("data-badge", String(newCount));
-        btn.title = `${newCount} kegiatan BOP baru — klik untuk sinkronisasi`;
+    const normRap = rawRap.map(r => Array.isArray(r)
+      ? { uraian:r[0]||"", volume:r[1]||"1 Paket", jumlah:Number(r[2]||0), keterangan:r[3]||"", kategori:"Operasional", subKategori:"", bulan:"", tipe:"" }
+      : r
+    );
+    /* Expand RAP_MONTH_ALL untuk hitung estimasi jumlah kegiatan baru */
+    const expanded = [];
+    normRap.forEach((r, origIdx) => {
+      const bulan = r.bulan || "";
+      const isAll = bulan === MOKU_MONTH_ALL || bulan === "" || (r.bulanMulai && r.bulanSelesai);
+      if (isAll) {
+        let months = MOKU_MONTHS;
+        if (r.bulanMulai && r.bulanSelesai) {
+          const iS = MOKU_MONTHS.indexOf(r.bulanMulai), iE = MOKU_MONTHS.indexOf(r.bulanSelesai);
+          if (iS >= 0 && iE >= iS) months = MOKU_MONTHS.slice(iS, iE + 1);
+        }
+        months.forEach(m => expanded.push({ ...r, bulan: m, _origIdx: origIdx }));
+      } else {
+        expanded.push({ ...r, _origIdx: origIdx });
       }
+    });
+    const existingIds = new Set((state.activities||[]).map(a => a.id));
+    const mapped = expanded.map((r, i) => rapToActivity(r, i));
+    const newCount = mapped.filter(a => !existingIds.has(a.id)).length;
+    if (newCount > 0) {
+      ["bopSyncBtn","riwayatSyncBtn"].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+          btn.setAttribute("data-badge", String(newCount));
+          btn.title = `${newCount} kegiatan BOP baru — klik untuk sinkronisasi`;
+        }
+      });
     }
   }
 
@@ -1208,6 +1358,26 @@
       res.updatedAt = now().toISOString();
       saveState();
     });
+
+    // History month filter
+    const historyFilter = $("historyMonthFilter");
+    if (historyFilter) {
+      historyFilter.addEventListener("change", () => {
+        state.historyFilter = historyFilter.value;
+        saveState();
+        renderHistory();
+      });
+    }
+
+    // Riwayat sync button
+    const riwayatSyncBtn = $("riwayatSyncBtn");
+    if (riwayatSyncBtn) {
+      riwayatSyncBtn.addEventListener("click", () => {
+        riwayatSyncBtn.removeAttribute("data-badge");
+        syncFromBOP();
+        showToast("✓ Data kegiatan RAP diperbarui");
+      });
+    }
 
     // BOP Sync button
     const bopSyncBtn = $("bopSyncBtn");

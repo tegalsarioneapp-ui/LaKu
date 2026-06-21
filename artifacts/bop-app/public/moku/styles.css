@@ -997,6 +997,166 @@ body.camera-open .fab,
 body.camera-open .bottom-nav { display: none; }
 
 /* =========================================================
+   Riwayat Kegiatan (History Tab)
+   ========================================================= */
+.riwayat-header-card {
+  background: linear-gradient(135deg, var(--navy2), var(--navy3));
+  border-radius: var(--radius-md);
+  padding: 20px 18px 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-md);
+}
+
+.riwayat-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.riwayat-header-top h2 {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--white);
+  margin: 4px 0 4px;
+}
+
+.riwayat-header-top p {
+  font-size: 12px;
+  color: rgba(255,255,255,.55);
+  margin: 0;
+}
+
+.riwayat-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255,255,255,.06);
+  border-radius: 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255,255,255,.1);
+}
+
+.riwayat-filter-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,.7);
+  white-space: nowrap;
+}
+
+.riwayat-filter-select {
+  flex: 1;
+  background: rgba(255,255,255,.1);
+  border: none;
+  border-radius: 10px;
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 10px;
+  outline: none;
+  cursor: pointer;
+}
+
+.riwayat-filter-select option {
+  background: var(--navy2);
+  color: var(--white);
+}
+
+/* Month group */
+.riwayat-month-group {
+  background: var(--card);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.riwayat-month-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 8px;
+  gap: 10px;
+}
+
+.riwayat-month-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+
+.riwayat-month-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.riwayat-progress-bar {
+  height: 4px;
+  background: var(--line);
+  margin: 0 16px 2px;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.riwayat-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--blue), var(--gold));
+  border-radius: 99px;
+  transition: width .4s ease;
+}
+
+.riwayat-act-list {
+  padding: 6px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.riwayat-act-card {
+  background: rgba(0,0,0,.025);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.riwayat-act-card .card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.riwayat-act-card .card-meta {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 3px 0 5px;
+}
+
+.riwayat-act-card .card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* 4-item bottom nav adjustment */
+.bottom-nav {
+  grid-template-columns: repeat(4, 1fr) !important;
+}
+
+/* =========================================================
    Scrollbar
    ========================================================= */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

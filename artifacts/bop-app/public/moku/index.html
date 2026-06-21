@@ -173,6 +173,33 @@
         <div id="resultList" class="list-wrap"></div>
         <button id="clearBtn" class="btn-danger" type="button">Reset Semua Data MoKu</button>
       </section>
+
+      <!-- ══ Riwayat Kegiatan ═══════════════════════════════════ -->
+      <section id="page-riwayat" class="page">
+        <div class="riwayat-header-card">
+          <div class="riwayat-header-top">
+            <div>
+              <span class="label-eyebrow">Riwayat Kegiatan</span>
+              <h2>Dokumentasi per Bulan</h2>
+              <p>Kegiatan dari RAP BOP dikelompokkan berdasarkan bulan pelaksanaan.</p>
+            </div>
+            <button id="riwayatSyncBtn" class="btn-bop-sync btn-sm" type="button" title="Sinkron ulang dari BOP">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>
+              Sinkron BOP
+            </button>
+          </div>
+          <div class="riwayat-filter-row">
+            <label class="riwayat-filter-label" for="historyMonthFilter">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 4h18M7 10h10M11 16h2"/></svg>
+              Filter Bulan
+            </label>
+            <select id="historyMonthFilter" class="riwayat-filter-select">
+              <option value="">Semua Bulan</option>
+            </select>
+          </div>
+        </div>
+        <div id="historyList" class="list-wrap"></div>
+      </section>
     </main>
   </div>
 
@@ -192,6 +219,10 @@
     <button class="nav-item" data-tab="result" type="button">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
       <span>Hasil</span>
+    </button>
+    <button class="nav-item" data-tab="riwayat" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span>Riwayat</span>
     </button>
   </nav>
 

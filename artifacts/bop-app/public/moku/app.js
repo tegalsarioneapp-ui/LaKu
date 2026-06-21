@@ -526,24 +526,37 @@
       const types  = checklistOf(act);
       const doneCount = types.filter(t => (res.photos||[]).some(p => p.type === t)).length;
       const pct    = types.length ? Math.round(doneCount/types.length*100) : 0;
+      /* Cari jenis foto berikutnya yang belum diambil */
+      const nextType = types.find(t => !(res.photos||[]).some(p => p.type === t));
+      const nextLabel = nextType ? nextType.replace("Foto ","") : null;
       return `<article class="activity-card ${active ? "is-active" : ""}">
         <div class="card-row">
           <div style="flex:1;min-width:0">
             <div class="card-title">${esc(act.nama)}</div>
             <div class="card-meta">
-              <span>${esc(act.jenis||"Kegiatan BOP")}${act.hariTanggal ? " · " + esc(act.hariTanggal) : ""}</span>
-              ${act.tempat ? `<span>${esc(act.tempat)}</span>` : ""}
-              ${Number(act.nominal||0) ? `<span>${money(act.nominal)}</span>` : ""}
+              ${act.hariTanggal ? `<span>📅 ${esc(act.hariTanggal)}</span>` : ""}
+              ${act.tempat ? `<span>📍 ${esc(act.tempat)}</span>` : ""}
             </div>
-            <div class="mini-progress"><div class="mini-progress-fill" style="width:${pct}%"></div></div>
+            <div class="mini-progress-wrap">
+              <div class="mini-progress"><div class="mini-progress-fill" style="width:${pct}%"></div></div>
+              <span class="mini-progress-label">${doneCount} dari ${types.length} jenis foto</span>
+            </div>
           </div>
           <span class="state-chip ${done ? "done" : ""}">${done ? "✓ Lengkap" : `${doneCount}/${types.length}`}</span>
         </div>
-        <div class="card-actions">
-          <button class="${active ? "btn-primary btn-sm" : "btn-ghost btn-sm"}" data-select-activity="${esc(id)}" type="button">
-            ${active ? "Lanjut Kamera" : "Pilih"}
-          </button>
-        </div>
+        ${done
+          ? `<button class="btn-foto-done" data-select-activity="${esc(id)}" type="button">
+               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+               Dokumentasi Lengkap · Lihat Foto
+             </button>`
+          : `<button class="btn-foto-langsung" data-foto-langsung="${esc(id)}" type="button">
+               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+               <span>
+                 <b>Ambil Foto${nextLabel ? ` — ${nextLabel}` : ""}</b>
+                 <small>${active ? "Ketuk untuk buka kamera" : "Ketuk untuk mulai"}</small>
+               </span>
+             </button>`
+        }
       </article>`;
     }).join("");
   }
@@ -552,13 +565,16 @@
     const act = currentActivity();
     $("cameraTitle").textContent = act ? act.nama : "Pilih kegiatan dulu";
     $("cameraMeta").textContent  = act
-      ? ([act.hariTanggal, act.waktu, act.tempat].filter(Boolean).join(" · ") || "Dokumentasi kegiatan")
-      : "Foto akan otomatis diberi watermark waktu dan GPS.";
+      ? ([act.hariTanggal, act.tempat].filter(Boolean).join(" · ") || "Dokumentasi kegiatan")
+      : "Pilih kegiatan dari tab Kegiatan terlebih dahulu.";
 
     const chips = $("photoTypeChips");
     if (!act) {
-      chips.innerHTML = `<div style="color:var(--muted);font-size:13px">Pilih kegiatan dulu.</div>`;
-      $("recentPhotos").innerHTML = `<div class="empty-state"><b>Belum ada foto</b>Pilih kegiatan dan tekan kamera.</div>`;
+      chips.innerHTML = `<div class="empty-chips-hint">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="opacity:.35"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Buka tab <b>Kegiatan</b>, lalu ketuk<br><b>Ambil Foto</b> pada kegiatan yang diinginkan.</span>
+      </div>`;
+      $("recentPhotos").innerHTML = "";
       $("photoCountBadge").hidden = true;
       $("resultNote").value = "";
       return;
@@ -568,12 +584,24 @@
     const types = checklistOf(act);
     if (!types.includes(selectedType)) selectedType = types[0];
 
+    /* Cari foto yang belum diambil */
+    const missingTypes = types.filter(t => !(res.photos||[]).some(p => p.type === t));
+    const nextMissing  = missingTypes[0] || null;
+    /* Auto-select foto yang belum diambil */
+    if (nextMissing && !types.includes(selectedType)) selectedType = nextMissing;
+    if (nextMissing && !(res.photos||[]).some(p => p.type === selectedType)) {
+      selectedType = nextMissing;
+    }
+
     chips.innerHTML = types.map(type => {
-      const hasDone = (res.photos||[]).some(p => p.type === type);
+      const count   = (res.photos||[]).filter(p => p.type === type).length;
+      const hasDone = count > 0;
       const active  = type === selectedType;
+      const shortLabel = type.replace("Foto ","");
       return `<button class="type-chip ${active ? "active" : ""} ${hasDone && !active ? "done" : ""}" data-photo-type="${esc(type)}" type="button">
-        ${hasDone ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}
-        ${esc(type.replace("Foto ",""))}
+        ${hasDone ? `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>` : ""}
+        <span class="chip-label">${esc(shortLabel)}</span>
+        ${count > 0 ? `<span class="chip-count">${count}</span>` : ""}
       </button>`;
     }).join("");
 
@@ -599,21 +627,31 @@
     el.innerHTML = activities.map(act => {
       const res    = resultFor(act);
       const photos = res.photos || [];
+      const types  = checklistOf(act);
       const done   = isDone(act);
+      const doneCount = types.filter(t => photos.some(p => p.type === t)).length;
+      const pct    = types.length ? Math.round(doneCount/types.length*100) : 0;
       return `<article class="result-card">
         <div class="card-row">
           <div style="flex:1;min-width:0">
             <div class="card-title">${esc(act.nama)}</div>
             <div class="card-meta">
-              <span>${photos.length} foto tersimpan</span>
-              <span>${done ? "✓ Checklist lengkap" : "Checklist belum lengkap"}</span>
+              ${act.hariTanggal ? `<span>📅 ${esc(act.hariTanggal)}</span>` : ""}
+              <span>${photos.length} foto · ${doneCount}/${types.length} jenis</span>
+            </div>
+            <div class="mini-progress-wrap">
+              <div class="mini-progress"><div class="mini-progress-fill" style="width:${pct}%"></div></div>
             </div>
           </div>
-          <span class="state-chip ${done ? "done" : ""}">${done ? "✓" : "Proses"}</span>
+          <span class="state-chip ${done ? "done" : ""}">${done ? "✓ Lengkap" : "Proses"}</span>
         </div>
-        <div class="card-actions">
-          <button class="btn-ghost btn-sm" data-select-activity="${esc(idOf(act))}" type="button">Buka Kamera</button>
-        </div>
+        ${done
+          ? `<div class="result-done-note">✓ Semua foto sudah diambil dan tersinkron ke laporan BOP.</div>`
+          : `<button class="btn-foto-langsung" data-foto-langsung="${esc(idOf(act))}" type="button">
+               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+               <span><b>Lanjut Ambil Foto</b><small>Masih ada foto yang belum diambil</small></span>
+             </button>`
+        }
       </article>`;
     }).join("");
   }
@@ -1355,6 +1393,14 @@
       const sel = e.target.closest("[data-select-activity]");
       if (sel) { selectActivity(sel.dataset.selectActivity); return; }
 
+      // Foto langsung — pilih kegiatan + buka kamera langsung
+      const foto = e.target.closest("[data-foto-langsung]");
+      if (foto) {
+        selectActivity(foto.dataset.fotoLangsung);
+        setTimeout(() => openCamera(), 120); /* beri waktu render selesai */
+        return;
+      }
+
       // Select photo type (camera tab chips)
       const type = e.target.closest("[data-photo-type]");
       if (type) { selectedType = type.dataset.photoType; renderCameraTab(); return; }
@@ -1393,8 +1439,9 @@
     $("closeGpsSheetBtn").addEventListener("click", () => $("gpsSheet").hidden = true);
     $("gpsSheet").addEventListener("click", e => { if (e.target === $("gpsSheet")) $("gpsSheet").hidden = true; });
 
-    // Activity modal
-    $("addManualBtn").addEventListener("click", openAddModal);
+    // Activity modal (tombol manual sudah dihapus dari UI, jaga jika DOM masih ada)
+    const addManualEl = $("addManualBtn");
+    if (addManualEl) addManualEl.addEventListener("click", openAddModal);
     $("saveActivityBtn").addEventListener("click", saveNewActivity);
     $("cancelActivityBtn").addEventListener("click", () => $("activityModal").hidden = true);
     $("activityModal").addEventListener("click", e => { if (e.target === $("activityModal")) $("activityModal").hidden = true; });

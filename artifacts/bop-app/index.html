@@ -583,6 +583,7 @@
           <div class="action-row">
             <button class="primary" id="saveLpjHistory">Simpan LPJ ke Riwayat</button>
             <button class="secondary" id="printLpj">Cetak / Simpan PDF</button>
+            <button class="primary" id="exportPdfLpjV38">⬇ Export PDF LPJ</button>
           </div>
           <div class="doc-paper" id="lpjOutput"></div>
           <div id="lpjFotoSheets"></div>
@@ -906,6 +907,19 @@
               <button class="danger-button" id="resetAllData">Reset Semua Data</button>
             </div>
           </div>
+        </div>
+
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head">
+            <h3>☁️ Sinkronisasi Antar Device</h3>
+            <span id="syncBadgeV39" style="font-size:12px;font-weight:600;color:#64748b;">Mengecek...</span>
+          </div>
+          <p>Simpan data ke server agar bisa diakses dari HP, laptop, atau perangkat lain yang membuka aplikasi ini. Data tidak akan hilang saat ganti browser.</p>
+          <div class="action-row">
+            <button class="primary" id="syncPushV39">☁️ Simpan ke Server</button>
+            <button class="secondary" id="syncPullV39">⬇ Ambil dari Server</button>
+          </div>
+          <p class="hint" id="syncStatusV39" style="margin-top:8px;">Memeriksa status sinkronisasi...</p>
         </div>
 
         <div class="doc-paper" id="kopPreview"></div>

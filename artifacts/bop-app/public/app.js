@@ -4585,3 +4585,584 @@ async function goPage(page){
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",()=>setTimeout(initV37,120)); else setTimeout(initV37,120);
 })();
 
+
+/* PATCH v1.38 - Export PDF Langsung tanpa Dialog Cetak Browser */
+(function bopPdfExportV38(){
+  const PATCH_ID = "[BOP PDF v1.38]";
+
+  function loadHtml2PdfV38(){
+    return new Promise((resolve, reject) => {
+      if(window.html2pdf){ resolve(window.html2pdf); return; }
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+      s.onload = () => { if(window.html2pdf) resolve(window.html2pdf); else reject(new Error("html2pdf tidak tersedia")); };
+      s.onerror = () => reject(new Error("Gagal memuat library PDF. Pastikan koneksi internet aktif."));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function doExportPdf(el, filename){
+    try {
+      const lib = await loadHtml2PdfV38();
+      const opt = {
+        margin: [10, 10, 10, 10],
+        filename: filename,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, scrollY: 0 },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+      };
+      if(typeof bopToast === "function") bopToast("Membuat PDF", "Proses export sedang berjalan...", "info");
+      await lib().set(opt).from(el).save();
+    } catch(e){
+      console.error(PATCH_ID, e);
+      if(typeof bopAlert === "function") bopAlert("Gagal Export PDF", e.message || "Terjadi kesalahan saat membuat PDF.", "error");
+    }
+  }
+
+  window.exportPdfDocV38 = async function(){
+    if(typeof collectAll === "function") collectAll();
+    const type = (typeof currentDoc !== "undefined" ? currentDoc : null) || "permohonan";
+    if(typeof previewDoc === "function") previewDoc(type);
+    await new Promise(r => setTimeout(r, 100));
+    const el = document.getElementById("docOutput");
+    if(!el || !el.innerHTML.trim()){
+      if(typeof bopAlert === "function") bopAlert("Export PDF", "Pilih dokumen terlebih dahulu sebelum export PDF.", "warning");
+      return;
+    }
+    await doExportPdf(el, "dokumen_" + type + "_rt005.pdf");
+  };
+
+  window.exportPdfLpjV38 = async function(){
+    if(typeof collectAll === "function") collectAll();
+    const el = document.getElementById("lpjOutput");
+    if(el && typeof docLpj === "function") el.innerHTML = docLpj();
+    await new Promise(r => setTimeout(r, 100));
+    if(!el || !el.innerHTML.trim()){
+      if(typeof bopAlert === "function") bopAlert("Export PDF", "Buka tab Preview Laporan terlebih dahulu.", "warning");
+      return;
+    }
+    const periode = (typeof data !== "undefined" && data.lpj ? data.lpj.periode : "laporan").replace(/[\s\/]+/g, "_");
+    await doExportPdf(el, "lpj_rt005_" + periode + ".pdf");
+  };
+
+  function installPdfBtnsV38(){
+    // Tombol di LPJ
+    const lpjBtn = document.getElementById("exportPdfLpjV38");
+    if(lpjBtn) lpjBtn.onclick = window.exportPdfLpjV38;
+
+    // Tombol di Document Studio toolbar
+    const dsToolbar = document.getElementById("dsToolbar");
+    if(dsToolbar && !document.getElementById("exportPdfDocV38")){
+      const sep = document.createElement("div"); sep.className = "ds-tb-sep";
+      const btn = document.createElement("button");
+      btn.id = "exportPdfDocV38";
+      btn.title = "Export PDF langsung ke file tanpa dialog cetak browser";
+      btn.style.cssText = "background:#1e40af;color:#fff;border:none;border-radius:6px;padding:4px 11px;cursor:pointer;font-size:11.5px;font-weight:600;white-space:nowrap;";
+      btn.textContent = "⬇ PDF";
+      btn.onclick = window.exportPdfDocV38;
+      dsToolbar.appendChild(sep);
+      dsToolbar.appendChild(btn);
+    }
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(installPdfBtnsV38, 400));
+  else setTimeout(installPdfBtnsV38, 400);
+})();
+
+/* PATCH v1.39 - Sinkronisasi Data Antar Device via Server */
+(function bopCloudSyncV39(){
+  const PATCH_ID = "[BOP Sync v1.39]";
+  const KEY_LAST_PUSH = "bop_sync_last_push_v39";
+  const KEY_LAST_PULL = "bop_sync_last_pull_v39";
+
+  function fmtTS(iso){
+    try{ return new Date(iso).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
+    catch(e){ return iso || "-"; }
+  }
+
+  function updateSyncUI(){
+    const lastPush = localStorage.getItem(KEY_LAST_PUSH);
+    const lastPull = localStorage.getItem(KEY_LAST_PULL);
+    const el = document.getElementById("syncStatusV39");
+    if(!el) return;
+    const parts = [];
+    if(lastPush) parts.push("☁ Disimpan: " + fmtTS(lastPush));
+    else parts.push("Belum pernah disimpan ke server.");
+    if(lastPull) parts.push("⬇ Diambil: " + fmtTS(lastPull));
+    el.textContent = parts.join("  •  ");
+  }
+
+  function updateSideNote(hasPush){
+    const el = document.querySelector(".side-note");
+    if(!el) return;
+    const lastPush = localStorage.getItem(KEY_LAST_PUSH);
+    if(lastPush){
+      el.innerHTML = "<b>Tersinkron</b><br><small>" + fmtTS(lastPush) + "</small>";
+    } else {
+      el.innerHTML = "<b>Offline</b><br>Data di perangkat ini.";
+    }
+  }
+
+  async function checkOnline(){
+    try{
+      const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(3000) } : {};
+      const r = await fetch("/api/sync/status", c);
+      return r.ok;
+    } catch(e){ return false; }
+  }
+
+  async function pushToServer(){
+    const badge = document.getElementById("syncBadgeV39");
+    if(badge){ badge.textContent = "⏳ Menyimpan..."; badge.style.color = "#64748b"; }
+    try{
+      if(typeof collectAll === "function") collectAll();
+      const payload = { data: (typeof data !== "undefined" ? data : {}), pushedAt: new Date().toISOString() };
+      const res = await fetch("/api/sync/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+      });
+      if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.error || "HTTP " + res.status); }
+      const result = await res.json();
+      localStorage.setItem(KEY_LAST_PUSH, result.savedAt || new Date().toISOString());
+      updateSyncUI(); updateSideNote();
+      if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; }
+      if(typeof bopToast === "function") bopToast("Sync Berhasil", "Data tersimpan di server. Device lain bisa mengambil data ini.", "success");
+    } catch(e){
+      console.error(PATCH_ID, e);
+      if(badge){ badge.textContent = "🔴 Error"; badge.style.color = "#dc2626"; }
+      if(typeof bopAlert === "function") bopAlert("Sync Gagal", "Gagal menyimpan ke server: " + (e.message || "timeout"), "error");
+    }
+  }
+
+  async function pullFromServer(){
+    const badge = document.getElementById("syncBadgeV39");
+    if(badge){ badge.textContent = "⏳ Mengambil..."; badge.style.color = "#64748b"; }
+    try{
+      const res = await fetch("/api/sync/pull", {
+        signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
+      });
+      if(res.status === 404){
+        if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; }
+        if(typeof bopAlert === "function") bopAlert("Tidak Ada Data", "Belum ada data yang tersimpan di server. Simpan data dulu dari perangkat utama.", "info");
+        return;
+      }
+      if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.error || "HTTP " + res.status); }
+      const result = await res.json();
+      if(!result.data) throw new Error("Format data tidak valid");
+
+      let konfirmasi = true;
+      if(typeof Swal !== "undefined"){
+        const r = await Swal.fire({
+          title: "Ambil Data dari Server?",
+          html: "Data lokal akan diganti dengan data server.<br><small>Terakhir disimpan: <b>" + fmtTS(result.savedAt || result.pushedAt) + "</b></small>",
+          icon: "question", showCancelButton: true,
+          confirmButtonText: "Ya, Ambil Data", cancelButtonText: "Batal"
+        });
+        konfirmasi = r.isConfirmed;
+      } else { konfirmasi = confirm("Ambil data dari server? Data lokal akan diganti."); }
+
+      if(!konfirmasi){ if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; } return; }
+
+      if(typeof data !== "undefined"){ window.data = result.data; }
+      try{ localStorage.setItem(typeof STORE !== "undefined" ? STORE : "bop_rt005_data_v1_25", JSON.stringify(result.data)); } catch(e){}
+      localStorage.setItem(KEY_LAST_PULL, new Date().toISOString());
+      updateSyncUI(); updateSideNote();
+      if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; }
+      if(typeof render === "function") render();
+      if(typeof updateDashboard === "function") updateDashboard();
+      if(typeof bopToast === "function") bopToast("Sync Berhasil", "Data berhasil diambil dari server.", "success");
+    } catch(e){
+      console.error(PATCH_ID, e);
+      if(badge){ badge.textContent = "🔴 Error"; badge.style.color = "#dc2626"; }
+      if(typeof bopAlert === "function") bopAlert("Sync Gagal", "Gagal mengambil data: " + (e.message || "timeout"), "error");
+    }
+  }
+
+  function initSyncV39(){
+    const pushBtn = document.getElementById("syncPushV39");
+    const pullBtn = document.getElementById("syncPullV39");
+    if(pushBtn) pushBtn.onclick = pushToServer;
+    if(pullBtn) pullBtn.onclick = pullFromServer;
+    updateSyncUI();
+    updateSideNote();
+    // Cek ketersediaan server di background
+    checkOnline().then(ok => {
+      const badge = document.getElementById("syncBadgeV39");
+      if(badge){ badge.textContent = ok ? "🟢 Online" : "🔴 Server Offline"; badge.style.color = ok ? "#16a34a" : "#dc2626"; }
+    });
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(initSyncV39, 300));
+  else setTimeout(initSyncV39, 300);
+
+  window.bopSyncPushV39 = pushToServer;
+  window.bopSyncPullV39 = pullFromServer;
+})();
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.40 — PostgreSQL Primary Storage
+   Semua data BOP disimpan ke Replit PostgreSQL via API backend.
+   localStorage tetap sebagai offline cache / fallback.
+   ─────────────────────────────────────────────────────────────
+   Strategi:
+   1. Intercept localStorage.setItem(STORE, ...) → debounced
+      async PUT /api/bop/data (non-blocking, tidak ubah alur UI)
+   2. Pada boot: GET /api/bop/data → jika ada data server yang
+      lebih baru (version lebih tinggi), muat ke memori + cache
+   3. Indicator sync di header (kanan atas)
+═══════════════════════════════════════════════════════════════ */
+(function bopPostgresV40() {
+  const PATCH = "[BOP-PG v1.40]";
+  const BOP_STORE = "bop_rt005_data_v1_25";
+  const VER_KEY   = "bop_pg_version_v40";
+  const TS_KEY    = "bop_pg_updated_v40";
+
+  /* ── Indikator sync di header ──────────────────────────────── */
+  function injectSyncBadge() {
+    if (document.getElementById("pgSyncBadge")) return;
+    const badge = document.createElement("div");
+    badge.id = "pgSyncBadge";
+    badge.title = "Status sinkronisasi PostgreSQL";
+    badge.style.cssText = [
+      "position:fixed", "top:10px", "right:14px", "z-index:9999",
+      "background:rgba(0,0,0,.55)", "color:#fff",
+      "font-size:11px", "font-weight:600",
+      "padding:3px 9px", "border-radius:20px",
+      "cursor:pointer", "user-select:none",
+      "transition:opacity .3s", "opacity:.85",
+    ].join(";");
+    badge.textContent = "☁ …";
+    badge.onclick = () => showSyncPanel();
+    document.body.appendChild(badge);
+  }
+
+  function setBadge(text, color) {
+    const b = document.getElementById("pgSyncBadge");
+    if (!b) return;
+    b.textContent = text;
+    b.style.background = color || "rgba(0,0,0,.55)";
+  }
+
+  /* ── Tampilkan ringkasan sync saat badge diklik ───────────── */
+  function showSyncPanel() {
+    const ver   = localStorage.getItem(VER_KEY) || "-";
+    const ts    = localStorage.getItem(TS_KEY);
+    const tsStr = ts ? new Date(ts).toLocaleString("id-ID", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    }) : "-";
+    if (typeof bopAlert === "function") {
+      bopAlert(
+        "☁ Status PostgreSQL Sync",
+        `<b>Database:</b> Replit PostgreSQL<br>
+         <b>Versi data:</b> ${ver}<br>
+         <b>Terakhir sync:</b> ${tsStr}<br><br>
+         <small>Data disimpan otomatis ke server setelah setiap perubahan (delay 2 detik).<br>
+         Saat buka di perangkat lain, data server akan dimuat otomatis.</small>`,
+        "info"
+      );
+    } else {
+      alert(`PostgreSQL Sync\nVersi: ${ver}\nTerakhir: ${tsStr}`);
+    }
+  }
+
+  /* ── Debounced push ke server ─────────────────────────────── */
+  let pushTimer = null;
+  let pushInFlight = false;
+
+  function schedulePush(jsonStr) {
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => doPush(jsonStr), 2000);
+  }
+
+  async function doPush(jsonStr) {
+    if (pushInFlight) {
+      pushTimer = setTimeout(() => doPush(jsonStr), 1500);
+      return;
+    }
+    pushInFlight = true;
+    setBadge("☁ ↑", "#1e40af");
+    try {
+      const parsed = JSON.parse(jsonStr);
+      const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      const res = await fetch("/api/bop/data", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: parsed, clientVersion: localVer + 1 }),
+        signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const result = await res.json();
+      localStorage.setItem(VER_KEY, String(result.version));
+      localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
+      setBadge("☁ ✓", "#15803d");
+      setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
+    } catch (e) {
+      console.warn(PATCH, "Push gagal:", e.message);
+      setBadge("☁ !", "#b91c1c");
+      setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 5000);
+    } finally {
+      pushInFlight = false;
+    }
+  }
+
+  /* ── Intercept localStorage.setItem ──────────────────────── */
+  const _origSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, value) {
+    _origSetItem(key, value);
+    if (key === BOP_STORE && typeof value === "string") {
+      schedulePush(value);
+    }
+  };
+
+  /* ── Load data dari server saat boot ─────────────────────── */
+  async function bootLoadFromServer() {
+    setBadge("☁ …", "rgba(0,0,0,.55)");
+    try {
+      const res = await fetch("/api/bop/data", {
+        signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined,
+      });
+      if (!res.ok) { setBadge("☁ !", "#b91c1c"); return; }
+      const result = await res.json();
+
+      if (!result.ok || !result.data) {
+        // Server kosong → upload data lokal ke server (inisialisasi)
+        const localRaw = localStorage.getItem(BOP_STORE);
+        if (localRaw) {
+          console.log(PATCH, "Server kosong, upload data lokal...");
+          setBadge("☁ ↑", "#1e40af");
+          await doPush(localRaw);
+        } else {
+          setBadge("☁", "rgba(0,0,0,.55)");
+        }
+        return;
+      }
+
+      const serverVer = result.version || 0;
+      const localVer  = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+
+      if (serverVer > localVer) {
+        // Server lebih baru → muat ke memori + update cache
+        console.log(PATCH, `Data server (v${serverVer}) lebih baru dari lokal (v${localVer}), memuat...`);
+        const serverData = result.data;
+        if (typeof window.data !== "undefined" && typeof serverData === "object") {
+          Object.assign(window.data, serverData);
+        }
+        // Update localStorage cache tanpa memicu push lagi
+        _origSetItem(BOP_STORE, JSON.stringify(serverData));
+        localStorage.setItem(VER_KEY, String(serverVer));
+        localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
+        // Re-render jika fungsi tersedia
+        if (typeof render === "function") { try { render(); } catch(e) {} }
+        if (typeof updateDashboard === "function") { try { updateDashboard(); } catch(e) {} }
+        setBadge("☁ ✓", "#15803d");
+        setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
+        if (typeof bopToast === "function") {
+          bopToast("Data Dimuat dari Server", `Versi ${serverVer} — ${
+            new Date(result.updatedAt).toLocaleString("id-ID", {
+              day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit"
+            })
+          }`, "info");
+        }
+      } else {
+        // Lokal sudah terkini atau sama
+        setBadge("☁ ✓", "#15803d");
+        setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 2000);
+        localStorage.setItem(TS_KEY, result.updatedAt || localStorage.getItem(TS_KEY) || "");
+      }
+    } catch (e) {
+      console.warn(PATCH, "Boot load gagal (offline?):", e.message);
+      setBadge("☁ ?", "#78716c");
+    }
+  }
+
+  /* ── Manual push/pull via Pengaturan ─────────────────────── */
+  window.bopPgPushNowV40 = async function() {
+    const raw = localStorage.getItem(BOP_STORE);
+    if (!raw) { if (typeof bopAlert === "function") bopAlert("Tidak Ada Data", "Tidak ada data lokal untuk disimpan.", "warning"); return; }
+    setBadge("☁ ↑", "#1e40af");
+    await doPush(raw);
+    if (typeof bopToast === "function") bopToast("Tersimpan", "Data berhasil disimpan ke PostgreSQL.", "success");
+  };
+
+  window.bopPgPullNowV40 = async function() {
+    setBadge("☁ ↓", "#1e40af");
+    try {
+      const res = await fetch("/api/bop/data", {
+        signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+      });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const result = await res.json();
+      if (!result.ok || !result.data) {
+        if (typeof bopAlert === "function") bopAlert("Tidak Ada Data", "Belum ada data tersimpan di server PostgreSQL.", "info");
+        setBadge("☁", "rgba(0,0,0,.55)");
+        return;
+      }
+      const ok = typeof Swal !== "undefined"
+        ? (await Swal.fire({ title:"Ambil Data Server?", html:"Data lokal akan diganti data PostgreSQL.<br><b>Versi " + result.version + "</b>", icon:"question", showCancelButton:true, confirmButtonText:"Ya, Ambil", cancelButtonText:"Batal" })).isConfirmed
+        : confirm("Ambil data dari PostgreSQL? Data lokal akan diganti.");
+      if (!ok) { setBadge("☁", "rgba(0,0,0,.55)"); return; }
+      if (typeof window.data !== "undefined") Object.assign(window.data, result.data);
+      _origSetItem(BOP_STORE, JSON.stringify(result.data));
+      localStorage.setItem(VER_KEY, String(result.version));
+      localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
+      if (typeof render === "function") render();
+      if (typeof updateDashboard === "function") updateDashboard();
+      setBadge("☁ ✓", "#15803d");
+      setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
+      if (typeof bopToast === "function") bopToast("Data Dimuat", "Data dari PostgreSQL berhasil dimuat.", "success");
+    } catch (e) {
+      console.warn(PATCH, "Pull gagal:", e.message);
+      setBadge("☁ !", "#b91c1c");
+      if (typeof bopAlert === "function") bopAlert("Gagal", "Gagal mengambil data dari server: " + e.message, "error");
+    }
+  };
+
+  /* ── Perbarui sync panel di Setting (v1.39) ──────────────── */
+  function patchSyncPanelV39() {
+    const pushBtn = document.getElementById("syncPushV39");
+    const pullBtn = document.getElementById("syncPullV39");
+    if (pushBtn) pushBtn.onclick = window.bopPgPushNowV40;
+    if (pullBtn) pullBtn.onclick = window.bopPgPullNowV40;
+
+    const badge = document.getElementById("syncBadgeV39");
+    if (badge) {
+      badge.textContent = "🐘 PostgreSQL";
+      badge.style.color = "#1d4ed8";
+    }
+    const status = document.getElementById("syncStatusV39");
+    if (status) {
+      const ts = localStorage.getItem(TS_KEY);
+      const ver = localStorage.getItem(VER_KEY);
+      if (ts) {
+        status.textContent = "☁ Database: PostgreSQL • Versi " + (ver || "?") + " • " +
+          new Date(ts).toLocaleString("id-ID", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
+      } else {
+        status.textContent = "☁ Database: PostgreSQL (belum tersinkron)";
+      }
+    }
+  }
+
+  /* ── Init ─────────────────────────────────────────────────── */
+  function init() {
+    injectSyncBadge();
+    patchSyncPanelV39();
+    bootLoadFromServer();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 500));
+  } else {
+    setTimeout(init, 500);
+  }
+})();
+
+/* PATCH v1.40b — Fix sidebar note + expose sync status */
+(function bopPgSidebarFix(){
+  function updateSidebar(){
+    const el = document.querySelector(".side-note");
+    if(!el) return;
+    const ts  = localStorage.getItem("bop_pg_updated_v40");
+    const ver = localStorage.getItem("bop_pg_version_v40");
+    if(ts){
+      const d = new Date(ts);
+      el.innerHTML = "<b>☁ PostgreSQL</b><br><small>v" + (ver||"?") + " — " +
+        d.toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) + "</small>";
+      el.style.color = "#15803d";
+    }
+  }
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", ()=>setTimeout(updateSidebar, 800));
+  else
+    setTimeout(updateSidebar, 800);
+  window.addEventListener("storage", e => { if(e.key==="bop_pg_updated_v40") updateSidebar(); });
+})();
+
+/* PATCH v1.40c — Fix data merge + validasi sebelum load dari server */
+(function bopDataGuardV40c(){
+  const FIX_KEY   = "bop_data_guard_v40c";
+  const STORE_KEY = "bop_rt005_data_v1_25";
+  const VER_KEY   = "bop_pg_version_v40";
+  const TS_KEY    = "bop_pg_updated_v40";
+
+  // Jalankan tepat sebelum DOM ready agar tidak interferensi siklus render
+  function runGuard(){
+    if(localStorage.getItem(FIX_KEY)) return;   // sudah pernah dijalankan
+
+    const raw = localStorage.getItem(STORE_KEY);
+    if(!raw){ localStorage.setItem(FIX_KEY,"1"); return; }
+
+    try {
+      const d = JSON.parse(raw);
+      const m = d && d.master;
+      // Cek kelengkapan: master harus ada kelurahan dan kecamatan
+      if(!m || !m.kelurahan || !m.kecamatan || !m.kota){
+        console.warn("[BOP-GUARD v40c] Data master tidak lengkap — reset localStorage, akan reload sekali.");
+        localStorage.removeItem(STORE_KEY);
+        localStorage.removeItem(VER_KEY);
+        localStorage.removeItem(TS_KEY);
+        localStorage.setItem(FIX_KEY, "1");
+        setTimeout(() => location.reload(), 100);
+        return;
+      }
+    } catch(e){
+      localStorage.removeItem(STORE_KEY);
+      localStorage.removeItem(VER_KEY);
+      localStorage.removeItem(TS_KEY);
+      localStorage.setItem(FIX_KEY, "1");
+      setTimeout(() => location.reload(), 100);
+      return;
+    }
+    localStorage.setItem(FIX_KEY, "1");
+  }
+
+  // Perbaiki juga fungsi bootLoadFromServer: deep merge agar field default
+  // tidak hilang jika server mengirim object parsial
+  const _origBoot = window.bopPgPullNowV40;
+  window._bopServerMerge = function(serverData, localData){
+    if(!serverData || typeof serverData !== "object") return localData;
+    if(!localData  || typeof localData  !== "object") return serverData;
+    const merged = Object.assign({}, localData);
+    for(const key of Object.keys(serverData)){
+      const sv = serverData[key];
+      const lv = localData[key];
+      if(sv !== null && typeof sv === "object" && !Array.isArray(sv) &&
+         lv !== null && typeof lv === "object" && !Array.isArray(lv)){
+        merged[key] = Object.assign({}, lv, sv);
+      } else {
+        merged[key] = sv;
+      }
+    }
+    // Pastikan master.kelurahan/kecamatan/kota tidak hilang
+    if(merged.master && localData.master){
+      if(!merged.master.kelurahan) merged.master.kelurahan = localData.master.kelurahan;
+      if(!merged.master.kecamatan) merged.master.kecamatan = localData.master.kecamatan;
+      if(!merged.master.kota)      merged.master.kota      = localData.master.kota;
+    }
+    return merged;
+  };
+
+  runGuard();
+})();
+
+/* PATCH v1.40d — Initial seed: jika localStorage kosong, simpan defaults ke server */
+(function bopInitSeedV40d(){
+  const STORE_KEY = "bop_rt005_data_v1_25";
+  function tryInitSeed(){
+    // Jika localStorage sudah terisi, tidak perlu seed
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw){ return; }
+    // localStorage kosong tapi window.data sudah diisi defaults oleh loadData()
+    if(typeof data !== "undefined" && data && data.master && data.master.kelurahan){
+      console.log("[BOP-SEED v40d] Simpan default data ke localStorage + server...");
+      try{ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }catch(e){}
+    }
+  }
+  // Jalankan setelah app selesai inisialisasi (500ms cukup)
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", ()=>setTimeout(tryInitSeed, 600));
+  else
+    setTimeout(tryInitSeed, 600);
+})();

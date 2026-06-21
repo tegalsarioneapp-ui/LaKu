@@ -1,0 +1,195 @@
+/**
+ * BOP RT 005 — Primary data API
+ * Semua modul (master, pengajuan, RAP, LPJ, persiapan, history) disimpan di PostgreSQL.
+ * Frontend tetap menggunakan localStorage sebagai offline cache.
+ */
+import { Router } from "express";
+import { pool } from "@workspace/db";
+
+const router = Router();
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/bop/data
+   Ambil data BOP terkini dari database.
+   Response: { ok, data, updatedAt, version }
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/data", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
+      ["rt005rw012"]
+    );
+    if (result.rows.length === 0) {
+      res.json({ ok: true, data: null, updatedAt: null, version: 0 });
+      return;
+    }
+    const row = result.rows[0];
+    res.json({
+      ok: true,
+      data: row.data,
+      updatedAt: row.updated_at,
+      version: row.version,
+    });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: "Gagal membaca data BOP" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   PUT /api/bop/data
+   Simpan/update data BOP (upsert).
+   Body: { data: object, clientVersion?: number }
+   Response: { ok, updatedAt, version }
+═══════════════════════════════════════════════════════════════ */
+router.put("/bop/data", async (req, res) => {
+  try {
+    const { data, clientVersion } = req.body as {
+      data: unknown;
+      clientVersion?: number;
+    };
+    if (!data || typeof data !== "object") {
+      res.status(400).json({ ok: false, error: "Field 'data' wajib berupa object" });
+      return;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO bop_data (rt_key, data, version, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (rt_key) DO UPDATE
+         SET data       = EXCLUDED.data,
+             version    = bop_data.version + 1,
+             updated_at = NOW()
+       RETURNING updated_at, version`,
+      ["rt005rw012", JSON.stringify(data), clientVersion ?? 1]
+    );
+
+    res.json({
+      ok: true,
+      updatedAt: result.rows[0].updated_at,
+      version: result.rows[0].version,
+    });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: "Gagal menyimpan data BOP" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/bop/history
+   Ambil semua entri riwayat dokumen.
+   Query params: ?limit=100&offset=0&kind=Pengajuan
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/history", async (req, res) => {
+  try {
+    const limit  = Math.min(Number(req.query["limit"]  ?? 200), 500);
+    const offset = Number(req.query["offset"] ?? 0);
+    const kind   = req.query["kind"] as string | undefined;
+
+    const params: unknown[] = [limit, offset];
+    const whereClause = kind ? `WHERE kind = $3` : "";
+    if (kind) params.push(kind);
+
+    const result = await pool.query(
+      `SELECT id, kind, doc_type, label, html, created_at
+       FROM bop_history
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT $1 OFFSET $2`,
+      params
+    );
+
+    res.json({ ok: true, history: result.rows });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: "Gagal membaca riwayat" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/bop/history
+   Tambah entri riwayat dokumen.
+   Body: { kind, docType, label, html }
+═══════════════════════════════════════════════════════════════ */
+router.post("/bop/history", async (req, res) => {
+  try {
+    const { kind, docType, label, html } = req.body as {
+      kind: string;
+      docType: string;
+      label: string;
+      html: string;
+    };
+    if (!kind || !label) {
+      res.status(400).json({ ok: false, error: "kind dan label wajib diisi" });
+      return;
+    }
+    const result = await pool.query(
+      `INSERT INTO bop_history (kind, doc_type, label, html)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, created_at`,
+      [kind, docType ?? null, label, html ?? null]
+    );
+    res.json({
+      ok: true,
+      id: result.rows[0].id,
+      createdAt: result.rows[0].created_at,
+    });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: "Gagal menyimpan riwayat" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   DELETE /api/bop/history/:id
+   Hapus entri riwayat berdasarkan ID.
+═══════════════════════════════════════════════════════════════ */
+router.delete("/bop/history/:id", async (req, res) => {
+  try {
+    const id = Number(req.params["id"]);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ ok: false, error: "ID tidak valid" });
+      return;
+    }
+    const result = await pool.query(
+      `DELETE FROM bop_history WHERE id = $1 RETURNING id`,
+      [id]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ ok: false, error: "Riwayat tidak ditemukan" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: "Gagal menghapus riwayat" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/bop/status
+   Cek ketersediaan database + statistik ringkas.
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/status", async (req, res) => {
+  try {
+    const [dataRow, histCount] = await Promise.all([
+      pool.query(
+        `SELECT updated_at, version FROM bop_data WHERE rt_key = $1`,
+        ["rt005rw012"]
+      ),
+      pool.query(`SELECT COUNT(*) as count FROM bop_history`),
+    ]);
+    res.json({
+      ok: true,
+      hasData:      dataRow.rows.length > 0,
+      updatedAt:    dataRow.rows[0]?.updated_at ?? null,
+      version:      dataRow.rows[0]?.version ?? 0,
+      historyCount: Number(histCount.rows[0].count),
+    });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: "Database tidak tersedia" });
+  }
+});
+
+export default router;

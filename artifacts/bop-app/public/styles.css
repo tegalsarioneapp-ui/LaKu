@@ -868,3 +868,142 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 .kop p{
   text-align:center!important;
 }
+
+/* PATCH 013 - KOP standar semua surat Pengajuan seperti Surat Permohonan */
+.official .kop.kop-standard,
+.kop.kop-standard{
+  display:block!important;
+  width:100%!important;
+  position:relative!important;
+  border-bottom:3px double #000!important;
+  padding:4px 0 8px 0!important;
+  margin:0 0 12px 0!important;
+  min-height:82px!important;
+  box-sizing:border-box!important;
+  text-align:center!important;
+}
+
+.official .kop.kop-standard .kop-table,
+.kop.kop-standard .kop-table{
+  width:100%!important;
+  max-width:100%!important;
+  table-layout:fixed!important;
+  border-collapse:collapse!important;
+  border:0!important;
+  margin:0!important;
+  padding:0!important;
+}
+
+.official .kop.kop-standard .kop-table td,
+.kop.kop-standard .kop-table td{
+  border:0!important;
+  padding:0!important;
+  vertical-align:middle!important;
+}
+
+.official .kop.kop-standard .kop-col-logo,
+.kop.kop-standard .kop-col-logo{
+  width:78px!important;
+  max-width:78px!important;
+  min-width:78px!important;
+  text-align:left!important;
+}
+
+.official .kop.kop-standard .kop-col-spacer,
+.kop.kop-standard .kop-col-spacer{
+  width:78px!important;
+  max-width:78px!important;
+  min-width:78px!important;
+}
+
+.official .kop.kop-standard .kop-col-text,
+.kop.kop-standard .kop-col-text{
+  text-align:center!important;
+  width:auto!important;
+}
+
+.official .kop.kop-standard .kop-logo,
+.kop.kop-standard .kop-logo{
+  position:static!important;
+  transform:none!important;
+  display:block!important;
+  width:58px!important;
+  max-width:58px!important;
+  max-height:70px!important;
+  height:auto!important;
+  object-fit:contain!important;
+  margin:0!important;
+}
+
+.official .kop.kop-standard .kop-text,
+.kop.kop-standard .kop-text{
+  display:block!important;
+  width:100%!important;
+  padding:0!important;
+  margin:0!important;
+  text-align:center!important;
+  box-sizing:border-box!important;
+}
+
+.official .kop.kop-standard .kop-text h1,
+.kop.kop-standard .kop-text h1{
+  font-family:"Times New Roman",serif!important;
+  text-align:center!important;
+  font-size:16pt!important;
+  line-height:1.05!important;
+  font-weight:bold!important;
+  text-transform:uppercase!important;
+  margin:0!important;
+  padding:0!important;
+  white-space:normal!important;
+}
+
+.official .kop.kop-standard .kop-text h2,
+.kop.kop-standard .kop-text h2{
+  font-family:"Times New Roman",serif!important;
+  text-align:center!important;
+  font-size:13.5pt!important;
+  line-height:1.05!important;
+  font-weight:bold!important;
+  text-transform:uppercase!important;
+  margin:1px 0!important;
+  padding:0!important;
+  white-space:normal!important;
+}
+
+.official .kop.kop-standard .kop-text p,
+.kop.kop-standard .kop-text p{
+  font-family:"Times New Roman",serif!important;
+  text-align:center!important;
+  font-size:9pt!important;
+  line-height:1.05!important;
+  margin:4px 0 0 0!important;
+  padding:0!important;
+}
+
+@media print{
+  .official .kop.kop-standard,
+  .kop.kop-standard{
+    border-bottom:3px double #000!important;
+    margin-bottom:10px!important;
+    min-height:78px!important;
+    page-break-after:avoid!important;
+    break-after:avoid!important;
+  }
+
+  .official .kop.kop-standard .kop-col-logo,
+  .kop.kop-standard .kop-col-logo,
+  .official .kop.kop-standard .kop-col-spacer,
+  .kop.kop-standard .kop-col-spacer{
+    width:76px!important;
+    min-width:76px!important;
+    max-width:76px!important;
+  }
+
+  .official .kop.kop-standard .kop-logo,
+  .kop.kop-standard .kop-logo{
+    width:56px!important;
+    max-width:56px!important;
+    max-height:68px!important;
+  }
+}

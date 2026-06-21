@@ -76,6 +76,15 @@
      LOAD DOC INTO EDITOR
   ════════════════════════════════════════════════════════════════ */
   function loadDoc(type, freshHtml) {
+    /* Auto-save current edits as draft before switching to a new doc type */
+    if (currentDocType && currentDocType !== type) {
+      clearTimeout(_draftTimer);
+      const curPage = getPage();
+      if (curPage && curPage.innerHTML.trim()) {
+        try { localStorage.setItem(TEMPLATE_PREFIX + "draft_" + currentDocType, curPage.innerHTML); } catch(_e) {}
+      }
+    }
+
     currentDocType = type;
     isModified     = false;
 
@@ -91,9 +100,20 @@
       setStatus(`Format baku dimuat — disimpan ${fmtDate(tpl.savedAt)}`, "saved");
       setBadge(true);
     } else {
-      page.innerHTML = freshHtml || "<p>Dokumen kosong.</p>";
-      setStatus(useFresh ? "Dokumen di-generate ulang dari data terkini" : "Dokumen digenerate dari data terkini", "saved");
-      setBadge(false);
+      /* Cek draft editan sebelumnya (hanya jika tidak bypass) */
+      let draft = null;
+      if (!useFresh) {
+        try { draft = localStorage.getItem(TEMPLATE_PREFIX + "draft_" + type); } catch(_e) {}
+      }
+      if (draft && draft.trim()) {
+        page.innerHTML = draft;
+        setStatus("Draft editan terakhir dipulihkan — Ctrl+S untuk simpan baku", "saved");
+        setBadge(false);
+      } else {
+        page.innerHTML = freshHtml || "<p>Dokumen kosong.</p>";
+        setStatus(useFresh ? "Dokumen di-generate ulang dari data terkini" : "Dokumen digenerate dari data terkini", "saved");
+        setBadge(false);
+      }
     }
 
     setDocName(DOC_NAMES[type] || type);
@@ -321,6 +341,11 @@
   ════════════════════════════════════════════════════════════════ */
   function saveEdit() {
     if (!currentDocType) { toast("Pilih dan generate dokumen terlebih dahulu", "warn"); return; }
+    const page = getPage();
+    if (page) {
+      clearTimeout(_draftTimer);
+      try { localStorage.setItem(TEMPLATE_PREFIX + "draft_" + currentDocType, page.innerHTML); } catch(_e) {}
+    }
     isModified = false;
     setStatus(`Disimpan ${fmtTime(new Date())}`, "saved");
     toast("✓ Editan disimpan");
@@ -590,9 +615,18 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
     if (el) el.style.display = visible ? "inline-flex" : "none";
   }
 
+  let _draftTimer = null;
   function markDirty() {
     isModified = true;
     setStatus("Ada perubahan — belum disimpan", "unsaved");
+    /* Auto-save draft ke localStorage setelah 1.5 detik diam */
+    clearTimeout(_draftTimer);
+    _draftTimer = setTimeout(() => {
+      if (!currentDocType) return;
+      const page = getPage();
+      if (!page) return;
+      try { localStorage.setItem(TEMPLATE_PREFIX + "draft_" + currentDocType, page.innerHTML); } catch(_e) {}
+    }, 1500);
   }
 
   function toast(msg, type = "info") {

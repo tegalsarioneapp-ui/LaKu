@@ -493,9 +493,29 @@
 
   function renderActivityList() {
     const el = $("activityList");
-    const activities = state.activities || [];
+    const allActivities = state.activities || [];
+    const filterSel = $("activityMonthFilter");
+
+    /* Isi dropdown bulan dari data */
+    if (filterSel) {
+      const months = [...new Set(allActivities.map(a => a.bulan || a.hariTanggal || "").filter(Boolean))];
+      const curVal = filterSel.value;
+      const monthOptions = MOKU_MONTHS.filter(m => months.includes(m));
+      filterSel.innerHTML = `<option value="">Semua Bulan</option>` +
+        monthOptions.map(m => `<option value="${m}" ${m===curVal?"selected":""}>${m}</option>`).join("");
+      /* Restore saved filter */
+      if (!curVal && state.activityMonthFilter) filterSel.value = state.activityMonthFilter;
+    }
+
+    const activeFilter = filterSel ? filterSel.value : (state.activityMonthFilter || "");
+    const activities = activeFilter
+      ? allActivities.filter(a => (a.bulan || a.hariTanggal || "") === activeFilter)
+      : allActivities;
+
     if (!activities.length) {
-      el.innerHTML = `<div class="empty-state"><b>Belum ada kegiatan</b>Tekan Import atau Tambah Manual untuk mulai.</div>`;
+      el.innerHTML = allActivities.length
+        ? `<div class="empty-state"><b>Tidak ada kegiatan pada ${activeFilter}</b>Pilih bulan lain atau hapus filter.</div>`
+        : `<div class="empty-state"><b>Belum ada kegiatan</b>Sinkron BOP otomatis akan menambahkan kegiatan RAP.</div>`;
       return;
     }
     el.innerHTML = activities.map(act => {
@@ -924,6 +944,8 @@
     state.results[idOf(act)] = res;
     saveState();
     render();
+    /* ── Kirim foto ke BOP parent frame (auto-sync) ─────── */
+    syncPhotoToBOPParent(act, photoId, dataUrl, photoMeta);
   }
 
   function removePhoto(photoId) {
@@ -1035,6 +1057,47 @@
   }
 
   /* ════════════════════════════════════════════════════════════════
+     BOP PARENT SYNC — Kirim foto/hasil ke iframe parent (BOP App)
+  ════════════════════════════════════════════════════════════════ */
+  function syncPhotoToBOPParent(act, photoId, dataUrl, photoMeta) {
+    if (window.parent === window) return; /* bukan di dalam iframe */
+    try {
+      window.parent.postMessage({
+        type:     "moku-photo",
+        activity: {
+          id:          idOf(act),
+          nama:        act.nama,
+          jenis:       act.jenis,
+          hariTanggal: act.hariTanggal,
+          tempat:      act.tempat,
+          nominal:     act.nominal,
+          bulan:       act.bulan,
+          kategori:    act.kategori,
+        },
+        photo: { ...photoMeta, dataUrl }
+      }, "*");
+    } catch(_e) {}
+  }
+
+  async function fullSyncToBOPParent() {
+    if (window.parent === window) return;
+    try {
+      const results = [];
+      for (const act of (state.activities || [])) {
+        const id  = idOf(act);
+        const res = state.results[id] || {};
+        const photos = (res.photos || []).map(p => ({
+          ...p,
+          dataUrl: photoCache.get(p.id) || p.dataUrl || null
+        })).filter(p => p.dataUrl);
+        if (photos.length) results.push({ ...act, photos });
+      }
+      if (!results.length) return;
+      window.parent.postMessage({ type: "moku-full-sync", results }, "*");
+    } catch(_e) {}
+  }
+
+  /* ════════════════════════════════════════════════════════════════
      INDEXEDDB — Muat cache foto dari IndexedDB saat boot
   ════════════════════════════════════════════════════════════════ */
   async function loadPhotoCache() {
@@ -1060,6 +1123,8 @@
       const photos = await MokuDB.getAllPhotos();
       photos.forEach(p => { if (p.dataUrl) photoCache.set(p.id, p.dataUrl); });
       if (photos.length || migrated) render(); /* refresh tampilan */
+      /* Auto-kirim semua hasil ke BOP parent setelah cache siap */
+      if (photos.length) setTimeout(() => fullSyncToBOPParent(), 800);
     } catch(e) {
       console.warn("[MokuDB] Gagal muat cache foto:", e);
     }
@@ -1358,6 +1423,16 @@
       res.updatedAt = now().toISOString();
       saveState();
     });
+
+    // Daftar Kegiatan month filter
+    const actMonthFilter = $("activityMonthFilter");
+    if (actMonthFilter) {
+      actMonthFilter.addEventListener("change", () => {
+        state.activityMonthFilter = actMonthFilter.value;
+        saveState();
+        renderActivityList();
+      });
+    }
 
     // History month filter
     const historyFilter = $("historyMonthFilter");

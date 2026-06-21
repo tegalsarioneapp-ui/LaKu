@@ -481,7 +481,7 @@ function goPage(page){
 function activateTab(id){
   document.querySelectorAll(".subtab").forEach(b=>b.classList.toggle("active",b.dataset.tab===id));
   document.querySelectorAll(".tab-content").forEach(t=>t.classList.toggle("active",t.id==="tab-"+id));
-  if(id==="lpj-preview") $("lpjOutput").innerHTML=docLpj();
+  if(id==="lpj-preview"){ $("lpjOutput").innerHTML=docLpj(); renderMokuFotoSheetsV35(); }
 }
 
 function backup(name="backup_data_bop_rt005.json"){
@@ -904,6 +904,113 @@ async function deleteMokuPhotoV34(actIdx, photoIdx, bucket="all"){
   saveMokuImportedV34();
   openMokuPhotoViewerV34(actIdx,bucket);
 }
+/* ── Lembar Dokumentasi Foto MoKu di LPJ Preview ─────────── */
+function renderMokuFotoSheetsV35(){
+  const el = $("lpjFotoSheets");
+  if(!el) return;
+  ensureMobileSync();
+  const items = (data.mobileSync.imported || []).filter(a => (a.photos||[]).some(p => p.dataUrl));
+  if(!items.length){ el.innerHTML=""; return; }
+
+  const BUCKETS = ["Foto Sebelum","Foto Proses","Foto Sesudah","Foto Daftar Hadir","Foto Nota/Kuitansi","Foto Serah Terima","Foto Lainnya"];
+  const LABELS  = {"Foto Sebelum":"Kondisi Sebelum Kegiatan","Foto Proses":"Proses / Pelaksanaan Kegiatan","Foto Sesudah":"Kondisi Setelah Kegiatan","Foto Daftar Hadir":"Daftar Hadir Peserta","Foto Nota/Kuitansi":"Bukti Nota dan Kuitansi","Foto Serah Terima":"Serah Terima","Foto Lainnya":"Dokumentasi Lainnya"};
+
+  function normBucket(type){
+    if(!type) return "Foto Lainnya";
+    const t = type.toLowerCase();
+    if(t.includes("sebelum")) return "Foto Sebelum";
+    if(t.includes("proses")||t.includes("saat")||t.includes("selama")) return "Foto Proses";
+    if(t.includes("sesudah")||t.includes("setelah")) return "Foto Sesudah";
+    if(t.includes("hadir")) return "Foto Daftar Hadir";
+    if(t.includes("nota")||t.includes("kuitansi")) return "Foto Nota/Kuitansi";
+    if(t.includes("serah")||t.includes("terima")) return "Foto Serah Terima";
+    return "Foto Lainnya";
+  }
+
+  el.innerHTML = items.map((act, i) => {
+    const groups = {};
+    (act.photos||[]).filter(p=>p.dataUrl).forEach(p => {
+      const b = normBucket(p.type);
+      if(!groups[b]) groups[b] = [];
+      groups[b].push(p);
+    });
+    const sections = BUCKETS.filter(b => groups[b]?.length).map(b => `
+      <div class="foto-sheet-section">
+        <div class="foto-sheet-sec-hdr">${esc(LABELS[b])}</div>
+        <div class="foto-sheet-photos">
+          ${groups[b].map(p => `
+            <div class="foto-sheet-photo">
+              <img src="${p.dataUrl}" alt="${esc(p.type||'foto')}">
+              <small>${esc(p.capturedAtText||p.timestamp||"")}</small>
+            </div>
+          `).join("")}
+        </div>
+      </div>`).join("");
+
+    const meta = [act.hariTanggal, act.tempat].filter(Boolean).map(esc).join(" • ");
+    return `
+      ${i > 0 ? '<div class="foto-sheet-page-break"></div>' : ''}
+      <div class="foto-sheet-page">
+        ${kopHTML()}
+        <div class="foto-sheet-heading">
+          <div class="foto-sheet-main-title">LEMBAR DOKUMENTASI KEGIATAN</div>
+          <div class="foto-sheet-keg-name">${esc(act.nama || `Kegiatan ${i+1}`)}</div>
+          ${meta ? `<div class="foto-sheet-keg-meta">${meta}</div>` : ""}
+        </div>
+        <div class="foto-sheet-sections">${sections}</div>
+      </div>`;
+  }).join("");
+}
+
+/* ── postMessage listener: auto-sync dari MoKu iframe ─────── */
+(function initMokuIframeSync(){
+  window.addEventListener("message", (e) => {
+    if(!e.data || !e.data.type) return;
+    const { type } = e.data;
+
+    if(type === "moku-photo"){
+      const { activity, photo } = e.data;
+      if(!activity || !photo || !photo.dataUrl) return;
+      ensureMobileSync();
+      const imported = data.mobileSync.imported || [];
+      let actEntry = imported.find(a => a.id === activity.id || a.nama === activity.nama);
+      if(!actEntry){ actEntry = { ...activity, photos:[] }; imported.push(actEntry); }
+      const existIdx = (actEntry.photos||[]).findIndex(p => p.id === photo.id);
+      if(existIdx >= 0) actEntry.photos[existIdx] = { ...actEntry.photos[existIdx], ...photo };
+      else { actEntry.photos = [...(actEntry.photos||[]), photo]; }
+      data.mobileSync.imported = imported;
+      try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e2){}
+      renderMobileDocumentationToLPJ();
+      renderMokuFotoSheetsV35();
+    }
+
+    if(type === "moku-full-sync"){
+      const newItems = e.data.results || [];
+      if(!newItems.length) return;
+      ensureMobileSync();
+      const existing = data.mobileSync.imported || [];
+      newItems.forEach(newAct => {
+        const idx = existing.findIndex(a => a.id === newAct.id || a.nama === newAct.nama);
+        if(idx >= 0){
+          const exPhotos = existing[idx].photos || [];
+          (newAct.photos||[]).forEach(np => {
+            const ei = exPhotos.findIndex(ep => ep.id === np.id);
+            if(ei < 0) exPhotos.push(np);
+            else exPhotos[ei] = { ...exPhotos[ei], ...np };
+          });
+          existing[idx] = { ...existing[idx], ...newAct, photos: exPhotos };
+        } else {
+          existing.push(newAct);
+        }
+      });
+      data.mobileSync.imported = existing;
+      try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e2){}
+      renderMobileDocumentationToLPJ();
+      renderMokuFotoSheetsV35();
+    }
+  });
+})();
+
 function renderMobileDocumentationToLPJ(){
   ensureMobileSync();
   const el = $("lpjDokumentasiList");
@@ -2441,11 +2548,12 @@ function printCssV22(){
   body{font-family:"Times New Roman",serif}
   .print-page{width:187mm;box-sizing:border-box;margin:0 auto;background:#fff}
   .official{font-family:"Times New Roman",serif;color:#000;font-size:11.5pt;line-height:1.22;width:100%;box-sizing:border-box}
-  .kop{display:grid;grid-template-columns:76px 1fr;align-items:center;border-bottom:3px double #000;padding-bottom:8px;margin-bottom:14px;text-align:center}
-  .kop-logo{width:58px;max-height:70px;object-fit:contain;margin:auto;display:block}
-  .kop h1{font-family:"Times New Roman",serif;margin:0;font-size:16px;text-transform:uppercase}
-  .kop h2{font-family:"Times New Roman",serif;margin:2px 0;font-size:15px;text-transform:uppercase}
-  .kop p{font-family:"Times New Roman",serif;margin:2px 0;font-size:11px}
+  .kop{position:relative;text-align:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;min-height:72px;display:flex;align-items:center;justify-content:center}
+  .kop-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);width:58px;max-height:70px;object-fit:contain;display:block}
+  .kop-text{text-align:center;width:100%}
+  .kop h1,.kop-text h1{font-family:"Times New Roman",serif;margin:0;font-size:16px;text-transform:uppercase;text-align:center}
+  .kop h2,.kop-text h2{font-family:"Times New Roman",serif;margin:2px 0;font-size:15px;text-transform:uppercase;text-align:center}
+  .kop p,.kop-text p{font-family:"Times New Roman",serif;margin:2px 0;font-size:11px;text-align:center}
   .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt}
   .official table{width:100%;border-collapse:collapse}
   .official th,.official td{border:1px solid #000;padding:5px;vertical-align:top}
@@ -3493,7 +3601,7 @@ function bind(){
   $("restoreData").onchange=e=>{if(e.target.files[0])restoreFile(e.target.files[0])};
 }
 function render(){
-  fillInputs(); renderRap(); renderPeserta(); renderExpenses(); renderChecklist(); renderActionPlan(); renderPersiapan(); organizeActivityInputsV20(); ensurePrintHelpV21(); ensurePrintHelpV22(); updateDashboard(); previewDoc(currentDoc); renderMobileDocumentationToLPJ();
+  fillInputs(); renderRap(); renderPeserta(); renderExpenses(); renderChecklist(); renderActionPlan(); renderPersiapan(); organizeActivityInputsV20(); ensurePrintHelpV21(); ensurePrintHelpV22(); updateDashboard(); previewDoc(currentDoc); renderMobileDocumentationToLPJ(); renderMokuFotoSheetsV35();
 }
 setInterval(()=>{const d=new Date();$("clockBox").textContent=d.toLocaleTimeString("id-ID")},1000);
 insertAiNotulenPanelsV25(); insertAiLpjPanelV29();

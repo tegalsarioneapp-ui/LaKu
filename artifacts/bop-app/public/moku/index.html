@@ -68,16 +68,7 @@
           <div class="active-card-actions">
             <button id="bopSyncBtn" class="btn-bop-sync btn-sm" type="button" title="Sinkronisasi kegiatan RAP dari BOP utama">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>
-              Sinkron BOP
-            </button>
-            <label class="btn-ghost btn-sm file-btn">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Import JSON
-              <input id="importActivityFile" type="file" accept=".json,application/json" hidden>
-            </label>
-            <button id="addManualBtn" class="btn-ghost btn-sm" type="button">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Manual
+              Sinkron Otomatis
             </button>
           </div>
         </div>
@@ -99,6 +90,9 @@
 
         <div class="section-hdr">
           <h3>Daftar Kegiatan</h3>
+          <select id="activityMonthFilter" class="month-filter-select">
+            <option value="">Semua Bulan</option>
+          </select>
         </div>
         <div id="activityList" class="list-wrap"></div>
       </section>
@@ -160,14 +154,12 @@
 
       <section id="page-result" class="page">
         <div class="export-card">
-          <span class="label-eyebrow">Export &amp; Bagikan</span>
-          <h2>Hasil MoKu</h2>
-          <p>Export JSON untuk diimport ke aplikasi BOP utama.</p>
-          <div class="export-actions">
-            <button id="exportResultBtn" class="btn-primary btn-full" type="button">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export Hasil MoKu
-            </button>
+          <span class="label-eyebrow">Hasil Dokumentasi</span>
+          <h2>Rekap Kegiatan</h2>
+          <p>Foto otomatis tersinkron ke laporan BOP. Data tersimpan aman di perangkat ini.</p>
+          <div class="result-sync-info" id="resultSyncInfo">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Sinkron otomatis aktif
           </div>
         </div>
         <div id="resultList" class="list-wrap"></div>

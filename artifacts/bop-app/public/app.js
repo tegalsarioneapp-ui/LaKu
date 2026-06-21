@@ -4605,15 +4605,42 @@ async function goPage(page){
   async function doExportPdf(el, filename){
     try {
       const lib = await loadHtml2PdfV38();
+      if(typeof bopToast === "function") bopToast("Membuat PDF", "Proses export sedang berjalan...", "info");
+
+      // Sementara ubah overflow agar html2canvas capture semua konten
+      const prevOverflow = el.style.overflow;
+      const prevHeight   = el.style.height;
+      el.style.overflow  = "visible";
+      el.style.height    = "auto";
+
+      // Beri waktu browser reflow
+      await new Promise(r => setTimeout(r, 80));
+
       const opt = {
-        margin: [10, 10, 10, 10],
+        margin: [12, 12, 12, 12],
         filename: filename,
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, scrollY: 0 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          scrollX: 0,
+          scrollY: 0,
+          backgroundColor: "#ffffff",
+          width: el.scrollWidth,
+          height: el.scrollHeight,
+          windowWidth: el.scrollWidth,
+          windowHeight: el.scrollHeight,
+          allowTaint: true,
+        },
         jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
       };
-      if(typeof bopToast === "function") bopToast("Membuat PDF", "Proses export sedang berjalan...", "info");
+
       await lib().set(opt).from(el).save();
+
+      // Kembalikan style semula
+      el.style.overflow = prevOverflow;
+      el.style.height   = prevHeight;
     } catch(e){
       console.error(PATCH_ID, e);
       if(typeof bopAlert === "function") bopAlert("Gagal Export PDF", e.message || "Terjadi kesalahan saat membuat PDF.", "error");
@@ -5049,17 +5076,30 @@ async function goPage(page){
   }
 
   /* ── Update topbar Online/Offline indicator ───────────────── */
+  let _lastTopbarStatus = null;
+
   function setTopbarStatus(online) {
     const dot  = document.getElementById("topbarDot");
     const text = document.getElementById("topbarStatusText");
     if (!dot || !text) return;
     if (online) {
-      dot.style.background  = "#16a34a";
-      text.textContent      = "Online Mode";
+      dot.style.background = "#16a34a";
+      text.textContent     = "Online Mode";
     } else {
-      dot.style.background  = "#dc2626";
-      text.textContent      = "Offline Mode";
+      dot.style.background = "#dc2626";
+      text.textContent     = "Offline Mode";
     }
+    // Toast hanya saat status berubah (bukan saat pertama kali set)
+    if (_lastTopbarStatus !== null && _lastTopbarStatus !== online) {
+      if (typeof bopToast === "function") {
+        if (online) {
+          bopToast("☁ Terhubung ke Server", "Sinkronisasi data aktif.", "success");
+        } else {
+          bopToast("⚠ Koneksi Terputus", "Mode offline — data tetap tersimpan lokal.", "warning");
+        }
+      }
+    }
+    _lastTopbarStatus = online;
   }
 
   /* ── Cek koneksi ke server (lokal dalam IIFE ini) ─────────── */

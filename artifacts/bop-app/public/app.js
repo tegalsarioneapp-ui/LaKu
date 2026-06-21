@@ -520,8 +520,9 @@ function esc(s){return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt
 function bopAlert(title, text, icon="info"){
   if(typeof Swal === "undefined"){ alert(`${title}: ${text}`); return Promise.resolve(); }
   const iconMap = {success:"success",error:"error",warning:"warning",info:"info",question:"question"};
+  const isHtml = /<[a-z][\s\S]*>/i.test(text);
   return Swal.fire({
-    title, text, icon: iconMap[icon]||"info",
+    title, [isHtml ? "html" : "text"]: text, icon: iconMap[icon]||"info",
     confirmButtonColor:"#0b2e59",
     confirmButtonText:"OK",
     customClass:{popup:"swal-bop-popup"}

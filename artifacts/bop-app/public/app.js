@@ -5113,18 +5113,52 @@ async function goPage(page){
   async function pingServer() {
     try {
       const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout
-        ? { signal: AbortSignal.timeout(3000) } : {};
+        ? { signal: AbortSignal.timeout(4000) } : {};
       const r = await fetch("/api/sync/status", c);
-      return r.ok;
+      // 304 Not Modified = server tetap online, bukan error
+      return r.ok || r.status === 304;
     } catch (e) { return false; }
   }
 
-  /* ── Periodic connectivity check setiap 30 detik ─────────── */
+  /* ── Silent data poll: ambil data server jika versi lebih baru ── */
+  async function silentPoll() {
+    try {
+      const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout
+        ? { signal: AbortSignal.timeout(6000) } : {};
+      const res = await fetch("/api/bop/data", c);
+      // 304 = tidak ada perubahan, skip
+      if (res.status === 304) { setTopbarStatus(true); return; }
+      if (!res.ok) { setTopbarStatus(false); return; }
+      setTopbarStatus(true);
+      const result = await res.json();
+      if (!result.ok || !result.data) return;
+      const serverVer = result.version || 0;
+      const localVer  = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      if (serverVer > localVer) {
+        // Ada data baru dari device lain — update diam-diam
+        const serverData = result.data;
+        if (typeof window.data !== "undefined" && typeof serverData === "object") {
+          Object.assign(window.data, serverData);
+        }
+        _origSetItem(BOP_STORE, JSON.stringify(serverData));
+        localStorage.setItem(VER_KEY, String(serverVer));
+        localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
+        if (typeof render === "function") { try { render(); } catch(e){} }
+        if (typeof updateDashboard === "function") { try { updateDashboard(); } catch(e){} }
+        setBadge("☁ ✓", "#15803d");
+        setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 2000);
+        if (typeof bopToast === "function") {
+          bopToast("☁ Data Diperbarui", `Data terbaru (v${serverVer}) dimuat dari server.`, "info");
+        }
+      }
+    } catch (e) {
+      setTopbarStatus(false);
+    }
+  }
+
+  /* ── Periodic check: ping + pull data baru setiap 30 detik ── */
   function startPeriodicCheck() {
-    setInterval(async () => {
-      const ok = await pingServer();
-      setTopbarStatus(ok);
-    }, 30000);
+    setInterval(() => silentPoll(), 30000);
   }
 
   /* ── Init ─────────────────────────────────────────────────── */

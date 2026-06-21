@@ -1,3 +1,41 @@
+
+/* PATCH 012 - API bridge Vercel frontend -> Railway backend */
+(function bopApiBridgeV42(){
+  if (window.__bopApiBridgeV42) return;
+  window.__bopApiBridgeV42 = true;
+
+  function cleanBase(v){
+    return String(v || "").trim().replace(/\/+$/, "");
+  }
+
+  const base = cleanBase(window.BOP_API_BASE);
+  window.BOP_API_BASE = base;
+
+  const nativeFetch = window.fetch.bind(window);
+
+  window.fetch = function(input, init){
+    try {
+      if (base && typeof input === "string" && input.startsWith("/api/")) {
+        return nativeFetch(base + input, init);
+      }
+
+      if (base && input instanceof Request) {
+        const u = new URL(input.url, window.location.href);
+        if (u.origin === window.location.origin && u.pathname.startsWith("/api/")) {
+          const nextReq = new Request(base + u.pathname + u.search + u.hash, input);
+          return nativeFetch(nextReq, init);
+        }
+      }
+    } catch(e) {
+      console.warn("[BOP API Bridge] fallback fetch:", e);
+    }
+
+    return nativeFetch(input, init);
+  };
+
+  console.info("[BOP API Bridge] API Base:", base || "(relative /api - belum diset)");
+})();
+
 const STORE = "bop_rt005_data_v1_25";
 const OLD_KEYS = ["bop_rt005_data_v1_3","bop_rt005_data_v1_2","bop_rt005_data_v1","bop_rt005_data_v1_4"];
 
@@ -5687,3 +5725,58 @@ function printCssV22(){
   style.textContent=css;
   document.head.appendChild(style);
 })();
+
+
+/* PATCH 012B - Expose data object for cloud sync */
+(function bopExposeDataV42(){
+  function expose(){
+    try {
+      if (typeof data !== "undefined") {
+        window.data = data;
+      }
+      if (typeof STORE !== "undefined") {
+        window.BOP_STORE_KEY = STORE;
+      }
+    } catch(e) {}
+  }
+
+  expose();
+
+  window.BOP_APPLY_SERVER_DATA_V42 = function(serverData){
+    try {
+      if (!serverData || typeof serverData !== "object") return false;
+
+      const fixed = (typeof migrateOld === "function") ? migrateOld(serverData) : serverData;
+
+      if (typeof data !== "undefined") {
+        Object.keys(data).forEach(k => delete data[k]);
+        Object.assign(data, fixed);
+        window.data = data;
+      } else {
+        window.data = fixed;
+      }
+
+      try {
+        const key = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+        localStorage.setItem(key, JSON.stringify(fixed));
+      } catch(e) {}
+
+      if (typeof render === "function") {
+        try { render(); } catch(e) {}
+      }
+
+      if (typeof updateDashboard === "function") {
+        try { updateDashboard(); } catch(e) {}
+      }
+
+      return true;
+    } catch(e) {
+      console.warn("[BOP APPLY SERVER DATA V42]", e);
+      return false;
+    }
+  };
+
+  setTimeout(expose, 100);
+  setTimeout(expose, 800);
+})();
+

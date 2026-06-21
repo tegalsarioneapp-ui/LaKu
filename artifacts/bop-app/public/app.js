@@ -913,19 +913,68 @@ async function deleteMokuPhotoV34(actIdx, photoIdx, bucket="all"){
   openMokuPhotoViewerV34(actIdx,bucket);
 }
 /* ── Lembar Dokumentasi Foto MoKu di LPJ Preview ─────────── */
-function renderMokuFotoSheetsV35(){
-  const el = $("lpjFotoSheets");
-  if(!el) return;
-  ensureMobileSync();
-  const items = (data.mobileSync.imported || []).filter(a => (a.photos||[]).some(p => p.dataUrl));
-  if(!items.length){ el.innerHTML=""; return; }
+/* ── Helper: buka IndexedDB MoKu (same-origin) ──────────── */
+async function openMokuIDBV35(){
+  return new Promise((resolve,reject)=>{
+    if(typeof indexedDB==="undefined") return reject();
+    const req=indexedDB.open("bop_rt005_idb_v1");
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject();
+    req.onblocked=()=>reject();
+  });
+}
+/* ── Kumpulkan aktivitas+foto langsung dari MoKu storage ── */
+async function getMokuItemsForLPJ(){
+  /* 1. Baca state MoKu dari localStorage (same origin) */
+  let mokuState=null;
+  try{ const raw=localStorage.getItem("moku_rt005_v2_premium"); if(raw) mokuState=JSON.parse(raw); }catch(_){}
 
-  const BUCKETS = ["Foto Sebelum","Foto Proses","Foto Sesudah","Foto Daftar Hadir","Foto Nota/Kuitansi","Foto Serah Terima","Foto Lainnya"];
-  const LABELS  = {"Foto Sebelum":"Kondisi Sebelum Kegiatan","Foto Proses":"Proses / Pelaksanaan Kegiatan","Foto Sesudah":"Kondisi Setelah Kegiatan","Foto Daftar Hadir":"Daftar Hadir Peserta","Foto Nota/Kuitansi":"Bukti Nota dan Kuitansi","Foto Serah Terima":"Serah Terima","Foto Lainnya":"Dokumentasi Lainnya"};
+  let items=[];
+  if(mokuState?.activities?.length){
+    /* 2. Buka IndexedDB MoKu dan baca semua foto */
+    let photoMap=new Map();
+    try{
+      const db=await openMokuIDBV35();
+      const allPh=await new Promise((resolve)=>{
+        try{
+          const tx=db.transaction("photos","readonly");
+          const req=tx.objectStore("photos").getAll();
+          req.onsuccess=()=>resolve(req.result||[]);
+          req.onerror=()=>resolve([]);
+        }catch(_){resolve([]);}
+      });
+      db.close();
+      allPh.forEach(p=>{ if(p.id&&p.dataUrl) photoMap.set(p.id,p.dataUrl); });
+    }catch(_){}
+
+    items=mokuState.activities.map(act=>{
+      const res=mokuState.results?.[act.id]||{};
+      const photos=(res.photos||[]).map(p=>({
+        ...p,
+        dataUrl:photoMap.get(p.id)||p.dataUrl||null
+      })).filter(p=>p.dataUrl);
+      return{...act,photos};
+    }).filter(a=>a.photos.length>0);
+  }
+
+  /* 3. Fallback: mobileSync.imported (postMessage iframe sync) */
+  if(!items.length){
+    ensureMobileSync();
+    items=(data.mobileSync.imported||[]).filter(a=>(a.photos||[]).some(p=>p.dataUrl));
+  }
+  return items;
+}
+/* ── Render lembar foto per kegiatan di LPJ (async) ─────── */
+async function renderMokuFotoSheetsV35(){
+  const el=$("lpjFotoSheets");
+  if(!el) return;
+
+  const BUCKETS=["Foto Sebelum","Foto Proses","Foto Sesudah","Foto Daftar Hadir","Foto Nota/Kuitansi","Foto Serah Terima","Foto Lainnya"];
+  const LABELS={"Foto Sebelum":"Kondisi Sebelum Kegiatan","Foto Proses":"Proses / Pelaksanaan Kegiatan","Foto Sesudah":"Kondisi Setelah Kegiatan","Foto Daftar Hadir":"Daftar Hadir Peserta","Foto Nota/Kuitansi":"Bukti Nota dan Kuitansi","Foto Serah Terima":"Serah Terima","Foto Lainnya":"Dokumentasi Lainnya"};
 
   function normBucket(type){
     if(!type) return "Foto Lainnya";
-    const t = type.toLowerCase();
+    const t=type.toLowerCase();
     if(t.includes("sebelum")) return "Foto Sebelum";
     if(t.includes("proses")||t.includes("saat")||t.includes("selama")) return "Foto Proses";
     if(t.includes("sesudah")||t.includes("setelah")) return "Foto Sesudah";
@@ -935,18 +984,26 @@ function renderMokuFotoSheetsV35(){
     return "Foto Lainnya";
   }
 
-  el.innerHTML = items.map((act, i) => {
-    const groups = {};
-    (act.photos||[]).filter(p=>p.dataUrl).forEach(p => {
-      const b = normBucket(p.type);
-      if(!groups[b]) groups[b] = [];
+  /* Tampilkan loading agar user tahu sedang memuat foto */
+  el.innerHTML=`<div style="padding:16px 0;color:#64748b;font-size:13px;text-align:center">⏳ Memuat foto dokumentasi MoKu...</div>`;
+
+  let items=[];
+  try{ items=await getMokuItemsForLPJ(); }catch(_){}
+
+  if(!items.length){ el.innerHTML=""; return; }
+
+  el.innerHTML=items.map((act,i)=>{
+    const groups={};
+    (act.photos||[]).filter(p=>p.dataUrl).forEach(p=>{
+      const b=normBucket(p.type);
+      if(!groups[b]) groups[b]=[];
       groups[b].push(p);
     });
-    const sections = BUCKETS.filter(b => groups[b]?.length).map(b => `
+    const sections=BUCKETS.filter(b=>groups[b]?.length).map(b=>`
       <div class="foto-sheet-section">
         <div class="foto-sheet-sec-hdr">${esc(LABELS[b])}</div>
         <div class="foto-sheet-photos">
-          ${groups[b].map(p => `
+          ${groups[b].map(p=>`
             <div class="foto-sheet-photo">
               <img src="${p.dataUrl}" alt="${esc(p.type||'foto')}">
               <small>${esc(p.capturedAtText||p.timestamp||"")}</small>
@@ -955,15 +1012,15 @@ function renderMokuFotoSheetsV35(){
         </div>
       </div>`).join("");
 
-    const meta = [act.hariTanggal, act.tempat].filter(Boolean).map(esc).join(" • ");
-    return `
-      ${i > 0 ? '<div class="foto-sheet-page-break"></div>' : ''}
+    const meta=[act.hariTanggal,act.tempat].filter(Boolean).map(esc).join(" • ");
+    return`
+      ${i>0?'<div class="foto-sheet-page-break"></div>':""}
       <div class="foto-sheet-page">
         ${kopHTML()}
         <div class="foto-sheet-heading">
           <div class="foto-sheet-main-title">LEMBAR DOKUMENTASI KEGIATAN</div>
-          <div class="foto-sheet-keg-name">${esc(act.nama || `Kegiatan ${i+1}`)}</div>
-          ${meta ? `<div class="foto-sheet-keg-meta">${meta}</div>` : ""}
+          <div class="foto-sheet-keg-name">${esc(act.nama||`Kegiatan ${i+1}`)}</div>
+          ${meta?`<div class="foto-sheet-keg-meta">${meta}</div>`:""}
         </div>
         <div class="foto-sheet-sections">${sections}</div>
       </div>`;

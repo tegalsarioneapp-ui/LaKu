@@ -65,12 +65,7 @@
               <small id="progressText">0 / 5 jenis foto</small>
             </div>
           </div>
-          <div class="active-card-actions">
-            <button id="bopSyncBtn" class="btn-bop-sync btn-sm" type="button" title="Sinkronisasi kegiatan RAP dari BOP utama">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>
-              Sinkron Otomatis
-            </button>
-          </div>
+          <div class="active-card-actions" id="active-card-actions" hidden></div>
         </div>
 
         <div class="stats-row">
@@ -85,6 +80,40 @@
           <div class="stat-card">
             <b id="statDone">0</b>
             <span>Lengkap</span>
+          </div>
+        </div>
+
+        <!-- Panduan Premium untuk Warga -->
+        <div class="guide-cards-wrap">
+          <div class="guide-card-row">
+            <div class="guide-card">
+              <div class="guide-card-icon">📸</div>
+              <div class="guide-card-body">
+                <b>Pilih & Foto</b>
+                <small>Ketuk kegiatan di bawah lalu ambil foto langsung dari kamera</small>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-icon">📋</div>
+              <div class="guide-card-body">
+                <b>5 Jenis Foto</b>
+                <small>Sebelum · Proses · Sesudah · Hadir · Nota — lengkapi semua</small>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-icon">📍</div>
+              <div class="guide-card-body">
+                <b>GPS Otomatis</b>
+                <small>Lokasi & waktu dicatat di foto tanpa input manual</small>
+              </div>
+            </div>
+            <div class="guide-card">
+              <div class="guide-card-icon">📄</div>
+              <div class="guide-card-body">
+                <b>Masuk LPJ</b>
+                <small>Foto langsung tersedia di lembar LPJ/SPJ BOP utama</small>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -163,7 +192,7 @@
           </div>
         </div>
         <div id="resultList" class="list-wrap"></div>
-        <button id="clearBtn" class="btn-danger" type="button">Reset Semua Data MoKu</button>
+        <button id="clearBtn" class="btn-danger btn-danger-hidden" type="button" title="Reset data MoKu" style="display:none">Reset Semua Data MoKu</button>
       </section>
 
       <!-- ══ Riwayat Kegiatan ═══════════════════════════════════ -->
@@ -175,10 +204,7 @@
               <h2>Dokumentasi per Bulan</h2>
               <p>Kegiatan dari RAP BOP dikelompokkan berdasarkan bulan pelaksanaan.</p>
             </div>
-            <button id="riwayatSyncBtn" class="btn-bop-sync btn-sm" type="button" title="Sinkron ulang dari BOP">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg>
-              Sinkron BOP
-            </button>
+            <button id="riwayatSyncBtn" type="button" style="display:none" hidden></button>
           </div>
           <div class="riwayat-filter-row">
             <label class="riwayat-filter-label" for="historyMonthFilter">

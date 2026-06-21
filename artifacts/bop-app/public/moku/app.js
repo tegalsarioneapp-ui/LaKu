@@ -499,12 +499,17 @@
     /* Isi dropdown bulan dari data */
     if (filterSel) {
       const months = [...new Set(allActivities.map(a => a.bulan || a.hariTanggal || "").filter(Boolean))];
-      const curVal = filterSel.value;
       const monthOptions = MOKU_MONTHS.filter(m => months.includes(m));
+      /* Simpan nilai aktif sebelum rebuild */
+      const targetFilter = filterSel.value || state.activityMonthFilter || "";
       filterSel.innerHTML = `<option value="">Semua Bulan</option>` +
-        monthOptions.map(m => `<option value="${m}" ${m===curVal?"selected":""}>${m}</option>`).join("");
-      /* Restore saved filter */
-      if (!curVal && state.activityMonthFilter) filterSel.value = state.activityMonthFilter;
+        monthOptions.map(m => `<option value="${m}">${m}</option>`).join("");
+      /* Restore nilai setelah rebuild */
+      if (targetFilter && monthOptions.includes(targetFilter)) {
+        filterSel.value = targetFilter;
+      } else {
+        filterSel.value = "";
+      }
     }
 
     const activeFilter = filterSel ? filterSel.value : (state.activityMonthFilter || "");
@@ -1457,9 +1462,11 @@
       }
     });
 
-    // Export & clear
-    $("exportResultBtn").addEventListener("click", exportResults);
-    $("clearBtn").addEventListener("click", clearData);
+    // Export & clear (tombol hidden — jaga jika elemen ada di DOM)
+    const exportResultEl = $("exportResultBtn");
+    if (exportResultEl) exportResultEl.addEventListener("click", exportResults);
+    const clearBtnEl = $("clearBtn");
+    if (clearBtnEl) clearBtnEl.addEventListener("click", clearData);
 
     // Note autosave
     $("resultNote").addEventListener("input", () => {

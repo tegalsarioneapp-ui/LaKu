@@ -5289,7 +5289,6 @@ function goPage(page){
       const result = await res.json();
       if (!result.ok || !result.data) return;
       const serverVer = result.version || 0;
-      const localVer  = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
       if (serverVer > localVer) {
         // Ada data baru dari device lain — update diam-diam
         const serverData = result.data;

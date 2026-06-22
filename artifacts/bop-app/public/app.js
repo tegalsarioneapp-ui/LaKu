@@ -4977,611 +4977,395 @@ async function goPage(page){
   else setTimeout(installPdfBtnsV38, 400);
 })();
 
-/* PATCH v1.39 - Sinkronisasi Data Antar Device via Server */
-(function bopCloudSyncV39(){
-  const PATCH_ID = "[BOP Sync v1.39]";
-  const KEY_LAST_PUSH = "bop_sync_last_push_v39";
-  const KEY_LAST_PULL = "bop_sync_last_pull_v39";
-
-  function fmtTS(iso){
-    try{ return new Date(iso).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
-    catch(e){ return iso || "-"; }
-  }
-
-  function updateSyncUI(){
-    const lastPush = localStorage.getItem(KEY_LAST_PUSH);
-    const lastPull = localStorage.getItem(KEY_LAST_PULL);
-    const el = document.getElementById("syncStatusV39");
-    if(!el) return;
-    const parts = [];
-    if(lastPush) parts.push("☁ Disimpan: " + fmtTS(lastPush));
-    else parts.push("Belum pernah disimpan ke server.");
-    if(lastPull) parts.push("⬇ Diambil: " + fmtTS(lastPull));
-    el.textContent = parts.join("  •  ");
-  }
-
-  function updateSideNote(hasPush){
-    const el = document.querySelector(".side-note");
-    if(!el) return;
-    const lastPush = localStorage.getItem(KEY_LAST_PUSH);
-    if(lastPush){
-      el.innerHTML = "<b>Tersinkron</b><br><small>" + fmtTS(lastPush) + "</small>";
-    } else {
-      el.innerHTML = "<b>Offline</b><br>Data di perangkat ini.";
-    }
-  }
-
-  async function checkOnline(){
-    try{
-      const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(3000) } : {};
-      const r = await fetch("/api/sync/status", c);
-      return r.ok;
-    } catch(e){ return false; }
-  }
-
-  async function pushToServer(){
-    const badge = document.getElementById("syncBadgeV39");
-    if(badge){ badge.textContent = "⏳ Menyimpan..."; badge.style.color = "#64748b"; }
-    try{
-      if(typeof collectAll === "function") collectAll();
-      const payload = { data: (typeof data !== "undefined" ? data : {}), pushedAt: new Date().toISOString() };
-      const res = await fetch("/api/sync/push", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
-      });
-      if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.error || "HTTP " + res.status); }
-      const result = await res.json();
-      localStorage.setItem(KEY_LAST_PUSH, result.savedAt || new Date().toISOString());
-      updateSyncUI(); updateSideNote();
-      if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; }
-      if(typeof bopToast === "function") bopToast("Sync Berhasil", "Data tersimpan di server. Device lain bisa mengambil data ini.", "success");
-    } catch(e){
-      console.error(PATCH_ID, e);
-      if(badge){ badge.textContent = "🔴 Error"; badge.style.color = "#dc2626"; }
-      if(typeof bopAlert === "function") bopAlert("Sync Gagal", "Gagal menyimpan ke server: " + (e.message || "timeout"), "error");
-    }
-  }
-
-  async function pullFromServer(){
-    const badge = document.getElementById("syncBadgeV39");
-    if(badge){ badge.textContent = "⏳ Mengambil..."; badge.style.color = "#64748b"; }
-    try{
-      const res = await fetch("/api/sync/pull", {
-        signal: AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined
-      });
-      if(res.status === 404){
-        if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; }
-        if(typeof bopAlert === "function") bopAlert("Tidak Ada Data", "Belum ada data yang tersimpan di server. Simpan data dulu dari perangkat utama.", "info");
-        return;
-      }
-      if(!res.ok){ const err = await res.json().catch(() => ({})); throw new Error(err.error || "HTTP " + res.status); }
-      const result = await res.json();
-      if(!result.data) throw new Error("Format data tidak valid");
-
-      let konfirmasi = true;
-      if(typeof Swal !== "undefined"){
-        const r = await Swal.fire({
-          title: "Ambil Data dari Server?",
-          html: "Data lokal akan diganti dengan data server.<br><small>Terakhir disimpan: <b>" + fmtTS(result.savedAt || result.pushedAt) + "</b></small>",
-          icon: "question", showCancelButton: true,
-          confirmButtonText: "Ya, Ambil Data", cancelButtonText: "Batal"
-        });
-        konfirmasi = r.isConfirmed;
-      } else { konfirmasi = confirm("Ambil data dari server? Data lokal akan diganti."); }
-
-      if(!konfirmasi){ if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; } return; }
-
-      if(typeof data !== "undefined" && result.data && typeof result.data === "object"){ Object.assign(data, JSON.parse(JSON.stringify(result.data))); }
-      try{ localStorage.setItem(typeof STORE !== "undefined" ? STORE : "bop_rt005_data_v1_25", JSON.stringify(result.data)); } catch(e){}
-      localStorage.setItem(KEY_LAST_PULL, new Date().toISOString());
-      updateSyncUI(); updateSideNote();
-      if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; }
-      if(typeof render === "function") render();
-      if(typeof updateDashboard === "function") updateDashboard();
-      if(typeof bopToast === "function") bopToast("Sync Berhasil", "Data berhasil diambil dari server.", "success");
-    } catch(e){
-      console.error(PATCH_ID, e);
-      if(badge){ badge.textContent = "🔴 Error"; badge.style.color = "#dc2626"; }
-      if(typeof bopAlert === "function") bopAlert("Sync Gagal", "Gagal mengambil data: " + (e.message || "timeout"), "error");
-    }
-  }
-
-  function initSyncV39(){
-    const pushBtn = document.getElementById("syncPushV39");
-    const pullBtn = document.getElementById("syncPullV39");
-    if(pushBtn) pushBtn.onclick = pushToServer;
-    if(pullBtn) pullBtn.onclick = pullFromServer;
-    updateSyncUI();
-    updateSideNote();
-    // Cek ketersediaan server di background
-    checkOnline().then(ok => {
-      const badge = document.getElementById("syncBadgeV39");
-      if(badge){ badge.textContent = ok ? "🟢 Online" : "🔴 Server Offline"; badge.style.color = ok ? "#16a34a" : "#dc2626"; }
-    });
-  }
-
-  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(initSyncV39, 300));
-  else setTimeout(initSyncV39, 300);
-
-  window.bopSyncPushV39 = pushToServer;
-  window.bopSyncPullV39 = pullFromServer;
-})();
 
 /* ═══════════════════════════════════════════════════════════════
-   PATCH v1.40 — PostgreSQL Primary Storage
-   Semua data BOP disimpan ke Replit PostgreSQL via API backend.
-   localStorage tetap sebagai offline cache / fallback.
-   ─────────────────────────────────────────────────────────────
-   Strategi:
-   1. Intercept localStorage.setItem(STORE, ...) → debounced
-      async PUT /api/bop/data (non-blocking, tidak ubah alur UI)
-   2. Pada boot: GET /api/bop/data → jika ada data server yang
-      lebih baru (version lebih tinggi), muat ke memori + cache
-   3. Indicator sync di header (kanan atas)
+   BOP SYNC v2.0 — Satu sistem sync, bersih, Railway-ready
+   - Semua endpoint: /api/bop/* (bukan /api/sync/*)
+   - Graceful offline: badge abu-abu, tidak ada error mengganggu
+   - Auto-push saat data berubah (debounce 2 detik)
+   - Auto-pull saat boot + setiap 15 detik (silent)
+   - Topbar: Online/Offline sesuai status server terakhir
 ═══════════════════════════════════════════════════════════════ */
-(function bopPostgresV40() {
-  const PATCH = "[BOP-PG v1.40]";
-  const BOP_STORE = "bop_rt005_data_v1_25";
-  const VER_KEY   = "bop_pg_version_v40";
-  const TS_KEY    = "bop_pg_updated_v40";
+(function bopSyncV2(){
+  const TAG      = "[BOP-SYNC v2]";
+  const STORE    = "bop_rt005_data_v1_25";
+  const VER_KEY  = "bop_pg_version_v40";
+  const TS_KEY   = "bop_pg_updated_v40";
 
-  /* ── Indikator sync di header ──────────────────────────────── */
-  function injectSyncBadge() {
-    if (document.getElementById("pgSyncBadge")) return;
-    const badge = document.createElement("div");
-    badge.id = "pgSyncBadge";
-    badge.title = "Status sinkronisasi PostgreSQL";
-    badge.style.cssText = [
-      "position:fixed", "top:10px", "right:14px", "z-index:9999",
-      "background:rgba(0,0,0,.55)", "color:#fff",
-      "font-size:11px", "font-weight:600",
-      "padding:3px 9px", "border-radius:20px",
-      "cursor:pointer", "user-select:none",
-      "transition:opacity .3s", "opacity:.85",
-    ].join(";");
-    badge.textContent = "☁ …";
-    badge.onclick = () => showSyncPanel();
-    document.body.appendChild(badge);
+  /* ─── Topbar status (Online / Offline / Memeriksa) ────────── */
+  let _lastOnline = null;
+  function setTopbarStatus(online){
+    const dot  = document.getElementById("topbarDot");
+    const txt  = document.getElementById("topbarStatusText");
+    if(dot) dot.style.background = online ? "#16a34a" : online === null ? "#94a3b8" : "#dc2626";
+    if(txt) txt.textContent      = online ? "Online Mode" : online === null ? "Memeriksa..." : "Offline Mode";
+    if(_lastOnline !== null && _lastOnline !== online && typeof bopToast === "function"){
+      if(online)  bopToast("☁ Terhubung ke Server", "Sinkronisasi data aktif.", "success");
+      else        bopToast("⚠ Koneksi Terputus", "Mode offline — data tetap tersimpan lokal.", "warning");
+    }
+    _lastOnline = online;
   }
 
-  function setBadge(text, color) {
+  /* ─── Badge sync kecil di pojok kanan atas ─────────────────── */
+  function injectBadge(){
+    if(document.getElementById("pgSyncBadge")) return;
+    const b = document.createElement("div");
+    b.id = "pgSyncBadge";
+    b.title = "Klik untuk info status sinkronisasi";
+    b.style.cssText = "position:fixed;top:10px;right:14px;z-index:9999;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;cursor:pointer;user-select:none;transition:background .3s,opacity .3s;opacity:.85";
+    b.textContent = "☁ …";
+    b.onclick = showSyncInfo;
+    document.body.appendChild(b);
+  }
+
+  function setBadge(txt, color){
     const b = document.getElementById("pgSyncBadge");
-    if (!b) return;
-    b.textContent = text;
+    if(!b) return;
+    b.textContent = txt;
     b.style.background = color || "rgba(0,0,0,.55)";
   }
 
-  /* ── Tampilkan ringkasan sync saat badge diklik ───────────── */
-  function showSyncPanel() {
+  function showSyncInfo(){
     const ver   = localStorage.getItem(VER_KEY) || "-";
     const ts    = localStorage.getItem(TS_KEY);
-    const tsStr = ts ? new Date(ts).toLocaleString("id-ID", {
-      day: "2-digit", month: "short", year: "numeric",
-      hour: "2-digit", minute: "2-digit"
-    }) : "-";
-    if (typeof bopAlert === "function") {
-      bopAlert(
-        "☁ Status PostgreSQL Sync",
-        `<b>Database:</b> Replit PostgreSQL<br>
-         <b>Versi data:</b> ${ver}<br>
-         <b>Terakhir sync:</b> ${tsStr}<br><br>
-         <small>Data disimpan otomatis ke server setelah setiap perubahan (delay 2 detik).<br>
-         Saat buka di perangkat lain, data server akan dimuat otomatis.</small>`,
-        "info"
-      );
+    const tsStr = ts ? new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
+    const fn = typeof bopAlert === "function" ? bopAlert : (t,m) => alert(t+"\n"+m);
+    fn("☁ Status Sinkronisasi BOP",
+      "<b>Database:</b> PostgreSQL (Railway)<br>" +
+      "<b>Versi data:</b> " + ver + "<br>" +
+      "<b>Terakhir sync:</b> " + tsStr + "<br><br>" +
+      "<small>Data disimpan otomatis setiap perubahan (delay 2 detik).<br>" +
+      "Saat buka di perangkat lain, data terbaru akan dimuat otomatis.</small>",
+    "info");
+  }
+
+  /* ─── Update sidebar note ───────────────────────────────────── */
+  function updateSidebarNote(){
+    const el = document.querySelector(".side-note");
+    if(!el) return;
+    const ts  = localStorage.getItem(TS_KEY);
+    const ver = localStorage.getItem(VER_KEY);
+    if(ts){
+      el.innerHTML = "<b>☁ PostgreSQL</b><br><small>v" + (ver||"?") + " — " +
+        new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) + "</small>";
+      el.style.color = "#15803d";
     } else {
-      alert(`PostgreSQL Sync\nVersi: ${ver}\nTerakhir: ${tsStr}`);
+      el.innerHTML = "<b>Offline</b><br>Data tersimpan di perangkat ini.";
+      el.style.color = "";
     }
   }
 
-  /* ── Debounced push ke server ─────────────────────────────── */
+  /* ─── Update panel sync di Setting ─────────────────────────── */
+  function updateSyncPanel(){
+    const badge  = document.getElementById("syncBadgeV39");
+    const status = document.getElementById("syncStatusV39");
+    const pushBtn = document.getElementById("syncPushV39");
+    const pullBtn = document.getElementById("syncPullV39");
+
+    if(badge)  { badge.textContent = "🐘 PostgreSQL"; badge.style.color = "#1d4ed8"; }
+
+    if(status){
+      const ts  = localStorage.getItem(TS_KEY);
+      const ver = localStorage.getItem(VER_KEY);
+      status.textContent = ts
+        ? "☁ PostgreSQL • v" + (ver||"?") + " • " +
+          new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})
+        : "☁ PostgreSQL (belum tersinkron)";
+    }
+
+    if(pushBtn) pushBtn.onclick = () => manualPush();
+    if(pullBtn) pullBtn.onclick = () => manualPull();
+
+    const checkBtn = document.getElementById("syncCheckServerBtn");
+    if(checkBtn && !checkBtn._bound){
+      checkBtn._bound = true;
+      checkBtn.onclick = async () => {
+        const info = document.getElementById("syncServerInfo");
+        if(info){ info.style.display = "block"; info.textContent = "⏳ Mengecek server..."; }
+        try{
+          const r = await fetch("/api/bop/status", {
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
+          });
+          const d = await r.json();
+          if(info){
+            if(d.ok){
+              const ts = d.updatedAt ? new Date(d.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
+              info.innerHTML = "✅ <b>Server online</b><br>Database: PostgreSQL (Railway)<br>Punya data: " + (d.hasData?"Ya":"Tidak") + "<br>Versi: " + (d.version||0) + "<br>Terakhir update: " + ts + "<br>Riwayat: " + (d.historyCount||0) + " entri";
+              info.style.color = "#15803d";
+            } else {
+              info.innerHTML = "❌ <b>Server error:</b> " + (d.error||"Tidak diketahui") + "<br><small>Pastikan DATABASE_URL sudah diset di Railway dan klik <b>🛠 Init Database</b>.</small>";
+              info.style.color = "#b91c1c";
+            }
+          }
+          setTopbarStatus(d.ok);
+        } catch(e){
+          if(info){ info.innerHTML = "❌ <b>Tidak bisa reach server:</b> " + e.message + "<br><small>Cek apakah VITE_API_BASE sudah diset dengan benar di Vercel.</small>"; info.style.color = "#b91c1c"; }
+          setTopbarStatus(false);
+        }
+      };
+    }
+
+    const initBtn = document.getElementById("syncInitDbBtn");
+    if(initBtn && !initBtn._bound){
+      initBtn._bound = true;
+      initBtn.onclick = async () => {
+        const info = document.getElementById("syncServerInfo");
+        if(info){ info.style.display = "block"; info.textContent = "⏳ Menginisialisasi database..."; info.style.color = "#475569"; }
+        try{
+          const r = await fetch("/api/bop/init-db", {
+            method: "GET",
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : {}),
+          });
+          const d = await r.json();
+          if(info){
+            if(d.ok){
+              info.innerHTML = "✅ <b>Database berhasil diinisialisasi!</b><br>" + (d.message||"") + "<br><small>Klik <b>🔍 Cek Server</b> untuk verifikasi, lalu <b>☁️ Simpan ke Server</b> untuk upload data.</small>";
+              info.style.color = "#15803d";
+            } else {
+              info.innerHTML = "❌ <b>Inisialisasi gagal:</b> " + (d.error||"") + "<br><small>Pastikan DATABASE_URL sudah diset di Railway.</small>";
+              info.style.color = "#b91c1c";
+            }
+          }
+        } catch(e){
+          if(info){ info.innerHTML = "❌ <b>Gagal:</b> " + e.message + "<br><small>Endpoint /api/bop/init-db mungkin belum tersedia (perlu redeploy Railway).</small>"; info.style.color = "#b91c1c"; }
+        }
+      };
+    }
+  }
+
+  /* ─── Push data ke server ───────────────────────────────────── */
   let pushTimer = null;
   let pushInFlight = false;
 
-  function schedulePush(jsonStr) {
-    if (pushTimer) clearTimeout(pushTimer);
+  function schedulePush(jsonStr){
+    if(pushTimer) clearTimeout(pushTimer);
     pushTimer = setTimeout(() => doPush(jsonStr), 2000);
   }
 
-  async function doPush(jsonStr) {
-    if (pushInFlight) {
-      pushTimer = setTimeout(() => doPush(jsonStr), 1500);
-      return;
-    }
+  async function doPush(jsonStr){
+    if(pushInFlight){ pushTimer = setTimeout(() => doPush(jsonStr), 1500); return; }
     pushInFlight = true;
     setBadge("☁ ↑", "#1e40af");
-    try {
-      const parsed = JSON.parse(jsonStr);
+    try{
+      const parsed   = JSON.parse(jsonStr);
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
       const res = await fetch("/api/bop/data", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ data: parsed, clientVersion: localVer + 1 }),
-        signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
       });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if(!res.ok) throw new Error("HTTP " + res.status);
       const result = await res.json();
       localStorage.setItem(VER_KEY, String(result.version));
-      localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
+      localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
       setBadge("☁ ✓", "#15803d");
       setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
-    } catch (e) {
-      console.warn(PATCH, "Push gagal:", e.message);
-      setBadge("☁ !", "#b91c1c");
-      setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 5000);
+      setTopbarStatus(true);
+      updateSidebarNote();
+      updateSyncPanel();
+    } catch(e){
+      console.warn(TAG, "Push gagal:", e.message);
+      setBadge("☁", "rgba(0,0,0,.55)");
+      /* Tidak set Offline — push bisa gagal sementara tanpa berarti server mati */
     } finally {
       pushInFlight = false;
+      pushTimer    = null;
     }
   }
 
-  /* ── Intercept localStorage.setItem ──────────────────────── */
-  const _origSetItem = localStorage.setItem.bind(localStorage);
-  localStorage.setItem = function(key, value) {
-    _origSetItem(key, value);
-    if (key === BOP_STORE && typeof value === "string") {
-      schedulePush(value);
-    }
-  };
-
-  /* ── Load data dari server saat boot ─────────────────────── */
-  async function bootLoadFromServer() {
-    setBadge("☁ …", "rgba(0,0,0,.55)");
-    try {
-      const res = await fetch("/api/bop/data", {
-        signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined,
-      });
-      if (!res.ok) { setBadge("☁ !", "#b91c1c"); setTopbarStatus(false); return; }
-      const result = await res.json();
-      setTopbarStatus(true);
-
-      if (!result.ok || !result.data) {
-        // Server kosong → upload data lokal ke server (inisialisasi)
-        const localRaw = localStorage.getItem(BOP_STORE);
-        if (localRaw) {
-          console.log(PATCH, "Server kosong, upload data lokal...");
-          setBadge("☁ ↑", "#1e40af");
-          await doPush(localRaw);
-        } else {
-          setBadge("☁", "rgba(0,0,0,.55)");
-        }
-        return;
-      }
-
-      const serverVer = result.version || 0;
-      const localVer  = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-
-      if (serverVer > localVer) {
-        // Server lebih baru → muat ke memori + update cache
-        console.log(PATCH, `Data server (v${serverVer}) lebih baru dari lokal (v${localVer}), memuat...`);
-        const serverData = result.data;
-        if (typeof data !== "undefined" && serverData && typeof serverData === "object") {
-          Object.assign(data, JSON.parse(JSON.stringify(serverData)));
-        }
-        // Update localStorage cache tanpa memicu push lagi
-        _origSetItem(BOP_STORE, JSON.stringify(serverData));
-        localStorage.setItem(VER_KEY, String(serverVer));
-        localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
-        // Re-render jika fungsi tersedia
-        if (typeof render === "function") { try { render(); } catch(e) {} }
-        if (typeof updateDashboard === "function") { try { updateDashboard(); } catch(e) {} }
-        setBadge("☁ ✓", "#15803d");
-        setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
-        if (typeof bopToast === "function") {
-          bopToast("Data Dimuat dari Server", `Versi ${serverVer} — ${
-            new Date(result.updatedAt).toLocaleString("id-ID", {
-              day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit"
-            })
-          }`, "info");
-        }
-      } else {
-        // Lokal sudah terkini atau sama
-        setBadge("☁ ✓", "#15803d");
-        setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 2000);
-        localStorage.setItem(TS_KEY, result.updatedAt || localStorage.getItem(TS_KEY) || "");
-      }
-    } catch (e) {
-      console.warn(PATCH, "Boot load gagal (offline?):", e.message);
-      setBadge("☁ ?", "#78716c");
-      setTopbarStatus(false);
-    }
-  }
-
-  /* ── Manual push/pull via Pengaturan ─────────────────────── */
-  window.bopPgPushNowV40 = async function() {
-    const raw = localStorage.getItem(BOP_STORE);
-    if (!raw) { if (typeof bopAlert === "function") bopAlert("Tidak Ada Data", "Tidak ada data lokal untuk disimpan.", "warning"); return; }
+  /* ─── Manual push (dari tombol Setting) ────────────────────── */
+  async function manualPush(){
+    const raw = localStorage.getItem(STORE);
+    if(!raw){ if(typeof bopAlert==="function") bopAlert("Tidak Ada Data","Tidak ada data lokal untuk disimpan.","warning"); return; }
     setBadge("☁ ↑", "#1e40af");
     await doPush(raw);
-    if (typeof bopToast === "function") bopToast("Tersimpan", "Data berhasil disimpan ke PostgreSQL.", "success");
-  };
+    if(typeof bopToast==="function") bopToast("Tersimpan","Data berhasil disimpan ke server.","success");
+  }
+  window.bopPgPushNowV40 = manualPush;
+  window.bopSyncPushV39  = manualPush;
 
-  window.bopPgPullNowV40 = async function() {
+  /* ─── Manual pull (dari tombol Setting) ────────────────────── */
+  async function manualPull(){
     setBadge("☁ ↓", "#1e40af");
-    try {
+    try{
       const res = await fetch("/api/bop/data", {
-        signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined,
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
       });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if(!res.ok) throw new Error("HTTP " + res.status);
       const result = await res.json();
-      if (!result.ok || !result.data) {
-        if (typeof bopAlert === "function") bopAlert("Tidak Ada Data", "Belum ada data tersimpan di server PostgreSQL.", "info");
+      if(!result.ok || !result.data){
+        if(typeof bopAlert==="function") bopAlert("Tidak Ada Data","Belum ada data tersimpan di server.","info");
         setBadge("☁", "rgba(0,0,0,.55)");
         return;
       }
       const ok = typeof Swal !== "undefined"
-        ? (await Swal.fire({ title:"Ambil Data Server?", html:"Data lokal akan diganti data PostgreSQL.<br><b>Versi " + result.version + "</b>", icon:"question", showCancelButton:true, confirmButtonText:"Ya, Ambil", cancelButtonText:"Batal" })).isConfirmed
-        : confirm("Ambil data dari PostgreSQL? Data lokal akan diganti.");
-      if (!ok) { setBadge("☁", "rgba(0,0,0,.55)"); return; }
-      if (typeof data !== "undefined" && result.data && typeof result.data === "object") Object.assign(data, JSON.parse(JSON.stringify(result.data)));
-      _origSetItem(BOP_STORE, JSON.stringify(result.data));
-      localStorage.setItem(VER_KEY, String(result.version));
-      localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
-      if (typeof render === "function") render();
-      if (typeof updateDashboard === "function") updateDashboard();
-      setBadge("☁ ✓", "#15803d");
-      setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
-      if (typeof bopToast === "function") bopToast("Data Dimuat", "Data dari PostgreSQL berhasil dimuat.", "success");
-    } catch (e) {
-      console.warn(PATCH, "Pull gagal:", e.message);
-      setBadge("☁ !", "#b91c1c");
-      if (typeof bopAlert === "function") bopAlert("Gagal", "Gagal mengambil data dari server: " + e.message, "error");
+        ? (await Swal.fire({title:"Ambil Data Server?",html:"Data lokal akan diganti data PostgreSQL.<br><b>Versi "+result.version+"</b>",icon:"question",showCancelButton:true,confirmButtonText:"Ya, Ambil",cancelButtonText:"Batal"})).isConfirmed
+        : confirm("Ambil data dari server? Data lokal akan diganti.");
+      if(!ok){ setBadge("☁","rgba(0,0,0,.55)"); return; }
+      applyServerData(result);
+      if(typeof bopToast==="function") bopToast("Data Dimuat","Data berhasil diambil dari server.","success");
+    } catch(e){
+      console.warn(TAG,"Pull gagal:",e.message);
+      setBadge("☁ !","#b91c1c");
+      setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),4000);
+      if(typeof bopAlert==="function") bopAlert("Gagal","Gagal mengambil data: "+e.message,"error");
     }
+  }
+  window.bopPgPullNowV40 = manualPull;
+  window.bopSyncPullV39  = manualPull;
+
+  /* ─── Terapkan data server ke memori + cache ────────────────── */
+  function applyServerData(result){
+    if(!result || !result.data) return;
+    const serverData = result.data;
+    if(typeof data !== "undefined" && serverData && typeof serverData === "object"){
+      try{ Object.assign(data, JSON.parse(JSON.stringify(serverData))); }catch(e){}
+    }
+    _origSetItem(STORE, JSON.stringify(serverData));
+    localStorage.setItem(VER_KEY, String(result.version  || 0));
+    localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
+    if(typeof render        ==="function"){ try{ render();           }catch(e){} }
+    if(typeof updateDashboard==="function"){ try{ updateDashboard(); }catch(e){} }
+    setBadge("☁ ✓","#15803d");
+    setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),3000);
+    setTopbarStatus(true);
+    updateSidebarNote();
+    updateSyncPanel();
+  }
+  window.bopApplyServerDataV42 = applyServerData;
+
+  /* ─── Intercept localStorage.setItem ───────────────────────── */
+  const _origSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = function(key, value){
+    _origSetItem(key, value);
+    if(key === STORE && typeof value === "string") schedulePush(value);
   };
 
-  /* ── Perbarui sync panel di Setting (v1.39) ──────────────── */
-  function patchSyncPanelV39() {
-    const pushBtn = document.getElementById("syncPushV39");
-    const pullBtn = document.getElementById("syncPullV39");
-    if (pushBtn) pushBtn.onclick = window.bopPgPushNowV40;
-    if (pullBtn) pullBtn.onclick = window.bopPgPullNowV40;
-
-    const badge = document.getElementById("syncBadgeV39");
-    if (badge) {
-      badge.textContent = "🐘 PostgreSQL";
-      badge.style.color = "#1d4ed8";
-    }
-    const status = document.getElementById("syncStatusV39");
-    if (status) {
-      const ts = localStorage.getItem(TS_KEY);
-      const ver = localStorage.getItem(VER_KEY);
-      if (ts) {
-        status.textContent = "☁ Database: PostgreSQL • Versi " + (ver || "?") + " • " +
-          new Date(ts).toLocaleString("id-ID", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" });
-      } else {
-        status.textContent = "☁ Database: PostgreSQL (belum tersinkron)";
-      }
-    }
-  }
-
-  /* ── Update topbar Online/Offline indicator ───────────────── */
-  let _lastTopbarStatus = null;
-
-  function setTopbarStatus(online) {
-    const dot  = document.getElementById("topbarDot");
-    const text = document.getElementById("topbarStatusText");
-    if (!dot || !text) return;
-    if (online) {
-      dot.style.background = "#16a34a";
-      text.textContent     = "Online Mode";
-    } else {
-      dot.style.background = "#dc2626";
-      text.textContent     = "Offline Mode";
-    }
-    // Toast hanya saat status berubah (bukan saat pertama kali set)
-    if (_lastTopbarStatus !== null && _lastTopbarStatus !== online) {
-      if (typeof bopToast === "function") {
-        if (online) {
-          bopToast("☁ Terhubung ke Server", "Sinkronisasi data aktif.", "success");
-        } else {
-          bopToast("⚠ Koneksi Terputus", "Mode offline — data tetap tersimpan lokal.", "warning");
-        }
-      }
-    }
-    _lastTopbarStatus = online;
-  }
-
-  /* ── Cek koneksi ke server (lokal dalam IIFE ini) ─────────── */
-  async function pingServer() {
-    try {
-      const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout
-        ? { signal: AbortSignal.timeout(4000) } : {};
-      const r = await fetch("/api/sync/status", c);
-      // 304 Not Modified = server tetap online, bukan error
-      return r.ok || r.status === 304;
-    } catch (e) { return false; }
-  }
-
-  /* ── Silent data poll: ambil data server jika versi lebih baru ── */
-  async function silentPoll() {
-    // Jangan poll jika push sedang berjalan atau masih ada push tertunda
-    if (pushInFlight || pushTimer) return;
-    try {
+  /* ─── Boot: load data dari server jika lebih baru ───────────── */
+  async function bootLoad(){
+    setBadge("☁ …","rgba(0,0,0,.55)");
+    try{
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const c = {
-        headers: localVer > 0 ? { "If-None-Match": String(localVer) } : {},
-        ...(typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(6000) } : {}),
-      };
-      const res = await fetch("/api/bop/data", c);
-      // 304 = tidak ada perubahan, skip
-      if (res.status === 304) { setTopbarStatus(true); return; }
-      if (!res.ok) { setTopbarStatus(false); return; }
+      const headers  = localVer > 0 ? { "If-None-Match": String(localVer) } : {};
+      const res = await fetch("/api/bop/data", {
+        headers,
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(7000) } : {}),
+      });
+
+      if(res.status === 304){
+        /* Versi sama — tidak perlu update, tapi server online */
+        setTopbarStatus(true);
+        setBadge("☁ ✓","#15803d");
+        setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),2000);
+        return;
+      }
+
+      if(!res.ok){
+        /* Server error — graceful: tetap pakai localStorage */
+        console.warn(TAG,"bootLoad HTTP",res.status);
+        setTopbarStatus(false);
+        setBadge("☁","rgba(0,0,0,.55)");
+        return;
+      }
+
+      const result = await res.json();
+      setTopbarStatus(true);
+
+      if(!result.ok || !result.data){
+        /* Server kosong — upload data lokal (inisialisasi awal) */
+        const localRaw = localStorage.getItem(STORE);
+        if(localRaw){
+          console.log(TAG,"Server kosong, upload data lokal...");
+          schedulePush(localRaw);
+        }
+        setBadge("☁","rgba(0,0,0,.55)");
+        return;
+      }
+
+      const serverVer = result.version || 0;
+      if(serverVer > localVer){
+        /* Server lebih baru — muat */
+        applyServerData(result);
+        if(typeof bopToast==="function"){
+          bopToast("Data Dimuat dari Server",
+            "Versi " + serverVer + " — " +
+            new Date(result.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
+          "info");
+        }
+      } else {
+        /* Lokal sama atau lebih baru */
+        setBadge("☁ ✓","#15803d");
+        setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),2000);
+        updateSidebarNote();
+      }
+    } catch(e){
+      /* Tidak bisa reach server — graceful offline */
+      console.warn(TAG,"bootLoad gagal (offline?):",e.message);
+      setTopbarStatus(false);
+      setBadge("☁","rgba(0,0,0,.55)");
+    }
+  }
+
+  /* ─── Silent poll setiap 15 detik ──────────────────────────── */
+  async function silentPoll(){
+    if(pushInFlight || pushTimer) return;
+    try{
+      const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      const headers  = localVer > 0 ? { "If-None-Match": String(localVer) } : {};
+      const res = await fetch("/api/bop/data", {
+        headers,
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(5000) } : {}),
+      });
+      if(res.status === 304){ setTopbarStatus(true); return; }
+      if(!res.ok){ setTopbarStatus(false); return; }
       setTopbarStatus(true);
       const result = await res.json();
-      if (!result.ok || !result.data) return;
+      if(!result.ok || !result.data) return;
       const serverVer = result.version || 0;
-      if (serverVer > localVer) {
-        // Ada data baru dari device lain — update diam-diam
-        const serverData = result.data;
-        if (typeof data !== "undefined" && serverData && typeof serverData === "object") {
-          Object.assign(data, JSON.parse(JSON.stringify(serverData)));
-        }
-        _origSetItem(BOP_STORE, JSON.stringify(serverData));
-        localStorage.setItem(VER_KEY, String(serverVer));
-        localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
-        if (typeof render === "function") { try { render(); } catch(e){} }
-        if (typeof updateDashboard === "function") { try { updateDashboard(); } catch(e){} }
-        setBadge("☁ ✓", "#15803d");
-        setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 2000);
-        if (typeof bopToast === "function") {
-          bopToast("☁ Data Diperbarui", `Data terbaru (v${serverVer}) dimuat dari server.`, "info");
-        }
+      const localVer2 = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      if(serverVer > localVer2){
+        applyServerData(result);
+        if(typeof bopToast==="function") bopToast("☁ Data Diperbarui","Data terbaru (v"+serverVer+") dimuat dari server.","info");
       }
-    } catch (e) {
+    } catch(e){
       setTopbarStatus(false);
     }
   }
 
-  /* ── Periodic check: ping + pull data baru setiap 10 detik ── */
-  function startPeriodicCheck() {
-    setInterval(() => silentPoll(), 10000);
-  }
-
-  /* ── Flush segera saat tab/browser ditutup (pakai sendBeacon) ── */
+  /* ─── Flush saat tab ditutup (sendBeacon) ───────────────────── */
   window.addEventListener("beforeunload", () => {
-    if (!pushTimer && !pushInFlight) return;
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-    const raw = localStorage.getItem(BOP_STORE);
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw);
+    if(!pushTimer && !pushInFlight) return;
+    if(pushTimer){ clearTimeout(pushTimer); pushTimer = null; }
+    const raw = localStorage.getItem(STORE);
+    if(!raw) return;
+    try{
+      const parsed   = JSON.parse(raw);
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const payload = JSON.stringify({ data: parsed, clientVersion: localVer + 1 });
-      const blob = new Blob([payload], { type: "application/json" });
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon("/api/bop/data-beacon", blob);
-      }
-    } catch (e) { /* silent */ }
+      const payload  = JSON.stringify({ data: parsed, clientVersion: localVer + 1 });
+      const blob     = new Blob([payload], { type: "application/json" });
+      if(navigator.sendBeacon) navigator.sendBeacon("/api/bop/data-beacon", blob);
+    } catch(e){}
   });
 
-  /* ── Init ─────────────────────────────────────────────────── */
-  function init() {
-    injectSyncBadge();
-    patchSyncPanelV39();
-    // Cek status awal topbar sebelum boot load
-    pingServer().then(ok => setTopbarStatus(ok));
-    bootLoadFromServer();
-    startPeriodicCheck();
+  /* ─── storage event (multi-tab) ────────────────────────────── */
+  window.addEventListener("storage", e => {
+    if(e.key === TS_KEY) updateSidebarNote();
+  });
+
+  /* ─── Init ──────────────────────────────────────────────────── */
+  function init(){
+    injectBadge();
+    updateSyncPanel();
+    updateSidebarNote();
+    bootLoad();
+    setInterval(silentPoll, 15000);
   }
 
-  if (document.readyState === "loading") {
+  if(document.readyState === "loading")
     document.addEventListener("DOMContentLoaded", () => setTimeout(init, 500));
-  } else {
+  else
     setTimeout(init, 500);
-  }
-})();
-
-/* PATCH v1.40b — Fix sidebar note + expose sync status */
-(function bopPgSidebarFix(){
-  function updateSidebar(){
-    const el = document.querySelector(".side-note");
-    if(!el) return;
-    const ts  = localStorage.getItem("bop_pg_updated_v40");
-    const ver = localStorage.getItem("bop_pg_version_v40");
-    if(ts){
-      const d = new Date(ts);
-      el.innerHTML = "<b>☁ PostgreSQL</b><br><small>v" + (ver||"?") + " — " +
-        d.toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) + "</small>";
-      el.style.color = "#15803d";
-    }
-  }
-  if(document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", ()=>setTimeout(updateSidebar, 800));
-  else
-    setTimeout(updateSidebar, 800);
-  window.addEventListener("storage", e => { if(e.key==="bop_pg_updated_v40") updateSidebar(); });
-})();
-
-/* PATCH v1.40c — Fix data merge + validasi sebelum load dari server */
-(function bopDataGuardV40c(){
-  const FIX_KEY   = "bop_data_guard_v40c";
-  const STORE_KEY = "bop_rt005_data_v1_25";
-  const VER_KEY   = "bop_pg_version_v40";
-  const TS_KEY    = "bop_pg_updated_v40";
-
-  // Jalankan tepat sebelum DOM ready agar tidak interferensi siklus render
-  function runGuard(){
-    if(localStorage.getItem(FIX_KEY)) return;   // sudah pernah dijalankan
-
-    const raw = localStorage.getItem(STORE_KEY);
-    if(!raw){ localStorage.setItem(FIX_KEY,"1"); return; }
-
-    try {
-      const d = JSON.parse(raw);
-      const m = d && d.master;
-      // Cek kelengkapan: master harus ada kelurahan dan kecamatan
-      if(!m || !m.kelurahan || !m.kecamatan || !m.kota){
-        console.warn("[BOP-GUARD v40c] Data master tidak lengkap — reset localStorage, akan reload sekali.");
-        localStorage.removeItem(STORE_KEY);
-        localStorage.removeItem(VER_KEY);
-        localStorage.removeItem(TS_KEY);
-        localStorage.setItem(FIX_KEY, "1");
-        setTimeout(() => location.reload(), 100);
-        return;
-      }
-    } catch(e){
-      localStorage.removeItem(STORE_KEY);
-      localStorage.removeItem(VER_KEY);
-      localStorage.removeItem(TS_KEY);
-      localStorage.setItem(FIX_KEY, "1");
-      setTimeout(() => location.reload(), 100);
-      return;
-    }
-    localStorage.setItem(FIX_KEY, "1");
-  }
-
-  // Perbaiki juga fungsi bootLoadFromServer: deep merge agar field default
-  // tidak hilang jika server mengirim object parsial
-  const _origBoot = window.bopPgPullNowV40;
-  window._bopServerMerge = function(serverData, localData){
-    if(!serverData || typeof serverData !== "object") return localData;
-    if(!localData  || typeof localData  !== "object") return serverData;
-    const merged = Object.assign({}, localData);
-    for(const key of Object.keys(serverData)){
-      const sv = serverData[key];
-      const lv = localData[key];
-      if(sv !== null && typeof sv === "object" && !Array.isArray(sv) &&
-         lv !== null && typeof lv === "object" && !Array.isArray(lv)){
-        merged[key] = Object.assign({}, lv, sv);
-      } else {
-        merged[key] = sv;
-      }
-    }
-    // Pastikan master.kelurahan/kecamatan/kota tidak hilang
-    if(merged.master && localData.master){
-      if(!merged.master.kelurahan) merged.master.kelurahan = localData.master.kelurahan;
-      if(!merged.master.kecamatan) merged.master.kecamatan = localData.master.kecamatan;
-      if(!merged.master.kota)      merged.master.kota      = localData.master.kota;
-    }
-    return merged;
-  };
-
-  runGuard();
-})();
-
-/* PATCH v1.40d — Initial seed: jika localStorage kosong DAN server juga kosong, simpan defaults */
-(function bopInitSeedV40d(){
-  const STORE_KEY = "bop_rt005_data_v1_25";
-  const VER_KEY   = "bop_pg_version_v40";
-  function tryInitSeed(){
-    // Jika localStorage sudah terisi, tidak perlu seed
-    const raw = localStorage.getItem(STORE_KEY);
-    if(raw){ return; }
-    // Skip jika server sudah punya data (VER_KEY di-set oleh bootLoadFromServer)
-    const serverVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-    if(serverVer > 0){ return; }
-    // localStorage kosong dan server juga kosong → simpan defaults
-    if(typeof data !== "undefined" && data && data.master && data.master.kelurahan){
-      console.log("[BOP-SEED v40d] localStorage dan server kosong, simpan default data...");
-      try{ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }catch(e){}
-    }
-  }
-  // Jalankan SETELAH bootLoadFromServer selesai (minimal 3 detik)
-  if(document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", ()=>setTimeout(tryInitSeed, 3000));
-  else
-    setTimeout(tryInitSeed, 3000);
 })();
 
 /* PATCH v1.41 — Live Preview Side-by-Side di Tab Data Pengajuan */

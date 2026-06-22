@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { autoInitDb } from "./routes/bop";
 
 const app: Express = express();
 
@@ -28,9 +29,11 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-// Untuk navigator.sendBeacon yang mengirim Content-Type: text/plain
 app.use(express.text({ type: ["text/plain", "application/octet-stream"] }));
 
 app.use("/api", router);
+
+/* Auto-init DB: buat tabel jika belum ada (Railway-safe, idempotent) */
+autoInitDb().catch(e => logger.error(e, "[BOP] autoInitDb failed"));
 
 export default app;

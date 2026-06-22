@@ -9,6 +9,57 @@ import { pool } from "@workspace/db";
 const router = Router();
 const RT_KEY = "rt005rw012";
 
+/* ─── SQL untuk membuat semua tabel BOP (idempotent) ────────── */
+const CREATE_TABLES_SQL = `
+  CREATE TABLE IF NOT EXISTS bop_data (
+    id         SERIAL PRIMARY KEY,
+    rt_key     VARCHAR(20) NOT NULL UNIQUE,
+    data       JSONB NOT NULL,
+    version    INTEGER NOT NULL DEFAULT 1,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS bop_history (
+    id         SERIAL PRIMARY KEY,
+    kind       VARCHAR(80),
+    doc_type   VARCHAR(80),
+    label      TEXT,
+    html       TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS bop_snapshots (
+    id         SERIAL PRIMARY KEY,
+    data       JSONB NOT NULL,
+    label      TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  );
+  CREATE TABLE IF NOT EXISTS moku_photos (
+    id            TEXT PRIMARY KEY,
+    activity_id   TEXT,
+    activity_name TEXT,
+    type          TEXT,
+    file_name     TEXT,
+    captured_at   TIMESTAMPTZ,
+    lat           NUMERIC,
+    lng           NUMERIC,
+    accuracy      NUMERIC,
+    address       TEXT,
+    note          TEXT
+  );
+  CREATE TABLE IF NOT EXISTS moku_results_sync (
+    id            SERIAL PRIMARY KEY,
+    activity_id   TEXT,
+    activity_name TEXT,
+    status        TEXT,
+    photo_count   INTEGER DEFAULT 0,
+    note          TEXT,
+    updated_at    TIMESTAMPTZ
+  );
+`;
+
+async function runInitDb(): Promise<void> {
+  await pool.query(CREATE_TABLES_SQL);
+}
+
 /* Helper: parse body dari text/plain atau application/json (untuk sendBeacon) */
 async function parseFlexibleBody(req: import("express").Request): Promise<{ data?: unknown; clientVersion?: number } | null> {
   try {
@@ -225,6 +276,7 @@ router.delete("/bop/history/:id", async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/status
    Cek ketersediaan database + statistik ringkas.
+   Juga dipakai sebagai ping endpoint oleh frontend.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/bop/status", async (req, res) => {
   try {
@@ -248,4 +300,39 @@ router.get("/bop/status", async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/bop/init-db
+   Buat semua tabel yang diperlukan jika belum ada.
+   Aman dijalankan berkali-kali (idempotent).
+   Berguna saat deploy ke Railway dengan PostgreSQL baru.
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/init-db", async (req, res) => {
+  try {
+    await runInitDb();
+    res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
+router.post("/bop/init-db", async (req, res) => {
+  try {
+    await runInitDb();
+    res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
+  } catch (e) {
+    req.log.error(e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 export default router;
+
+export async function autoInitDb(): Promise<void> {
+  try {
+    await runInitDb();
+    console.info("[BOP] Database tables initialized (auto-init).");
+  } catch (e) {
+    console.error("[BOP] Auto-init DB failed:", e);
+    /* Jangan throw — biarkan server tetap jalan meski DB belum siap */
+  }
+}

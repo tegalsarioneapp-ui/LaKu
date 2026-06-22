@@ -3884,7 +3884,7 @@ function loadMokuFrameV31(){
   }
 }
 
-async function goPage(page){
+function goPage(page){
   if(!$("page-" + page)) page = "akses";
 
   if(page === "akses"){
@@ -3896,24 +3896,13 @@ async function goPage(page){
   if(!ACCESS_MODE_V31){
     if(page === "moku"){
       setAccessModeV31("moku");
-      loadMokuFrameV31();
-      showOnlyPageV31("moku");
-      return;
+    } else {
+      setAccessModeV31("bop");
     }
-    const ok = await requireBopPinV31();
-    if(!ok){
-      setAccessModeV31(null);
-      showOnlyPageV31("akses");
-      return;
-    }
-    setAccessModeV31("bop");
   }
 
   if(ACCESS_MODE_V31 === "moku" && page !== "moku"){
-    bopToast("Akses Terbatas","Mode MoKu: menu administrasi BOP dikunci.","warning");
-    loadMokuFrameV31();
-    showOnlyPageV31("moku");
-    return;
+    setAccessModeV31("bop");
   }
 
   if(page === "moku") loadMokuFrameV31();

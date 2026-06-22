@@ -296,7 +296,8 @@ router.get("/bop/status", async (req, res) => {
     });
   } catch (e) {
     req.log.error(e);
-    res.status(500).json({ ok: false, error: "Database tidak tersedia" });
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ ok: false, error: "Database tidak tersedia: " + msg });
   }
 });
 

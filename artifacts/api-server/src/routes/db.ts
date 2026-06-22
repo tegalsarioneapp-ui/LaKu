@@ -4,10 +4,18 @@ import { pool } from "@workspace/db";
 const router = Router();
 
 /* ── Pastikan unique index ada agar UPSERT bisa berjalan ─────── */
-pool.query(
-  `CREATE UNIQUE INDEX IF NOT EXISTS moku_results_sync_act_idx
-   ON moku_results_sync(activity_id)`
-).catch(() => {});
+/* Dijalankan lazy saat pertama kali route dipanggil, bukan saat module load */
+let indexEnsured = false;
+async function ensureIndex() {
+  if (indexEnsured) return;
+  indexEnsured = true;
+  try {
+    await pool.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS moku_results_sync_act_idx
+       ON moku_results_sync(activity_id)`
+    );
+  } catch (_) { /* tabel mungkin belum ada, akan dibuat via init-db */ }
+}
 
 /* ── POST /api/db/bop-sync ──────────────────────────────────────
    Simpan snapshot data BOP ke PostgreSQL untuk cloud backup.
@@ -97,6 +105,7 @@ router.post("/db/photos", async (req, res) => {
    Sinkronkan ringkasan hasil MoKu per kegiatan.
 ─────────────────────────────────────────────────────────────── */
 router.post("/db/results-sync", async (req, res) => {
+  await ensureIndex();
   try {
     const { results } = req.body as {
       results: Array<{

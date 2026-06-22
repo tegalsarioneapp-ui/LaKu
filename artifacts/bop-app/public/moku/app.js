@@ -1100,6 +1100,135 @@
   }
 
   /* ════════════════════════════════════════════════════════════════
+     EXPORT — PDF (cetak) dan CSV (Excel)
+  ════════════════════════════════════════════════════════════════ */
+  function exportResultsPDF() {
+    const activities = state.activities || [];
+    if (!activities.length) { showToast("Belum ada data untuk diekspor", "warn"); return; }
+
+    const totFoto = Object.values(state.results||{}).reduce((s,r)=>s+(r.photos||[]).length,0);
+    const totDone = activities.filter(isDone).length;
+
+    const actSections = activities.map((act, idx) => {
+      const res    = resultFor(act);
+      const photos = res.photos || [];
+      const done   = isDone(act);
+      const types  = checklistOf(act);
+      const cells  = types.map(type => {
+        const p   = photos.find(ph => ph.type === type);
+        const src = p ? (photoCache.get(p.id) || p.dataUrl || null) : null;
+        const shortLabel = type.replace("Foto ", "");
+        return `<div class="pc">
+          <div class="pl">${esc(shortLabel)}</div>
+          ${src
+            ? `<img src="${src}" class="pi" alt="${esc(type)}">`
+            : `<div class="pe">–</div>`}
+          ${p ? `<div class="pm">${esc(p.capturedAtText||"")}</div>` : ""}
+        </div>`;
+      }).join("");
+
+      return `<div class="as">
+        <div class="ah">
+          <span class="an">${idx+1}</span>
+          <div class="ai">
+            <div class="aname">${esc(act.nama||"")}</div>
+            <div class="ameta">${[act.hariTanggal,act.tempat].filter(Boolean).map(s=>esc(s)).join(" · ")} · ${photos.length} foto</div>
+            ${res.note?`<div class="anote">📝 ${esc(res.note)}</div>`:""}
+          </div>
+          <span class="astat ${done?"done":"proses"}">${done?"✓ Lengkap":"Proses"}</span>
+        </div>
+        <div class="pg">${cells}</div>
+      </div>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8">
+<title>Rekap MoKu RT 005</title><style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
+.hdr{background:#06111f;color:#fff;padding:18px 22px}
+.hdr h1{font-size:18px;font-weight:800}
+.hdr p{font-size:10.5px;color:rgba(255,255,255,.65);margin-top:3px}
+.sum{display:flex;gap:0;border-bottom:1px solid #dde6f0}
+.sb{flex:1;text-align:center;padding:12px 6px;border-right:1px solid #e8f0f8}
+.sb:last-child{border-right:none}
+.sb b{display:block;font-size:20px;font-weight:800;color:#0c4880}
+.sb small{font-size:10px;color:#64748b}
+.acts{padding:14px 18px}
+.as{border:1px solid #dde6f0;border-radius:10px;margin-bottom:14px;overflow:hidden;page-break-inside:avoid}
+.ah{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:#f8fafc;border-bottom:1px solid #e8f0f8}
+.an{background:#0c4880;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;flex-shrink:0;margin-top:1px}
+.ai{flex:1}
+.aname{font-size:12.5px;font-weight:700;margin-bottom:2px}
+.ameta{font-size:10.5px;color:#64748b}
+.anote{font-size:10.5px;color:#475569;font-style:italic;margin-top:2px}
+.astat{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap;align-self:center}
+.astat.done{background:#dcfce7;color:#16a34a}
+.astat.proses{background:#fef9c3;color:#ca8a04}
+.pg{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:10px 12px}
+.pc{display:flex;flex-direction:column;align-items:center;gap:3px}
+.pl{font-size:9px;font-weight:700;color:#64748b;text-align:center;line-height:1.2}
+.pi{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:1px solid #e2e8f0}
+.pe{width:100%;aspect-ratio:4/3;background:#f1f5f9;border-radius:6px;border:1px solid #e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:16px}
+.pm{font-size:8.5px;color:#94a3b8;text-align:center;line-height:1.2}
+.ftr{text-align:center;padding:12px;color:#94a3b8;font-size:10px;border-top:1px solid #e2e8f0}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.as{page-break-inside:avoid}}
+</style></head><body>
+<div class="hdr">
+  <h1>📸 Rekap Dokumentasi Kegiatan — MoKu RT 005 RW 012 Tegalsari</h1>
+  <p>Dicetak: ${new Date().toLocaleString("id-ID")} · Candisari, Kota Semarang</p>
+</div>
+<div class="sum">
+  <div class="sb"><b>${activities.length}</b><small>Kegiatan</small></div>
+  <div class="sb"><b>${totFoto}</b><small>Total Foto</small></div>
+  <div class="sb"><b>${totDone}</b><small>Lengkap</small></div>
+  <div class="sb"><b>${activities.length-totDone}</b><small>Proses</small></div>
+</div>
+<div class="acts">${actSections}</div>
+<div class="ftr">MoKu Mobile · BOP RT 005 RW 012 Tegalsari, Candisari, Kota Semarang</div>
+<script>setTimeout(()=>window.print(),600);</script>
+</body></html>`;
+
+    const w = window.open("", "_blank");
+    if (!w) { showToast("Popup diblokir browser. Izinkan popup untuk ekspor PDF.", "warn"); return; }
+    w.document.write(html);
+    w.document.close();
+  }
+
+  function exportResultsCSV() {
+    const activities = state.activities || [];
+    if (!activities.length) { showToast("Belum ada data untuk diekspor", "warn"); return; }
+
+    const q = v => `"${String(v||"").replace(/"/g,'""')}"`;
+    const header = ["No","Kegiatan","Bulan","Jenis","Status","Total Foto","Sebelum","Proses","Sesudah","Nota/Kuitansi","Serah Terima","Nominal","Catatan"];
+    const rows = activities.map((act, i) => {
+      const res    = resultFor(act);
+      const photos = res.photos || [];
+      const ct     = type => photos.filter(p => p.type === type).length;
+      return [
+        i+1, act.nama||"", act.bulan||act.hariTanggal||"", act.jenis||"",
+        res.status||(isDone(act)?"Lengkap":"Proses"),
+        photos.length,
+        ct("Foto Sebelum"), ct("Foto Proses"), ct("Foto Sesudah"),
+        ct("Foto Nota/Kuitansi"), ct("Foto Serah Terima"),
+        Number(act.nominal||0),
+        res.note||""
+      ].map(q).join(",");
+    });
+
+    const csv = "\ufeff" + [header.map(q).join(","), ...rows].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `rekap_moku_rt005_${dateCode()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+    showToast("✓ File Excel (.csv) berhasil diunduh");
+  }
+
+  /* ════════════════════════════════════════════════════════════════
      BOP PARENT SYNC — Kirim foto/hasil ke iframe parent (BOP App)
   ════════════════════════════════════════════════════════════════ */
   function syncPhotoToBOPParent(act, photoId, dataUrl, photoMeta) {
@@ -1480,6 +1609,12 @@
         if (!$("cameraOverlay").hidden) { closeCamera(); return; }
       }
     });
+
+    // Export PDF & CSV
+    const exportPdfEl = $("exportPdfBtn");
+    if (exportPdfEl) exportPdfEl.addEventListener("click", exportResultsPDF);
+    const exportCsvEl = $("exportCsvBtn");
+    if (exportCsvEl) exportCsvEl.addEventListener("click", exportResultsCSV);
 
     // Export & clear (tombol hidden — jaga jika elemen ada di DOM)
     const exportResultEl = $("exportResultBtn");

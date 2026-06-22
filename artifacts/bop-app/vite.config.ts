@@ -12,6 +12,9 @@ const basePath = process.env.BASE_PATH || "/";
 
 export default defineConfig({
   base: basePath,
+  define: {
+    __BOP_API_BASE__: JSON.stringify(process.env.VITE_API_BASE || ""),
+  },
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

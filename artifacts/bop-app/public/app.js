@@ -6119,3 +6119,150 @@ function printCssV22(){
   window.previewDoc = wrappedPreview;
 })();
 
+
+/* PATCH v1.44 — Card Hub Landing untuk Pengajuan / LPJ / Persiapan */
+(function bopCardHubV44(){
+  if(window.__bopCardHubV44) return;
+  window.__bopCardHubV44 = true;
+
+  const HUB_DEFS = {
+    'pengajuan': [
+      { tab:'data-pengajuan', icon:'📋', color:'#3b82f6', label:'Data Pengajuan',        desc:'Surat permohonan, rekening, nama Lurah dan Ketua RW' },
+      { tab:'rap',            icon:'📊', color:'#10b981', label:'RAP 1 Tahun',            desc:'Rencana Anggaran Penggunaan BOP RT selama satu tahun' },
+      { tab:'rap-bulanan',    icon:'📅', color:'#8b5cf6', label:'RAP Bulanan Otomatis',   desc:'Breakdown anggaran per bulan otomatis dari RAP Tahunan' },
+      { tab:'rapat',          icon:'📝', color:'#f59e0b', label:'BA & Daftar Hadir RAP',  desc:'Berita acara dan daftar hadir rapat pengajuan dana BOP' },
+      { tab:'undangan-notulen',icon:'📨',color:'#ef4444', label:'Undangan & Notulen RAP', desc:'Undangan dan notulen rapat khusus pengajuan dana BOP' },
+      { tab:'dokumen',        icon:'🗂', color:'#d5a83f', label:'Generate 7 Dokumen',     desc:'Cetak semua dokumen syarat pengajuan dana operasional' },
+      { tab:'riwayat-pengajuan',icon:'🕐',color:'#64748b',label:'Riwayat',               desc:'Arsip semua pengajuan dan surat yang pernah dibuat' },
+    ],
+    'lpj': [
+      { tab:'lpj-data',        icon:'📋', color:'#3b82f6', label:'Data Laporan',     desc:'Identitas laporan, periode, saldo awal dan petugas' },
+      { tab:'lpj-pengeluaran', icon:'💰', color:'#ef4444', label:'Pengeluaran',       desc:'Rincian setiap item pengeluaran dana operasional' },
+      { tab:'lpj-preview',     icon:'👁', color:'#10b981', label:'Preview & Cetak',  desc:'Pratinjau laporan pertanggungjawaban dan export PDF' },
+      { tab:'lpj-riwayat',     icon:'🕐', color:'#64748b', label:'Riwayat LPJ',      desc:'Arsip laporan pertanggungjawaban yang sudah tersimpan' },
+    ],
+    'persiapan': [
+      { tab:'pk-data',         icon:'📅', color:'#3b82f6', label:'Data Kegiatan',           desc:'Jenis, nama, tanggal, waktu, tempat dan agenda kegiatan' },
+      { tab:'pk-daftar-hadir', icon:'👥', color:'#10b981', label:'Daftar Hadir',             desc:'Data peserta yang hadir dalam kegiatan operasional' },
+      { tab:'pk-notulen',      icon:'📝', color:'#8b5cf6', label:'Notulen',                  desc:'Pimpinan rapat, notulis, pembahasan dan keputusan' },
+      { tab:'pk-kuitansi',     icon:'🧾', color:'#f59e0b', label:'Tanda Terima / Kuitansi', desc:'Nominal, penerima, keperluan pembayaran dan pajak' },
+      { tab:'pk-generate',     icon:'⚙', color:'#d5a83f', label:'Generate Bukti SPJ',       desc:'Cetak semua dokumen bukti kelengkapan SPJ kegiatan' },
+      { tab:'pk-riwayat',      icon:'🕐', color:'#64748b', label:'Riwayat',                  desc:'Arsip kegiatan operasional yang sudah tersimpan' },
+    ],
+  };
+
+  function buildHub(pageKey, cards){
+    const wrap = document.createElement('div');
+    wrap.className = 'bop-hub-wrap';
+    wrap.id = 'bop-hub-' + pageKey;
+    wrap.innerHTML = '<div class="bop-hub-grid">' + cards.map((c,i) => `
+      <button class="bop-hub-card" data-page="${pageKey}" data-tab="${c.tab}" type="button">
+        <div class="bop-hub-card-top">
+          <span class="bop-hub-icon" style="background:${c.color}22;color:${c.color}">${c.icon}</span>
+          <span class="bop-hub-step">${String(i+1).padStart(2,'0')}</span>
+        </div>
+        <h3 class="bop-hub-title">${c.label}</h3>
+        <p class="bop-hub-desc">${c.desc}</p>
+        <span class="bop-hub-arrow">→</span>
+      </button>`).join('') + '</div>';
+    return wrap;
+  }
+
+  function showHub(pageKey){
+    const page = document.getElementById('page-' + pageKey);
+    if(!page) return;
+    const hub  = document.getElementById('bop-hub-' + pageKey);
+    const nav  = page.querySelector('.subnav');
+    page.querySelectorAll('.module-guide-v20').forEach(g => g.style.display = 'none');
+    page.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+    if(nav)  nav.style.display  = 'none';
+    if(hub)  hub.style.display  = '';
+  }
+
+  function openTab(pageKey, tabId){
+    const page = document.getElementById('page-' + pageKey);
+    if(!page) return;
+    const hub  = document.getElementById('bop-hub-' + pageKey);
+    const nav  = page.querySelector('.subnav');
+    page.querySelectorAll('.module-guide-v20').forEach(g => g.style.display = '');
+    page.querySelectorAll('.tab-content').forEach(c => c.style.display = '');
+    if(hub) hub.style.display = 'none';
+    if(nav) nav.style.display = '';
+    if(typeof activateTab === 'function') activateTab(tabId);
+  }
+
+  function init(){
+    Object.keys(HUB_DEFS).forEach(pageKey => {
+      const page = document.getElementById('page-' + pageKey);
+      if(!page) return;
+      const nav = page.querySelector('.subnav');
+      if(!nav) return;
+
+      /* Sisipkan hub sebelum subnav */
+      const hub = buildHub(pageKey, HUB_DEFS[pageKey]);
+      nav.parentNode.insertBefore(hub, nav);
+
+      /* Tambah tombol kembali di subnav */
+      const back = document.createElement('button');
+      back.className = 'bop-hub-back subtab';
+      back.type = 'button';
+      back.textContent = '‹ Menu';
+      back.onclick = () => showHub(pageKey);
+      nav.insertBefore(back, nav.firstChild);
+
+      /* Tampilkan hub saat pertama kali */
+      showHub(pageKey);
+    });
+
+    /* Klik card */
+    document.addEventListener('click', e => {
+      const card = e.target.closest('.bop-hub-card');
+      if(!card) return;
+      openTab(card.dataset.page, card.dataset.tab);
+    });
+
+    /* Patch goPage agar kembali ke hub saat navigasi sidebar */
+    const _origGoPage = window.goPage;
+    window.goPage = async function(page){
+      const r = _origGoPage ? await _origGoPage(page) : undefined;
+      if(HUB_DEFS[page]) setTimeout(() => showHub(page), 60);
+      return r;
+    };
+
+    /* Patch activateTab agar bisa dipanggil dari riwayat/deep-link */
+    const _origActivate = window.activateTab;
+    window.activateTab = function(id){
+      const el = document.getElementById('tab-' + id);
+      if(el){
+        const page = el.closest('.page');
+        if(page){
+          const key = page.id.replace('page-','');
+          if(HUB_DEFS[key]){
+            const hub = document.getElementById('bop-hub-' + key);
+            const nav = page.querySelector('.subnav');
+            page.querySelectorAll('.module-guide-v20').forEach(g => g.style.display = '');
+            page.querySelectorAll('.tab-content').forEach(c => c.style.display = '');
+            if(hub) hub.style.display = 'none';
+            if(nav) nav.style.display = '';
+          }
+        }
+      }
+      if(_origActivate) _origActivate(id);
+    };
+
+    /* Hook sidebar nav buttons */
+    document.querySelectorAll('.nav button[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pg = btn.dataset.page;
+        if(HUB_DEFS[pg]) setTimeout(() => showHub(pg), 70);
+      });
+    });
+  }
+
+  /* Tunggu setelah semua patch lain selesai */
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 700));
+  } else {
+    setTimeout(init, 700);
+  }
+})();

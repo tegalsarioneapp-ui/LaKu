@@ -675,7 +675,10 @@
             <h2>Persiapan Kegiatan Operasional</h2>
             <p>Menu untuk menyiapkan bukti kelengkapan SPJ: undangan kegiatan, daftar hadir, notulen, tanda terima/kuitansi resmi, dan sinkronisasi dokumentasi MoKu.</p>
           </div>
-          <div class="action-row"><button class="primary" id="savePersiapan">Simpan Persiapan</button><button class="secondary" id="sendToMobile">Kirim ke MoKu</button><button class="secondary" id="exportActivities">Export Kegiatan MoKu</button><label class="import-inline">Import Hasil MoKu<input type="file" id="importMobileResult" accept=".json" hidden></label><a class="secondary moku-open-link" id="openMokuMobile" href="moku/index.html" target="_blank" rel="noopener">Buka MoKu Mobile</a></div>
+          <div class="action-row"><button class="primary" id="savePersiapan">Simpan Persiapan</button></div>
+          <!-- MoKu buttons removed — MoKu otomatis kirim foto ke Pelaporan -->
+          <!-- Hidden elements kept for JS compatibility -->
+          <span style="display:none"><button id="sendToMobile"></button><button id="exportActivities"></button><label><input type="file" id="importMobileResult" accept=".json" hidden></label><a id="openMokuMobile" href="moku/index.html"></a></span>
         </div>
 
         <div class="subnav">
@@ -1017,7 +1020,7 @@
     </main>
   </div>
 
-  <script src="app.js?v=20260622h"></script>
+  <script src="app.js?v=20260622i"></script>
   <script src="document-studio/document-studio.js"></script>
 </body>
 </html>

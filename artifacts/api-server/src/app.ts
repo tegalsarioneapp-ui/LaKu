@@ -28,6 +28,8 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Untuk navigator.sendBeacon yang mengirim Content-Type: text/plain
+app.use(express.text({ type: ["text/plain", "application/octet-stream"] }));
 
 app.use("/api", router);
 

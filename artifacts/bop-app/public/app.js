@@ -4922,7 +4922,7 @@ async function goPage(page){
 
       if(!konfirmasi){ if(badge){ badge.textContent = "🟢 Online"; badge.style.color = "#16a34a"; } return; }
 
-      if(typeof data !== "undefined"){ window.data = result.data; }
+      if(typeof data !== "undefined" && result.data && typeof result.data === "object"){ Object.assign(data, JSON.parse(JSON.stringify(result.data))); }
       try{ localStorage.setItem(typeof STORE !== "undefined" ? STORE : "bop_rt005_data_v1_25", JSON.stringify(result.data)); } catch(e){}
       localStorage.setItem(KEY_LAST_PULL, new Date().toISOString());
       updateSyncUI(); updateSideNote();
@@ -5105,8 +5105,8 @@ async function goPage(page){
         // Server lebih baru → muat ke memori + update cache
         console.log(PATCH, `Data server (v${serverVer}) lebih baru dari lokal (v${localVer}), memuat...`);
         const serverData = result.data;
-        if (typeof window.data !== "undefined" && typeof serverData === "object") {
-          Object.assign(window.data, serverData);
+        if (typeof data !== "undefined" && serverData && typeof serverData === "object") {
+          Object.assign(data, JSON.parse(JSON.stringify(serverData)));
         }
         // Update localStorage cache tanpa memicu push lagi
         _origSetItem(BOP_STORE, JSON.stringify(serverData));
@@ -5163,7 +5163,7 @@ async function goPage(page){
         ? (await Swal.fire({ title:"Ambil Data Server?", html:"Data lokal akan diganti data PostgreSQL.<br><b>Versi " + result.version + "</b>", icon:"question", showCancelButton:true, confirmButtonText:"Ya, Ambil", cancelButtonText:"Batal" })).isConfirmed
         : confirm("Ambil data dari PostgreSQL? Data lokal akan diganti.");
       if (!ok) { setBadge("☁", "rgba(0,0,0,.55)"); return; }
-      if (typeof window.data !== "undefined") Object.assign(window.data, result.data);
+      if (typeof data !== "undefined" && result.data && typeof result.data === "object") Object.assign(data, JSON.parse(JSON.stringify(result.data)));
       _origSetItem(BOP_STORE, JSON.stringify(result.data));
       localStorage.setItem(VER_KEY, String(result.version));
       localStorage.setItem(TS_KEY, result.updatedAt || new Date().toISOString());
@@ -5244,9 +5244,14 @@ async function goPage(page){
 
   /* ── Silent data poll: ambil data server jika versi lebih baru ── */
   async function silentPoll() {
+    // Jangan poll jika push sedang berjalan atau masih ada push tertunda
+    if (pushInFlight || pushTimer) return;
     try {
-      const c = typeof AbortSignal !== "undefined" && AbortSignal.timeout
-        ? { signal: AbortSignal.timeout(6000) } : {};
+      const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      const c = {
+        headers: localVer > 0 ? { "If-None-Match": String(localVer) } : {},
+        ...(typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(6000) } : {}),
+      };
       const res = await fetch("/api/bop/data", c);
       // 304 = tidak ada perubahan, skip
       if (res.status === 304) { setTopbarStatus(true); return; }
@@ -5259,8 +5264,8 @@ async function goPage(page){
       if (serverVer > localVer) {
         // Ada data baru dari device lain — update diam-diam
         const serverData = result.data;
-        if (typeof window.data !== "undefined" && typeof serverData === "object") {
-          Object.assign(window.data, serverData);
+        if (typeof data !== "undefined" && serverData && typeof serverData === "object") {
+          Object.assign(data, JSON.parse(JSON.stringify(serverData)));
         }
         _origSetItem(BOP_STORE, JSON.stringify(serverData));
         localStorage.setItem(VER_KEY, String(serverVer));
@@ -5282,6 +5287,23 @@ async function goPage(page){
   function startPeriodicCheck() {
     setInterval(() => silentPoll(), 10000);
   }
+
+  /* ── Flush segera saat tab/browser ditutup (pakai sendBeacon) ── */
+  window.addEventListener("beforeunload", () => {
+    if (!pushTimer && !pushInFlight) return;
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    const raw = localStorage.getItem(BOP_STORE);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      const payload = JSON.stringify({ data: parsed, clientVersion: localVer + 1 });
+      const blob = new Blob([payload], { type: "application/json" });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/api/bop/data-beacon", blob);
+      }
+    } catch (e) { /* silent */ }
+  });
 
   /* ── Init ─────────────────────────────────────────────────── */
   function init() {
@@ -5388,24 +5410,28 @@ async function goPage(page){
   runGuard();
 })();
 
-/* PATCH v1.40d — Initial seed: jika localStorage kosong, simpan defaults ke server */
+/* PATCH v1.40d — Initial seed: jika localStorage kosong DAN server juga kosong, simpan defaults */
 (function bopInitSeedV40d(){
   const STORE_KEY = "bop_rt005_data_v1_25";
+  const VER_KEY   = "bop_pg_version_v40";
   function tryInitSeed(){
     // Jika localStorage sudah terisi, tidak perlu seed
     const raw = localStorage.getItem(STORE_KEY);
     if(raw){ return; }
-    // localStorage kosong tapi window.data sudah diisi defaults oleh loadData()
+    // Skip jika server sudah punya data (VER_KEY di-set oleh bootLoadFromServer)
+    const serverVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+    if(serverVer > 0){ return; }
+    // localStorage kosong dan server juga kosong → simpan defaults
     if(typeof data !== "undefined" && data && data.master && data.master.kelurahan){
-      console.log("[BOP-SEED v40d] Simpan default data ke localStorage + server...");
+      console.log("[BOP-SEED v40d] localStorage dan server kosong, simpan default data...");
       try{ localStorage.setItem(STORE_KEY, JSON.stringify(data)); }catch(e){}
     }
   }
-  // Jalankan setelah app selesai inisialisasi (500ms cukup)
+  // Jalankan SETELAH bootLoadFromServer selesai (minimal 3 detik)
   if(document.readyState === "loading")
-    document.addEventListener("DOMContentLoaded", ()=>setTimeout(tryInitSeed, 600));
+    document.addEventListener("DOMContentLoaded", ()=>setTimeout(tryInitSeed, 3000));
   else
-    setTimeout(tryInitSeed, 600);
+    setTimeout(tryInitSeed, 3000);
 })();
 
 /* PATCH v1.41 — Live Preview Side-by-Side di Tab Data Pengajuan */

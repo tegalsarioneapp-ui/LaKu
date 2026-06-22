@@ -7,23 +7,49 @@ import { Router } from "express";
 import { pool } from "@workspace/db";
 
 const router = Router();
+const RT_KEY = "rt005rw012";
+
+/* Helper: parse body dari text/plain atau application/json (untuk sendBeacon) */
+async function parseFlexibleBody(req: import("express").Request): Promise<{ data?: unknown; clientVersion?: number } | null> {
+  try {
+    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+      return req.body as { data?: unknown; clientVersion?: number };
+    }
+    // sendBeacon mengirim sebagai text/plain atau application/octet-stream
+    const raw = req.body?.toString?.() ?? "";
+    if (raw) return JSON.parse(raw);
+  } catch (e) { /* ignore parse errors */ }
+  return null;
+}
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/data
    Ambil data BOP terkini dari database.
+   Mendukung ETag (If-None-Match = client version) untuk 304 responses.
    Response: { ok, data, updatedAt, version }
 ═══════════════════════════════════════════════════════════════ */
 router.get("/bop/data", async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
-      ["rt005rw012"]
+      [RT_KEY]
     );
     if (result.rows.length === 0) {
       res.json({ ok: true, data: null, updatedAt: null, version: 0 });
       return;
     }
     const row = result.rows[0];
+    const serverVersion = String(row.version);
+
+    // Kirim 304 Not Modified jika client sudah punya versi terbaru
+    const clientEtag = req.headers["if-none-match"];
+    if (clientEtag && clientEtag === serverVersion) {
+      res.status(304).end();
+      return;
+    }
+
+    res.setHeader("ETag", serverVersion);
+    res.setHeader("Cache-Control", "no-store");
     res.json({
       ok: true,
       data: row.data,
@@ -61,7 +87,7 @@ router.put("/bop/data", async (req, res) => {
              version    = bop_data.version + 1,
              updated_at = NOW()
        RETURNING updated_at, version`,
-      ["rt005rw012", JSON.stringify(data), clientVersion ?? 1]
+      [RT_KEY, JSON.stringify(data), clientVersion ?? 1]
     );
 
     res.json({
@@ -72,6 +98,36 @@ router.put("/bop/data", async (req, res) => {
   } catch (e) {
     req.log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan data BOP" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/bop/data-beacon
+   Endpoint khusus navigator.sendBeacon (beforeunload).
+   sendBeacon mengirim Content-Type: text/plain / application/octet-stream.
+   Kita parse manual karena Express json() tidak handle non-JSON content-type.
+   Response: { ok } (204 agar ringan)
+═══════════════════════════════════════════════════════════════ */
+router.post("/bop/data-beacon", async (req, res) => {
+  try {
+    const body = await parseFlexibleBody(req);
+    if (!body?.data || typeof body.data !== "object") {
+      res.status(204).end();
+      return;
+    }
+    await pool.query(
+      `INSERT INTO bop_data (rt_key, data, version, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (rt_key) DO UPDATE
+         SET data       = EXCLUDED.data,
+             version    = bop_data.version + 1,
+             updated_at = NOW()`,
+      [RT_KEY, JSON.stringify(body.data), body.clientVersion ?? 1]
+    );
+    res.status(204).end();
+  } catch (e) {
+    req.log.error(e);
+    res.status(204).end(); // sendBeacon tidak peduli response, tetap 204
   }
 });
 
@@ -175,7 +231,7 @@ router.get("/bop/status", async (req, res) => {
     const [dataRow, histCount] = await Promise.all([
       pool.query(
         `SELECT updated_at, version FROM bop_data WHERE rt_key = $1`,
-        ["rt005rw012"]
+        [RT_KEY]
       ),
       pool.query(`SELECT COUNT(*) as count FROM bop_history`),
     ]);

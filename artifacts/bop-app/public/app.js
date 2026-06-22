@@ -5,7 +5,10 @@
   window.__bopApiBridgeV42 = true;
 
   function cleanBase(v){
-    return String(v || "").trim().replace(/\/+$/, "");
+    let s = String(v || "").trim().replace(/\/+$/, "");
+    /* Pastikan selalu ada protocol agar tidak jadi path relatif */
+    if (s && !/^https?:\/\//i.test(s)) s = "https://" + s;
+    return s;
   }
 
   const base = cleanBase(window.BOP_API_BASE);

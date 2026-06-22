@@ -11,21 +11,32 @@
     return s;
   }
 
-  const base = cleanBase(window.BOP_API_BASE);
+  /* Prioritas: 1) window.BOP_API_BASE (dari Vite define/env), 2) localStorage */
+  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem("bop_api_base") || "");
   window.BOP_API_BASE = base;
+
+  /* Expose setter agar UI bisa update tanpa reload */
+  window.__bopSetApiBase = function(url){
+    const cleaned = cleanBase(url);
+    window.BOP_API_BASE = cleaned;
+    localStorage.setItem("bop_api_base", cleaned);
+    return cleaned;
+  };
 
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = function(input, init){
+    /* Selalu baca window.BOP_API_BASE terbaru (bisa diupdate via __bopSetApiBase) */
+    const cur = window.BOP_API_BASE || "";
     try {
-      if (base && typeof input === "string" && input.startsWith("/api/")) {
-        return nativeFetch(base + input, init);
+      if (cur && typeof input === "string" && input.startsWith("/api/")) {
+        return nativeFetch(cur + input, init);
       }
 
-      if (base && input instanceof Request) {
+      if (cur && input instanceof Request) {
         const u = new URL(input.url, window.location.href);
         if (u.origin === window.location.origin && u.pathname.startsWith("/api/")) {
-          const nextReq = new Request(base + u.pathname + u.search + u.hash, input);
+          const nextReq = new Request(cur + u.pathname + u.search + u.hash, input);
           return nativeFetch(nextReq, init);
         }
       }
@@ -5076,12 +5087,44 @@ async function goPage(page){
     if(pushBtn) pushBtn.onclick = () => manualPush();
     if(pullBtn) pullBtn.onclick = () => manualPull();
 
+    /* ── Railway URL input ────────────────────────────────────── */
+    const urlInput   = document.getElementById("railwayUrlInput");
+    const urlSaveBtn = document.getElementById("railwayUrlSaveBtn");
+    const urlStatus  = document.getElementById("railwayUrlStatus");
+
+    if(urlInput && !urlInput._bound){
+      urlInput._bound = true;
+      /* Tampilkan URL yang sudah tersimpan */
+      const saved = localStorage.getItem("bop_api_base") || window.BOP_API_BASE || "";
+      urlInput.value = saved;
+
+      if(urlSaveBtn){
+        urlSaveBtn.onclick = () => {
+          const val = urlInput.value.trim();
+          if(!val){
+            if(urlStatus){ urlStatus.textContent = "⚠ Masukkan URL Railway terlebih dahulu."; urlStatus.style.color = "#b45309"; }
+            return;
+          }
+          const cleaned = window.__bopSetApiBase ? window.__bopSetApiBase(val) : val;
+          if(urlStatus){
+            urlStatus.innerHTML = "✅ URL disimpan: <b>" + cleaned + "</b><br><small>API bridge aktif. Klik 🔍 Cek Server untuk verifikasi.</small>";
+            urlStatus.style.color = "#15803d";
+          }
+        };
+      }
+    }
+
     const checkBtn = document.getElementById("syncCheckServerBtn");
     if(checkBtn && !checkBtn._bound){
       checkBtn._bound = true;
       checkBtn.onclick = async () => {
         const info = document.getElementById("syncServerInfo");
-        if(info){ info.style.display = "block"; info.textContent = "⏳ Mengecek server..."; }
+        if(info){ info.style.display = "block"; info.textContent = "⏳ Mengecek server..."; info.style.color = "#475569"; }
+        const curBase = window.BOP_API_BASE || localStorage.getItem("bop_api_base") || "";
+        if(!curBase){
+          if(info){ info.innerHTML = "⚠ <b>URL Railway belum diset.</b><br>Isi kolom <b>URL Server Railway</b> di atas dengan URL Railway-mu, lalu klik Simpan URL."; info.style.color = "#b45309"; }
+          return;
+        }
         try{
           const r = await fetch("/api/bop/status", {
             ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
@@ -5099,7 +5142,11 @@ async function goPage(page){
           }
           setTopbarStatus(d.ok);
         } catch(e){
-          if(info){ info.innerHTML = "❌ <b>Tidak bisa reach server:</b> " + e.message + "<br><small>Cek apakah VITE_API_BASE sudah diset dengan benar di Vercel.</small>"; info.style.color = "#b91c1c"; }
+          if(info){
+            info.innerHTML = "❌ <b>Tidak bisa reach server:</b> " + e.message +
+              "<br><small>Pastikan URL Railway sudah benar di kolom di atas, dan Railway sedang berjalan.</small>";
+            info.style.color = "#b91c1c";
+          }
           setTopbarStatus(false);
         }
       };
@@ -5127,7 +5174,7 @@ async function goPage(page){
             }
           }
         } catch(e){
-          if(info){ info.innerHTML = "❌ <b>Gagal:</b> " + e.message + "<br><small>Endpoint /api/bop/init-db mungkin belum tersedia (perlu redeploy Railway).</small>"; info.style.color = "#b91c1c"; }
+          if(info){ info.innerHTML = "❌ <b>Gagal:</b> " + e.message + "<br><small>Pastikan URL Railway sudah benar dan Railway sedang berjalan.</small>"; info.style.color = "#b91c1c"; }
         }
       };
     }

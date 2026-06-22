@@ -453,6 +453,57 @@ function docChecklist(){
   const items=["Surat Permohonan Pencairan","SK Lurah Pembentukan RT/RW","Rekening Bank Jateng atas nama RT/RW","Rencana Anggaran Penggunaan","Berita Acara Kesepakatan RAP","Daftar Hadir dan Dokumentasi Rapat RAP","SPTJM"];
   return official(`<div class="title">CHECKLIST UPLOAD DOKUMEN PENGAJUAN BOP RT</div><table><tr><th>No</th><th>Dokumen</th><th>Status</th><th>Keterangan</th></tr>${items.map((x,i)=>`<tr><td>${i+1}</td><td>${x}</td><td></td><td></td></tr>`).join("")}</table>`);
 }
+function docSK(){
+  const m=data.master,p=data.pengajuan;
+  return official(`<div class="title">SURAT KEPUTUSAN LURAH ${esc((m.kelurahan||"").toUpperCase())}<br>PEMBENTUKAN PENGURUS RT ${esc(m.rt)} RW ${esc(m.rw)}</div>
+  <table class="no-border">
+    <tr><td style="width:210px">Nomor SK</td><td>: <b>${esc(p.nomorSK||"................................")}</b></td></tr>
+    <tr><td>Tanggal SK</td><td>: ${esc(p.tanggalSK||"................................")}</td></tr>
+    <tr><td>Perihal</td><td>: Pembentukan Pengurus RT ${esc(m.rt)} RW ${esc(m.rw)} Kel. ${esc(m.kelurahan||"")}</td></tr>
+    <tr><td>Masa Berlaku</td><td>: ${esc(p.masaBerlakuSK||"................................")}</td></tr>
+  </table>
+  <br>
+  <table>
+    <tr><th>No.</th><th>Jabatan</th><th>Nama</th><th>No. KTP / NIK</th></tr>
+    <tr><td>1</td><td>Ketua RT ${esc(m.rt)}</td><td>${esc(m.ketua||"................................")}</td><td>${esc(m.noKtpKetua||"................................")}</td></tr>
+    <tr><td>2</td><td>Sekretaris</td><td>${esc(m.sekretaris||"................................")}</td><td>................................</td></tr>
+    <tr><td>3</td><td>Bendahara</td><td>${esc(m.bendahara||"................................")}</td><td>................................</td></tr>
+  </table>
+  <br>
+  <p style="text-align:center;border:1px solid #ccc;padding:10px;font-style:italic;color:#555">
+    &#9888; Lampirkan fotokopi SK Lurah asli yang telah dilegalisir bersama berkas pengajuan ini.
+  </p>
+  <div class="ttd-grid">
+    <div>Ketua RT ${esc(m.rt)} RW ${esc(m.rw)}<div class="signature-space"></div>${esc(m.ketua||"Nama Jelas")}</div>
+    <div>Lurah ${esc(m.kelurahan||"")}<div class="signature-space"></div>NIP. ................................</div>
+  </div>`);
+}
+function docRekening(){
+  const m=data.master,p=data.pengajuan;
+  return official(`<div class="title">INFORMASI REKENING BANK<br>RT ${esc(m.rt)} RW ${esc(m.rw)} ${esc((m.kelurahan||"").toUpperCase())}</div>
+  <p style="text-align:center;margin-bottom:16px">Data rekening bank untuk keperluan pencairan BOP RT ${esc(m.rt)} RW ${esc(m.rw)}, ${esc(m.kelurahan||"")}, Kota ${esc(m.kota||"")}</p>
+  <table class="no-border">
+    <tr><td style="width:230px"><b>Nama Bank</b></td><td>: <b>${esc(p.namaBank||"Bank Pembangunan Daerah (BPD) Jateng")}</b></td></tr>
+    <tr><td><b>Nomor Rekening</b></td><td>: <b>${esc(p.nomorRekening||"................................")}</b></td></tr>
+    <tr><td><b>Nama Pemilik Rekening</b></td><td>: ${esc(p.namaPemilikRekening||m.ketua||"................................")}</td></tr>
+    <tr><td><b>Cabang</b></td><td>: ${esc(p.cabangBank||"................................")}</td></tr>
+  </table>
+  <br>
+  <table class="no-border">
+    <tr><td style="width:230px">Atas Nama Lembaga</td><td>: RT ${esc(m.rt)} RW ${esc(m.rw)} ${esc(m.kelurahan||"")}</td></tr>
+    <tr><td>Kelurahan</td><td>: ${esc(m.kelurahan||"")}</td></tr>
+    <tr><td>Kecamatan</td><td>: ${esc(m.kecamatan||"")}</td></tr>
+    <tr><td>Kota</td><td>: Kota ${esc(m.kota||"")}</td></tr>
+  </table>
+  <br>
+  <p style="text-align:center;border:1px solid #ccc;padding:10px;font-style:italic;color:#555">
+    &#9888; Lampirkan fotokopi Buku Rekening BPD/Bank Jateng (halaman depan) bersama berkas pengajuan ini.
+  </p>
+  <div class="ttd-grid">
+    <div>Ketua RT ${esc(m.rt)} RW ${esc(m.rw)}<div class="signature-space"></div>${esc(m.ketua||"Nama Jelas")}</div>
+    <div>Mengetahui<br>Lurah ${esc(m.kelurahan||"")}<div class="signature-space"></div>NIP. ................................</div>
+  </div>`);
+}
 function docLpj(){
   const m=data.master,l=data.lpj;
   const now = l.tanggalCetak || new Date().toLocaleString("id-ID");
@@ -471,7 +522,7 @@ function docLpj(){
 }
 function previewDoc(type=currentDoc){
   collectAll(); currentDoc=type;
-  const map={permohonan:docPermohonan,rap:docRap,ba:docBA,hadir:docHadir,sptjm:docSptjm,rbb:docRbb,checklist:docChecklist,undangan:docUndangan,notulen:docNotulen};
+  const map={permohonan:docPermohonan,rap:docRap,ba:docBA,hadir:docHadir,sptjm:docSptjm,sk:docSK,rekening:docRekening,undangan:docUndangan,notulen:docNotulen};
   document.querySelectorAll(".doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.doc===type));
   $("docOutput").innerHTML=(map[type]||docPermohonan)();
 }
@@ -641,7 +692,7 @@ function docRap(){normalizeRapV17();return official(`<div class="title">RENCANA 
 function docRapBulanan(){let month=$("monthlyDocMonth")?.value||data.pengajuan.selectedMonth||"Januari 2026";data.pengajuan.selectedMonth=month;let rows=getMonthlyRapRows(month);return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN ${esc(month).toUpperCase()}</div><table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.kategori)} - ${esc(r.subKategori)}<br>Tipe: ${esc(r.tipe)} | Sumber: ${esc(r.sumber)}</small></td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlahBulanan)}</td><td>${esc(r.keterangan)}</td></tr>`).join(""):`<tr><td colspan="5">Belum ada rencana kegiatan untuk bulan ${esc(month)}.</td></tr>`}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(monthlyTotal(month))}</b></td><td></td></tr></tbody></table><p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`)}
 function docRbb(){let m=data.master,month=$("monthlyDocMonth")?.value||data.pengajuan.selectedMonth||"Januari 2026",rows=getMonthlyRapRows(month);return official(`<div class="title">Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div><table class="no-border"><tr><td style="width:160px">Nama Lembaga</td><td>: RT ${m.rt} RW ${m.rw}</td></tr><tr><td>Kelurahan</td><td>: ${m.kelurahan}</td></tr><tr><td>Kecamatan</td><td>: ${m.kecamatan}</td></tr><tr><td>Untuk Kegiatan Bulan</td><td>: ${esc(month)}</td></tr></table><br><table><tr><th>No.</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Anggaran</th><th>Keterangan</th></tr>${rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}</td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlahBulanan)}</td><td>${esc(r.keterangan)}</td></tr>`).join(""):`<tr><td colspan="5">Belum ada kegiatan bulan ini.</td></tr>`}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(monthlyTotal(month))}</b></td><td></td></tr></table><p>Terbilang: ${terbilang(monthlyTotal(month)).replace(/\s+/g," ")} Rupiah</p><div class="ttd-3"><div>Yang Mengambil<br>Ketua RT ${m.rt} RW ${m.rw}<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div><div>Bendahara<div class="signature-space"></div>${m.bendahara||"Nama Jelas"}</div><div>Mengetahui<br>Lurah ${m.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div></div>`)}
 function docBA(){let p=data.pengajuan,m=data.master;return official(`<div class="title">BERITA ACARA<br>KESEPAKATAN RENCANA ANGGARAN PENGGUNAAN BANTUAN OPERASIONAL RT</div><p style="text-align:center">Nomor: ${p.baNomor||".................."}</p><p>Pada hari ini ${p.baHari} tanggal ${p.baTanggal} bulan ${p.baBulan} tahun ${p.baTahun}, bertempat di ${p.baTempat} pada pukul ${p.baPukul} telah dilaksanakan pertemuan pembahasan Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ${m.rt} RW ${m.rw}. Pertemuan dipimpin oleh ${p.baPimpinan||m.ketua||"........"}.</p><p>Adapun hasil pertemuan sebagai berikut:</p>${docRap().match(/<table[\s\S]*?<\/table>/)[0]}<p>Demikian Berita Acara Hasil Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p><p>Kami yang bertanda tangan di bawah ini:</p><table><tr><th>No.</th><th>Nama</th><th>Jabatan</th><th>Tanda Tangan</th></tr>${p.peserta.map((r,i)=>`<tr><td>${i+1}.</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${i+1}.</td></tr>`).join("")}</table>`)}
-function previewDoc(type=currentDoc){collectAll();if($("monthlyDocMonth"))data.pengajuan.selectedMonth=$("monthlyDocMonth").value;currentDoc=type;const map={permohonan:docPermohonan,rap:docRap,rapbulanan:docRapBulanan,ba:docBA,hadir:docHadir,sptjm:docSptjm,rbb:docRbb,checklist:docChecklist,undangan:docUndangan,notulen:docNotulen};document.querySelectorAll(".doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.doc===type));$("docOutput").innerHTML=(map[type]||docPermohonan)()}
+function previewDoc(type=currentDoc){collectAll();if($("monthlyDocMonth"))data.pengajuan.selectedMonth=$("monthlyDocMonth").value;currentDoc=type;const map={permohonan:docPermohonan,rap:docRap,rapbulanan:docRapBulanan,ba:docBA,hadir:docHadir,sptjm:docSptjm,sk:docSK,rekening:docRekening,undangan:docUndangan,notulen:docNotulen};document.querySelectorAll(".doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.doc===type));$("docOutput").innerHTML=(map[type]||docPermohonan)()}
 
 
 /* PATCH v1.8 - Persiapan Kegiatan Operasional / Bukti SPJ */
@@ -1412,7 +1463,7 @@ function previewDoc(type=currentDoc){
   collectAll();
   if($("monthlyDocMonth")) data.pengajuan.selectedMonth=$("monthlyDocMonth").value;
   currentDoc=type;
-  const map={permohonan:docPermohonan,rap:docRap,rapbulanan:docRapBulanan,ba:docBA,hadir:docHadir,sptjm:docSptjm,rbb:docRbb,checklist:docChecklist,undangan:docUndangan,notulen:docNotulen};
+  const map={permohonan:docPermohonan,rap:docRap,rapbulanan:docRapBulanan,ba:docBA,hadir:docHadir,sptjm:docSptjm,sk:docSK,rekening:docRekening,undangan:docUndangan,notulen:docNotulen};
   document.querySelectorAll(".doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.doc===type));
   $("docOutput").innerHTML=(map[type]||docPermohonan)();
 }
@@ -4084,8 +4135,8 @@ async function goPage(page){
       ba: docBeritaAcaraRap2026V36,
       hadir: (typeof docHadir === "function" ? docHadir : docBeritaAcaraRap2026V36),
       sptjm: docSptjm2026V36,
-      rbb: (typeof docRbb === "function" ? docRbb : docRap2026V36),
-      checklist: (typeof docChecklist === "function" ? docChecklist : docRap2026V36),
+      sk: (typeof docSK === "function" ? docSK : docRap2026V36),
+      rekening: (typeof docRekening === "function" ? docRekening : docRap2026V36),
       undangan: (typeof docUndangan === "function" ? docUndangan : docPermohonan2026V36),
       notulen: (typeof docNotulen === "function" ? docNotulen : docBeritaAcaraRap2026V36),
       perubahanRap: docPerubahanRap2026V36,
@@ -4496,8 +4547,8 @@ async function goPage(page){
       ba: docBeritaAcaraRap2026V37,
       hadir: (typeof docHadir === "function" ? docHadir : docBeritaAcaraRap2026V37),
       sptjm: docSptjm2026V37,
-      rbb: (typeof docRbb === "function" ? docRbb : docRap2026V37),
-      checklist: (typeof docChecklist === "function" ? docChecklist : docRap2026V37),
+      sk: (typeof docSK === "function" ? docSK : docRap2026V37),
+      rekening: (typeof docRekening === "function" ? docRekening : docRap2026V37),
       undangan: (typeof docUndangan === "function" ? docUndangan : docPermohonan2026V37),
       notulen: (typeof docNotulen === "function" ? docNotulen : docBeritaAcaraRap2026V37),
       perubahanRap: docPerubahanRap2026V37,
@@ -4807,19 +4858,6 @@ async function goPage(page){
     const lpjBtn = document.getElementById("exportPdfLpjV38");
     if(lpjBtn) lpjBtn.onclick = window.exportPdfLpjV38;
 
-    // Tombol di Document Studio toolbar
-    const dsToolbar = document.getElementById("dsToolbar");
-    if(dsToolbar && !document.getElementById("exportPdfDocV38")){
-      const sep = document.createElement("div"); sep.className = "ds-tb-sep";
-      const btn = document.createElement("button");
-      btn.id = "exportPdfDocV38";
-      btn.title = "Export PDF langsung ke file tanpa dialog cetak browser";
-      btn.style.cssText = "background:#1e40af;color:#fff;border:none;border-radius:6px;padding:4px 11px;cursor:pointer;font-size:11.5px;font-weight:600;white-space:nowrap;";
-      btn.textContent = "⬇ PDF";
-      btn.onclick = window.exportPdfDocV38;
-      dsToolbar.appendChild(sep);
-      dsToolbar.appendChild(btn);
-    }
   }
 
   if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => setTimeout(installPdfBtnsV38, 400));

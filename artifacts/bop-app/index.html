@@ -76,6 +76,13 @@
               <small>Dokumentasi kegiatan lapangan dengan kamera langsung, timestamp premium, lokasi otomatis jika tersedia, dan bukti SPJ.</small>
             </button>
           </div>
+          <div class="biometric-row-v43" id="biometricRowV43">
+            <button class="biometric-btn-v43" id="biometricBtnV43" type="button" title="Masuk dengan Biometrik (Sidik Jari / Wajah)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12C2 6.48 6.48 2 12 2s10 4.48 10 10-4.48 10-10 10S2 17.52 2 12z"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M10 14.5a2.5 2.5 0 0 0 4 0"/><path d="M12 8v1"/></svg>
+              <span id="biometricBtnLabel">Masuk dengan Biometrik</span>
+            </button>
+            <p class="biometric-hint-v43" id="biometricHintV43"></p>
+          </div>
         </div>
       </section>
 
@@ -384,30 +391,52 @@
             <div class="ds-gen-panel" id="dsGenPanel">
               <div class="ds-gen-inner">
                 <div class="ds-gen-left">
-                  <div class="ds-gen-label">Generate Dokumen Pengajuan</div>
-                  <div class="doc-buttons" style="display:flex;flex-wrap:wrap;gap:5px">
-                    <button class="doc-btn" data-doc="permohonan">1. Surat Permohonan</button>
-                    <button class="doc-btn" data-doc="rap">2. RAP 1 Tahun</button>
-                    <button class="doc-btn" data-doc="rapbulanan">2A. RAP Bulanan</button>
-                    <button class="doc-btn" data-doc="ba">3. Berita Acara RAP</button>
-                    <button class="doc-btn" data-doc="hadir">4. Daftar Hadir</button>
-                    <button class="doc-btn" data-doc="sptjm">5. SPTJM</button>
-                    <button class="doc-btn" data-doc="sk">6. SK Lurah</button>
-                    <button class="doc-btn" data-doc="rekening">7. Buku Rekening BPD</button>
-                    <button class="doc-btn" data-doc="undangan">Undangan</button>
-                    <button class="doc-btn" data-doc="notulen">Notulen</button>
+                  <div class="ds-gen-label">Generate Dokumen</div>
+                  <div class="ds-doc-select-wrap-v43">
+                    <div class="ds-doc-select-group-v43">
+                      <select id="dsDocSelectV43" class="ds-doc-select-v43">
+                        <optgroup label="— Pengajuan Dana Operasional —">
+                          <option value="permohonan">1. Surat Permohonan</option>
+                          <option value="rap">2. RAP 1 Tahun</option>
+                          <option value="rapbulanan">2A. RAP Bulanan</option>
+                          <option value="ba">3. Berita Acara RAP</option>
+                          <option value="hadir">4. Daftar Hadir RAP</option>
+                          <option value="sptjm">5. SPTJM</option>
+                          <option value="sk">6. SK Lurah</option>
+                          <option value="rekening">7. Buku Rekening BPD</option>
+                        </optgroup>
+                        <optgroup label="— LPJ / Persiapan Kegiatan —">
+                          <option value="undangan">Undangan Kegiatan</option>
+                          <option value="notulen">Notulen Resmi</option>
+                        </optgroup>
+                      </select>
+                      <button class="ds-doc-gen-btn-v43" id="dsDocGenBtnV43" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        Generate
+                      </button>
+                    </div>
+                    <div class="ds-doc-hidden-btns" style="display:none">
+                      <button class="doc-btn" data-doc="permohonan">permohonan</button>
+                      <button class="doc-btn" data-doc="rap">rap</button>
+                      <button class="doc-btn" data-doc="rapbulanan">rapbulanan</button>
+                      <button class="doc-btn" data-doc="ba">ba</button>
+                      <button class="doc-btn" data-doc="hadir">hadir</button>
+                      <button class="doc-btn" data-doc="sptjm">sptjm</button>
+                      <button class="doc-btn" data-doc="sk">sk</button>
+                      <button class="doc-btn" data-doc="rekening">rekening</button>
+                      <button class="doc-btn" data-doc="undangan">undangan</button>
+                      <button class="doc-btn" data-doc="notulen">notulen</button>
+                    </div>
                   </div>
                 </div>
                 <div class="ds-gen-right">
                   <div class="ds-gen-label">Simpan &amp; Backup</div>
                   <div class="ds-gen-actions">
-                    <button class="ds-gen-btn ds-gen-btn-secondary" id="saveToHistory">📋 Simpan Riwayat</button>
-                    <button class="ds-gen-btn ds-gen-btn-secondary" id="dsReloadFresh" title="Hapus format baku & generate ulang dari data terkini">🔄 Generate Ulang</button>
-                  </div>
-                  <div class="ds-gen-actions" style="margin-top:5px">
-                    <button class="ds-gen-btn ds-gen-btn-gold" id="dsBackupTemplates" title="Download semua format baku sebagai file JSON">💾 Backup Format Baku</button>
+                    <button class="ds-gen-btn ds-gen-btn-secondary" id="saveToHistory">📋 Riwayat</button>
+                    <button class="ds-gen-btn ds-gen-btn-secondary" id="dsReloadFresh" title="Hapus format baku & generate ulang dari data terkini">🔄 Ulang</button>
+                    <button class="ds-gen-btn ds-gen-btn-gold" id="dsBackupTemplates" title="Download semua format baku sebagai file JSON">💾 Backup</button>
                     <label class="ds-gen-btn ds-gen-btn-secondary" style="cursor:pointer" title="Import format baku dari file JSON">
-                      📂 Import Format Baku
+                      📂 Import
                       <input id="dsImportTemplates" type="file" accept=".json" style="display:none">
                     </label>
                   </div>
@@ -973,26 +1002,11 @@
             <h3>☁️ Sinkronisasi Antar Device</h3>
             <span id="syncBadgeV39" style="font-size:12px;font-weight:600;color:#64748b;">Mengecek...</span>
           </div>
-          <p>Simpan data ke server PostgreSQL agar bisa diakses dari HP, laptop, atau perangkat lain. Data tidak akan hilang saat ganti browser atau perangkat.</p>
-
-          <div style="margin-bottom:12px">
-            <label style="font-size:12px;font-weight:600;color:#475569;display:block;margin-bottom:4px">URL Server Railway (API Backend)</label>
-            <div style="display:flex;gap:8px;align-items:center">
-              <input id="railwayUrlInput" type="url" placeholder="https://nama-project.up.railway.app"
-                style="flex:1;padding:9px 12px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;background:#fff;color:#1e293b;min-width:0"
-              >
-              <button id="railwayUrlSaveBtn" class="primary" style="white-space:nowrap;padding:9px 16px;font-size:13px">Simpan URL</button>
-            </div>
-            <p class="hint" style="margin-top:4px">Isi dengan URL Railway-mu, lalu klik Simpan URL. Setelah itu klik 🔍 Cek Server untuk verifikasi.</p>
-            <div id="railwayUrlStatus" style="font-size:12px;margin-top:4px"></div>
-          </div>
-
+          <p style="margin-bottom:12px">Data tersinkron otomatis setiap 8 detik antar device. Gunakan tombol di bawah untuk sinkronisasi manual atau setup database.</p>
           <div class="action-row" style="flex-wrap:wrap;gap:8px">
             <button class="primary"   id="syncPushV39">☁️ Simpan ke Server</button>
             <button class="secondary" id="syncPullV39">⬇ Ambil dari Server</button>
-            <button class="primary" id="syncAutoSetupBtn" title="Cek server, init database jika perlu, lalu verifikasi — semua otomatis" style="background:#16a34a;border-color:#16a34a">🚀 Setup Otomatis</button>
-            <button class="secondary" id="syncCheckServerBtn" title="Cek status koneksi ke server API" style="font-size:12px;padding:7px 12px">🔍 Cek Server</button>
-            <button class="secondary" id="syncInitDbBtn" title="Inisialisasi tabel database di server" style="font-size:12px;padding:7px 12px">🛠 Init Database</button>
+            <button class="primary" id="syncAutoSetupBtn" title="Cek server, ping, dan init database — semua otomatis tanpa konfigurasi" style="background:#16a34a;border-color:#16a34a">🚀 Setup Otomatis</button>
           </div>
           <p class="hint" id="syncStatusV39" style="margin-top:8px;">Memeriksa status sinkronisasi...</p>
           <div id="syncServerInfo" style="margin-top:10px;padding:10px 14px;background:#f1f5f9;border-radius:10px;font-size:12px;color:#475569;display:none;line-height:1.7"></div>
@@ -1003,7 +1017,7 @@
     </main>
   </div>
 
-  <script src="app.js?v=20260622f"></script>
+  <script src="app.js?v=20260622g"></script>
   <script src="document-studio/document-studio.js"></script>
 </body>
 </html>

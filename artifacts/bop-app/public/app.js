@@ -5087,47 +5087,14 @@ async function goPage(page){
     if(pushBtn) pushBtn.onclick = () => manualPush();
     if(pullBtn) pullBtn.onclick = () => manualPull();
 
-    /* ── Railway URL input ────────────────────────────────────── */
-    const urlInput   = document.getElementById("railwayUrlInput");
-    const urlSaveBtn = document.getElementById("railwayUrlSaveBtn");
-    const urlStatus  = document.getElementById("railwayUrlStatus");
-
-    if(urlInput && !urlInput._bound){
-      urlInput._bound = true;
-      /* Tampilkan URL yang sudah tersimpan */
-      const saved = localStorage.getItem("bop_api_base") || window.BOP_API_BASE || "";
-      urlInput.value = saved;
-
-      if(urlSaveBtn){
-        urlSaveBtn.onclick = () => {
-          const val = urlInput.value.trim();
-          if(!val){
-            if(urlStatus){ urlStatus.textContent = "⚠ Masukkan URL Railway terlebih dahulu."; urlStatus.style.color = "#b45309"; }
-            return;
-          }
-          const cleaned = window.__bopSetApiBase ? window.__bopSetApiBase(val) : val;
-          if(urlStatus){
-            urlStatus.innerHTML = "✅ URL disimpan: <b>" + cleaned + "</b><br><small>API bridge aktif. Klik 🔍 Cek Server untuk verifikasi.</small>";
-            urlStatus.style.color = "#15803d";
-          }
-        };
-      }
-    }
-
     /* ── Setup Otomatis ──────────────────────────────────────── */
     const autoSetupBtn = document.getElementById("syncAutoSetupBtn");
     if(autoSetupBtn && !autoSetupBtn._bound){
       autoSetupBtn._bound = true;
       autoSetupBtn.onclick = async () => {
         const info = document.getElementById("syncServerInfo");
-        const curBase = window.BOP_API_BASE || localStorage.getItem("bop_api_base") || "";
 
         function step(msg, color){ if(info){ info.style.display="block"; info.innerHTML=msg; info.style.color=color||"#475569"; } }
-
-        if(!curBase){
-          step("⚠ <b>URL Railway belum diset.</b><br>Isi kolom <b>URL Server Railway</b> di atas dengan URL Railway-mu lalu klik Simpan URL.", "#b45309");
-          return;
-        }
 
         autoSetupBtn.disabled = true;
         autoSetupBtn.textContent = "⏳ Memeriksa...";
@@ -5216,70 +5183,6 @@ async function goPage(page){
       };
     }
 
-    const checkBtn = document.getElementById("syncCheckServerBtn");
-    if(checkBtn && !checkBtn._bound){
-      checkBtn._bound = true;
-      checkBtn.onclick = async () => {
-        const info = document.getElementById("syncServerInfo");
-        if(info){ info.style.display = "block"; info.textContent = "⏳ Mengecek server..."; info.style.color = "#475569"; }
-        const curBase = window.BOP_API_BASE || localStorage.getItem("bop_api_base") || "";
-        if(!curBase){
-          if(info){ info.innerHTML = "⚠ <b>URL Railway belum diset.</b><br>Isi kolom <b>URL Server Railway</b> di atas dengan URL Railway-mu, lalu klik Simpan URL."; info.style.color = "#b45309"; }
-          return;
-        }
-        try{
-          const r = await fetch("/api/bop/status", {
-            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
-          });
-          const d = await r.json();
-          if(info){
-            if(d.ok){
-              const ts = d.updatedAt ? new Date(d.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
-              info.innerHTML = "✅ <b>Server online</b><br>Database: PostgreSQL (Railway)<br>Punya data: " + (d.hasData?"Ya":"Tidak") + "<br>Versi: " + (d.version||0) + "<br>Terakhir update: " + ts + "<br>Riwayat: " + (d.historyCount||0) + " entri";
-              info.style.color = "#15803d";
-            } else {
-              info.innerHTML = "❌ <b>Server error:</b> " + (d.error||"Tidak diketahui") + "<br><small>Pastikan DATABASE_URL sudah diset di Railway dan klik <b>🛠 Init Database</b>.</small>";
-              info.style.color = "#b91c1c";
-            }
-          }
-          setTopbarStatus(d.ok);
-        } catch(e){
-          if(info){
-            info.innerHTML = "❌ <b>Tidak bisa reach server:</b> " + e.message +
-              "<br><small>Pastikan URL Railway sudah benar di kolom di atas, dan Railway sedang berjalan.</small>";
-            info.style.color = "#b91c1c";
-          }
-          setTopbarStatus(false);
-        }
-      };
-    }
-
-    const initBtn = document.getElementById("syncInitDbBtn");
-    if(initBtn && !initBtn._bound){
-      initBtn._bound = true;
-      initBtn.onclick = async () => {
-        const info = document.getElementById("syncServerInfo");
-        if(info){ info.style.display = "block"; info.textContent = "⏳ Menginisialisasi database..."; info.style.color = "#475569"; }
-        try{
-          const r = await fetch("/api/bop/init-db", {
-            method: "GET",
-            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : {}),
-          });
-          const d = await r.json();
-          if(info){
-            if(d.ok){
-              info.innerHTML = "✅ <b>Database berhasil diinisialisasi!</b><br>" + (d.message||"") + "<br><small>Klik <b>🔍 Cek Server</b> untuk verifikasi, lalu <b>☁️ Simpan ke Server</b> untuk upload data.</small>";
-              info.style.color = "#15803d";
-            } else {
-              info.innerHTML = "❌ <b>Inisialisasi gagal:</b> " + (d.error||"") + "<br><small>Pastikan DATABASE_URL sudah diset di Railway.</small>";
-              info.style.color = "#b91c1c";
-            }
-          }
-        } catch(e){
-          if(info){ info.innerHTML = "❌ <b>Gagal:</b> " + e.message + "<br><small>Pastikan URL Railway sudah benar dan Railway sedang berjalan.</small>"; info.style.color = "#b91c1c"; }
-        }
-      };
-    }
   }
 
   /* ─── Push data ke server ───────────────────────────────────── */
@@ -5508,7 +5411,7 @@ async function goPage(page){
     updateSyncPanel();
     updateSidebarNote();
     bootLoad();
-    setInterval(silentPoll, 15000);
+    setInterval(silentPoll, 8000);
   }
 
   if(document.readyState === "loading")
@@ -5887,5 +5790,263 @@ function printCssV22(){
 
   setTimeout(expose, 100);
   setTimeout(expose, 800);
+})();
+
+
+/* PATCH v1.43 — Biometrik Login (WebAuthn Platform Authenticator) */
+(function bopBiometricV43(){
+  const CRED_KEY  = "bop_biometric_cred_v43";
+  const LAST_PAGE = "bop_last_page_v43";
+
+  function isSupported(){
+    return !!(window.PublicKeyCredential &&
+      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function");
+  }
+
+  function toB64(arr){
+    return btoa(String.fromCharCode(...new Uint8Array(arr)));
+  }
+
+  function fromB64(s){
+    const bin = atob(s);
+    const arr = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return arr.buffer;
+  }
+
+  function setHint(msg, color){
+    const el = document.getElementById("biometricHintV43");
+    if(el){ el.textContent = msg; el.style.color = color||"#64748b"; }
+  }
+
+  function setLabel(txt){
+    const el = document.getElementById("biometricBtnLabel");
+    if(el) el.textContent = txt;
+  }
+
+  async function registerBiometric(){
+    setLabel("Mendaftarkan...");
+    setHint("Ikuti petunjuk autentikator perangkat Anda...", "#1d4ed8");
+    try{
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const userId = new Uint8Array(16);
+      crypto.getRandomValues(userId);
+
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: "BOP RT 005", id: window.location.hostname },
+          user: { id: userId, name: "Pengurus RT 005", displayName: "BOP RT 005" },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 },
+            { type: "public-key", alg: -257 }
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+            residentKey: "preferred"
+          },
+          timeout: 60000,
+          attestation: "none"
+        }
+      });
+
+      if(!cred) throw new Error("Tidak ada kredensial");
+
+      localStorage.setItem(CRED_KEY, JSON.stringify({
+        id: cred.id,
+        rawId: toB64(cred.rawId),
+        type: cred.type
+      }));
+
+      setLabel("Masuk dengan Biometrik");
+      setHint("✅ Biometrik berhasil didaftarkan! Klik lagi untuk masuk.", "#15803d");
+    } catch(e){
+      setLabel("Masuk dengan Biometrik");
+      if(e.name === "NotAllowedError"){
+        setHint("Dibatalkan. Coba lagi untuk mendaftar biometrik.", "#b45309");
+      } else if(e.name === "NotSupportedError"){
+        setHint("Perangkat tidak mendukung biometrik platform.", "#b91c1c");
+      } else {
+        setHint("Gagal: " + e.message, "#b91c1c");
+      }
+    }
+  }
+
+  async function authBiometric(){
+    const stored = localStorage.getItem(CRED_KEY);
+    if(!stored){ await registerBiometric(); return; }
+
+    setLabel("Verifikasi...");
+    setHint("Konfirmasi identitas Anda...", "#1d4ed8");
+    try{
+      const credData = JSON.parse(stored);
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          rpId: window.location.hostname,
+          allowCredentials: [{ type: "public-key", id: fromB64(credData.rawId) }],
+          userVerification: "required",
+          timeout: 60000
+        }
+      });
+
+      if(!assertion) throw new Error("Autentikasi gagal");
+
+      setLabel("Masuk dengan Biometrik");
+      setHint("✅ Berhasil!", "#15803d");
+
+      const lastPage = localStorage.getItem(LAST_PAGE) || "dashboard";
+      if(typeof goPage === "function"){
+        setTimeout(() => {
+          goPage(lastPage);
+          if(typeof bopToast === "function") bopToast("Selamat Datang","Masuk via biometrik berhasil.","success");
+        }, 300);
+      }
+    } catch(e){
+      setLabel("Masuk dengan Biometrik");
+      if(e.name === "NotAllowedError"){
+        setHint("Dibatalkan. Coba lagi.", "#b45309");
+      } else if(e.name === "InvalidStateError"){
+        localStorage.removeItem(CRED_KEY);
+        setHint("Kredensial tidak valid, dihapus. Klik lagi untuk daftar ulang.", "#b45309");
+      } else {
+        setHint("Gagal: " + e.message, "#b91c1c");
+      }
+    }
+  }
+
+  function recordLastPage(){
+    document.querySelectorAll(".nav button[data-page]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pg = btn.dataset.page;
+        if(pg && pg !== "akses") localStorage.setItem(LAST_PAGE, pg);
+      });
+    });
+    document.querySelectorAll("[data-go]").forEach(el => {
+      el.addEventListener("click", () => {
+        const pg = el.dataset.go;
+        if(pg && pg !== "akses") localStorage.setItem(LAST_PAGE, pg);
+      });
+    });
+  }
+
+  async function init(){
+    const row = document.getElementById("biometricRowV43");
+    const btn = document.getElementById("biometricBtnV43");
+    if(!row || !btn) return;
+
+    const supported = await (isSupported()
+      ? PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false)
+      : Promise.resolve(false));
+
+    if(!supported){
+      row.style.display = "none";
+      return;
+    }
+
+    const hasCred = !!localStorage.getItem(CRED_KEY);
+    setLabel(hasCred ? "Masuk dengan Biometrik" : "Daftarkan Biometrik");
+    setHint(hasCred ? "Sidik jari / wajah terdaftar" : "Tap untuk mendaftarkan biometrik perangkat ini", "#64748b");
+
+    btn.addEventListener("click", () => {
+      const c = localStorage.getItem(CRED_KEY);
+      if(c) authBiometric(); else registerBiometric();
+    });
+
+    recordLastPage();
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 800));
+  else
+    setTimeout(init, 800);
+})();
+
+
+/* PATCH v1.43B — Dropdown Generate Dokumen di Document Studio */
+(function bopDocDropdownV43(){
+  function init(){
+    const sel = document.getElementById("dsDocSelectV43");
+    const btn = document.getElementById("dsDocGenBtnV43");
+    if(!sel || !btn) return;
+
+    btn.addEventListener("click", () => {
+      const type = sel.value;
+      if(!type) return;
+      if(typeof previewDoc === "function"){
+        previewDoc(type);
+      } else {
+        const hiddenBtn = document.querySelector(`.doc-btn[data-doc="${type}"]`);
+        if(hiddenBtn) hiddenBtn.click();
+      }
+    });
+
+    sel.addEventListener("change", () => {
+      if(typeof previewDoc === "function") previewDoc(sel.value);
+    });
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1200));
+  else
+    setTimeout(init, 1200);
+})();
+
+
+/* PATCH v1.43C — Fix Multi-device Sync: Force Push setelah Restore JSON */
+(function bopRestoreSyncFixV43(){
+  function init(){
+    const input = document.getElementById("restoreData");
+    if(!input) return;
+    const origOnchange = input.onchange;
+    input.onchange = function(e){
+      if(origOnchange) origOnchange.call(this, e);
+      if(!e.target.files[0]) return;
+      setTimeout(() => {
+        try{
+          const STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+          const VER_KEY_  = "bop_pg_version_v40";
+          const raw = localStorage.getItem(STORE_KEY);
+          if(!raw) return;
+          localStorage.removeItem(VER_KEY_);
+          fetch("/api/bop/data", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: JSON.parse(raw), clientVersion: Date.now() }),
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {})
+          }).then(r => r.json()).then(res => {
+            if(res.ok){
+              localStorage.setItem(VER_KEY_, String(res.version));
+              localStorage.setItem("bop_pg_ts_v40", res.updatedAt || new Date().toISOString());
+              if(typeof bopToast === "function")
+                bopToast("Restore + Sync OK","Data lokal berhasil dipulihkan dan disimpan ke server.","success");
+            }
+          }).catch(()=>{});
+        } catch(err){ console.warn("[BOP RestoreSyncFix]", err); }
+      }, 2500);
+    };
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1000));
+  else
+    setTimeout(init, 1000);
+})();
+
+
+/* PATCH v1.43D — Auto-populate Dokumen: refresh data master sebelum generate */
+(function bopAutoFillDocV43(){
+  const _origPreviewDoc = window.previewDoc;
+  function wrappedPreview(type){
+    try{ if(typeof collectAll === "function") collectAll(); } catch(e){}
+    if(typeof _origPreviewDoc === "function") return _origPreviewDoc(type);
+    if(typeof previewDoc === "function") return previewDoc(type);
+  }
+  window.previewDoc = wrappedPreview;
 })();
 

@@ -5114,6 +5114,85 @@ async function goPage(page){
       }
     }
 
+    /* ── Setup Otomatis ──────────────────────────────────────── */
+    const autoSetupBtn = document.getElementById("syncAutoSetupBtn");
+    if(autoSetupBtn && !autoSetupBtn._bound){
+      autoSetupBtn._bound = true;
+      autoSetupBtn.onclick = async () => {
+        const info = document.getElementById("syncServerInfo");
+        const curBase = window.BOP_API_BASE || localStorage.getItem("bop_api_base") || "";
+
+        function step(msg, color){ if(info){ info.style.display="block"; info.innerHTML=msg; info.style.color=color||"#475569"; } }
+
+        if(!curBase){
+          step("⚠ <b>URL Railway belum diset.</b><br>Isi kolom <b>URL Server Railway</b> di atas dengan URL Railway-mu lalu klik Simpan URL.", "#b45309");
+          return;
+        }
+
+        autoSetupBtn.disabled = true;
+        autoSetupBtn.textContent = "⏳ Memeriksa...";
+
+        try{
+          /* Langkah 1 — Cek server */
+          step("⏳ <b>[1/3]</b> Mengecek koneksi ke server Railway...");
+          const r1 = await fetch("/api/bop/status", {
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
+          });
+          const d1 = await r1.json();
+
+          if(d1.ok){
+            /* Server & DB sudah OK — selesai */
+            const ts = d1.updatedAt ? new Date(d1.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
+            step("✅ <b>Server &amp; database sudah OK!</b><br>Database: PostgreSQL (Railway)<br>Punya data: "+(d1.hasData?"Ya":"Tidak")+"<br>Versi: "+(d1.version||0)+"<br>Terakhir update: "+ts+"<br>Riwayat: "+(d1.historyCount||0)+" entri", "#15803d");
+            setTopbarStatus(true);
+            autoSetupBtn.disabled = false;
+            autoSetupBtn.textContent = "🚀 Setup Otomatis";
+            return;
+          }
+
+          /* Langkah 2 — Database belum siap, coba init */
+          step("⏳ <b>[2/3]</b> Server online, database belum siap. Menginisialisasi tabel...");
+          const r2 = await fetch("/api/bop/init-db", {
+            method: "GET",
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {}),
+          });
+          const d2 = await r2.json();
+
+          if(!d2.ok){
+            step("❌ <b>Init database gagal:</b> "+(d2.error||"Tidak diketahui")+"<br><small>Pastikan DATABASE_URL sudah diset di Railway.</small>", "#b91c1c");
+            setTopbarStatus(false);
+            autoSetupBtn.disabled = false;
+            autoSetupBtn.textContent = "🚀 Setup Otomatis";
+            return;
+          }
+
+          /* Langkah 3 — Verifikasi ulang setelah init */
+          step("⏳ <b>[3/3]</b> Tabel berhasil dibuat. Memverifikasi ulang...");
+          await new Promise(res => setTimeout(res, 800));
+          const r3 = await fetch("/api/bop/status", {
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
+          });
+          const d3 = await r3.json();
+
+          if(d3.ok){
+            const ts2 = d3.updatedAt ? new Date(d3.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
+            step("✅ <b>Setup selesai! Server &amp; database siap.</b><br>Tabel berhasil dibuat.<br>Punya data: "+(d3.hasData?"Ya":"Tidak")+"<br>Sekarang kamu bisa klik <b>☁️ Simpan ke Server</b> untuk upload data.", "#15803d");
+            setTopbarStatus(true);
+          } else {
+            step("⚠ <b>Tabel sudah dibuat</b> tapi verifikasi akhir gagal: "+(d3.error||"")+"<br><small>Coba klik 🔍 Cek Server dalam beberapa detik.</small>", "#b45309");
+            setTopbarStatus(false);
+          }
+
+        } catch(e){
+          step("❌ <b>Tidak bisa reach server:</b> "+e.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
+          setTopbarStatus(false);
+        }
+
+        autoSetupBtn.disabled = false;
+        autoSetupBtn.textContent = "🚀 Setup Otomatis";
+      };
+    }
+
     const checkBtn = document.getElementById("syncCheckServerBtn");
     if(checkBtn && !checkBtn._bound){
       checkBtn._bound = true;

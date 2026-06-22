@@ -1,38 +1,36 @@
 
-/* PATCH 012 - API bridge Vercel frontend -> Railway backend */
+/* PATCH 012 - API bridge Vercel frontend -> Railway backend (v43 auto-discovery) */
 (function bopApiBridgeV42(){
   if (window.__bopApiBridgeV42) return;
   window.__bopApiBridgeV42 = true;
 
+  const LS_API_KEY = "bop_api_base";
+
   function cleanBase(v){
     let s = String(v || "").trim().replace(/\/+$/, "");
-    /* Pastikan selalu ada protocol agar tidak jadi path relatif */
     if (s && !/^https?:\/\//i.test(s)) s = "https://" + s;
     return s;
   }
 
-  /* Prioritas: 1) window.BOP_API_BASE (dari Vite define/env), 2) localStorage */
-  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem("bop_api_base") || "");
+  /* Prioritas: 1) Vite define (baked at build), 2) localStorage */
+  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem(LS_API_KEY) || "");
   window.BOP_API_BASE = base;
 
-  /* Expose setter agar UI bisa update tanpa reload */
   window.__bopSetApiBase = function(url){
     const cleaned = cleanBase(url);
     window.BOP_API_BASE = cleaned;
-    localStorage.setItem("bop_api_base", cleaned);
+    localStorage.setItem(LS_API_KEY, cleaned);
     return cleaned;
   };
 
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = function(input, init){
-    /* Selalu baca window.BOP_API_BASE terbaru (bisa diupdate via __bopSetApiBase) */
     const cur = window.BOP_API_BASE || "";
     try {
       if (cur && typeof input === "string" && input.startsWith("/api/")) {
         return nativeFetch(cur + input, init);
       }
-
       if (cur && input instanceof Request) {
         const u = new URL(input.url, window.location.href);
         if (u.origin === window.location.origin && u.pathname.startsWith("/api/")) {
@@ -43,11 +41,77 @@
     } catch(e) {
       console.warn("[BOP API Bridge] fallback fetch:", e);
     }
-
     return nativeFetch(input, init);
   };
 
-  console.info("[BOP API Bridge] API Base:", base || "(relative /api - belum diset)");
+  /* ── Auto-discovery: jalankan sekali saat startup ─────────── */
+  async function autoDiscover(){
+    /* Jika sudah ada URL yang valid, cukup verifikasi saja */
+    if (window.BOP_API_BASE){
+      try{
+        const r = await nativeFetch(window.BOP_API_BASE + "/api/bop/ping", {
+          signal: AbortSignal.timeout(5000)
+        });
+        if(r.ok){ console.info("[BOP AutoDiscover] URL terverifikasi:", window.BOP_API_BASE); return; }
+      } catch(e){ /* lanjut ke langkah berikutnya */ }
+    }
+
+    /* Langkah 1: Coba relative /api (works on Replit, same-origin, Vite dev) */
+    try{
+      const r = await nativeFetch("/api/bop/ping", { signal: AbortSignal.timeout(4000) });
+      if(r.ok){
+        console.info("[BOP AutoDiscover] Relative /api OK");
+        window.BOP_API_BASE = "";
+        window.__bopRelativeOk = true;
+        return;
+      }
+    } catch(e){ /* tidak bisa reach /api secara relative */ }
+
+    /* Langkah 2: Baca /api-config.json (di-generate oleh Vite build dari env VITE_API_BASE) */
+    try{
+      const r = await nativeFetch("/api-config.json", { signal: AbortSignal.timeout(4000) });
+      if(r.ok){
+        const cfg = await r.json();
+        const url = cleanBase(cfg.apiBase || "");
+        if(url){
+          window.__bopSetApiBase(url);
+          console.info("[BOP AutoDiscover] URL dari api-config.json:", url);
+          return;
+        }
+      }
+    } catch(e){ /* file tidak ada atau tidak valid */ }
+
+    /* Langkah 3: Tanya server sendiri via /api/bop/server-url (fallback terakhir) */
+    try{
+      const r = await nativeFetch("/api/bop/server-url", { signal: AbortSignal.timeout(4000) });
+      if(r.ok){
+        const d = await r.json();
+        const url = cleanBase(d.serverUrl || "");
+        if(url && url !== cleanBase(window.location.origin)){
+          window.__bopSetApiBase(url);
+          console.info("[BOP AutoDiscover] URL dari server-url endpoint:", url);
+        }
+      }
+    } catch(e){ /* tidak bisa */ }
+
+    console.info("[BOP AutoDiscover] Selesai. API Base:", window.BOP_API_BASE || "(relative)");
+
+    /* Trigger ulang sync setelah URL ditemukan, tanpa tunggu poll 8 detik */
+    if(window.BOP_API_BASE || window.__bopRelativeOk){
+      setTimeout(() => {
+        if(typeof window.__bopRetriggerSync === "function") window.__bopRetriggerSync();
+      }, 300);
+    }
+  }
+
+  /* Jalankan auto-discovery segera setelah DOM siap */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", () => autoDiscover());
+  } else {
+    autoDiscover();
+  }
+
+  console.info("[BOP API Bridge] API Base:", base || "(relative /api — auto-discover akan berjalan)");
 })();
 
 const STORE = "bop_rt005_data_v1_25";
@@ -5404,6 +5468,11 @@ async function goPage(page){
   window.addEventListener("storage", e => {
     if(e.key === TS_KEY) updateSidebarNote();
   });
+
+  /* ─── Expose retrigger agar auto-discovery bisa panggil bootLoad ── */
+  window.__bopRetriggerSync = function(){
+    bootLoad();
+  };
 
   /* ─── Init ──────────────────────────────────────────────────── */
   function init(){

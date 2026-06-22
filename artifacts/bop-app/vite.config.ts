@@ -1,7 +1,8 @@
-﻿import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -9,16 +10,32 @@ const __dirname = path.dirname(__filename);
 
 const port = Number(process.env.PORT || 5173);
 const basePath = process.env.BASE_PATH || "/";
+const apiBase = process.env.VITE_API_BASE || process.env.VITE_API_URL || "";
+
+/* Plugin: tulis public/api-config.json agar browser baru bisa auto-discover URL API */
+function writeApiConfig(): Plugin {
+  const write = () => {
+    const configPath = path.resolve(__dirname, "public", "api-config.json");
+    const content = JSON.stringify({ apiBase }, null, 2);
+    try {
+      fs.writeFileSync(configPath, content, "utf-8");
+    } catch (e) {
+      console.warn("[BOP] Gagal tulis api-config.json:", e);
+    }
+  };
+  return {
+    name: "bop-write-api-config",
+    buildStart: write,
+    configureServer: write,
+  };
+}
 
 export default defineConfig({
   base: basePath,
   define: {
-    /* Dukung VITE_API_URL (Vercel) atau VITE_API_BASE — mana yang diset */
-    __BOP_API_BASE__: JSON.stringify(
-      process.env.VITE_API_BASE || process.env.VITE_API_URL || ""
-    ),
+    __BOP_API_BASE__: JSON.stringify(apiBase),
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [writeApiConfig(), react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),

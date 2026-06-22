@@ -64,6 +64,8 @@ const defaultData = {
   pengajuan:{
     nomorSurat:"",tanggalSurat:"Semarang, 01 Juli 2026",sifatSurat:"Segera",lampiranSurat:"1 (satu) berkas",
     namaRekening:"",nomorRekening:"",namaLurah:"",namaKetuaRw:"",
+    nomorSK:"",tanggalSK:"",masaBerlakuSK:"",
+    namaBank:"",namaPemilikRekening:"",cabangBank:"",
     baNomor:"",baHari:"Minggu",baTanggal:"21",baBulan:"Juni",baTahun:"2026",baTempat:"Burjo depan cuci motor Anugrah",baPukul:"19.30 WIB",baPimpinan:"",
     hadirKegiatan:"Rapat Pembahasan RAP BOP RT 005 RW 012",hadirTanggal:"Minggu, 21 Juni 2026",hadirWaktu:"19.30 WIB",hadirTempat:"Burjo depan cuci motor Anugrah",hadirAgenda:"Pembahasan Rencana Anggaran Penggunaan Bantuan Operasional RT Tahun 2026",hadirRows:50,
     checklist:{rap:true,ba:true,hadir:true,permohonan:true,sptjm:true,rekening:false,sk:false},
@@ -164,7 +166,7 @@ function collectAll(){
   syncAutoPeserta();
   data.kop.baris1=val("kop1"); data.kop.baris2=val("kop2"); data.kop.baris3=val("kop3"); data.kop.baris4=val("kop4"); data.kop.alamat=val("kopAlamat");
   const p=data.pengajuan;
-  ["nomorSurat","tanggalSurat","sifatSurat","lampiranSurat","namaRekening","nomorRekening","namaLurah","namaKetuaRw","baNomor","baHari","baTanggal","baBulan","baTahun","baTempat","baPukul","baPimpinan","hadirKegiatan","hadirTanggal","hadirWaktu","hadirTempat","hadirAgenda","hadirRows"].forEach(id=>p[id]=val(id));
+  ["nomorSurat","tanggalSurat","sifatSurat","lampiranSurat","namaRekening","nomorRekening","namaLurah","namaKetuaRw","baNomor","baHari","baTanggal","baBulan","baTahun","baTempat","baPukul","baPimpinan","hadirKegiatan","hadirTanggal","hadirWaktu","hadirTempat","hadirAgenda","hadirRows","nomorSK","tanggalSK","masaBerlakuSK","namaBank","namaPemilikRekening","cabangBank"].forEach(id=>p[id]=val(id));
   document.querySelectorAll("[data-check]").forEach(c=>p.checklist[c.dataset.check]=c.checked);
   if(!p.meeting) p.meeting = clone(defaultData.pengajuan.meeting);
   ["undNomor","undTanggalSurat","undKepada","undPerihal","rapatJudul","rapatHariTanggal","rapatMulai","rapatSelesai","rapatTempat","rapatAgenda","notPimpinan","notNotulis","notHadir","notTidakHadir","notPembahasan","notKeputusan","notRapatBerikutnya"].forEach(id=>p.meeting[id]=val(id));
@@ -218,7 +220,7 @@ function fillInputs(){
   const m=data.master,p=data.pengajuan,k=data.kop,l=data.lpj;
   set("masterRt",m.rt); set("masterRw",m.rw); set("masterKelurahan",m.kelurahan); set("masterKecamatan",m.kecamatan); set("masterKota",m.kota); set("masterKetua",m.ketua); set("masterSekretaris",m.sekretaris); set("masterBendahara",m.bendahara); set("masterAlamat",m.alamat); set("masterNoKtpKetua",m.noKtpKetua||"");
   set("kop1",k.baris1); set("kop2",k.baris2); set("kop3",k.baris3); set("kop4",k.baris4); set("kopAlamat",k.alamat);
-  ["nomorSurat","tanggalSurat","sifatSurat","lampiranSurat","namaRekening","nomorRekening","namaLurah","namaKetuaRw","baNomor","baHari","baTanggal","baBulan","baTahun","baTempat","baPukul","baPimpinan","hadirKegiatan","hadirTanggal","hadirWaktu","hadirTempat","hadirAgenda","hadirRows"].forEach(id=>set(id,p[id]));
+  ["nomorSurat","tanggalSurat","sifatSurat","lampiranSurat","namaRekening","nomorRekening","namaLurah","namaKetuaRw","baNomor","baHari","baTanggal","baBulan","baTahun","baTempat","baPukul","baPimpinan","hadirKegiatan","hadirTanggal","hadirWaktu","hadirTempat","hadirAgenda","hadirRows","nomorSK","tanggalSK","masaBerlakuSK","namaBank","namaPemilikRekening","cabangBank"].forEach(id=>set(id,p[id]));
   if(!p.meeting) p.meeting = clone(defaultData.pengajuan.meeting);
   ["undNomor","undTanggalSurat","undKepada","undPerihal","rapatJudul","rapatHariTanggal","rapatMulai","rapatSelesai","rapatTempat","rapatAgenda","notPimpinan","notNotulis","notHadir","notTidakHadir","notPembahasan","notKeputusan","notRapatBerikutnya"].forEach(id=>set(id,p.meeting[id]));
   set("lpjTanggalCetak",l.tanggalCetak); set("lpjDicetakOleh",l.dicetakOleh); set("lpjPeriode",l.periode); set("lpjSaldoAwal",l.saldoAwal); set("lpjSaldoBulanLalu",l.saldoBulanLalu); set("lpjKetua",l.ketua); set("lpjBendahara",l.bendahara); fillPersiapan();

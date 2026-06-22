@@ -6266,3 +6266,99 @@ function printCssV22(){
     setTimeout(init, 700);
   }
 })();
+
+/* ── PATCH v1.45 — CSS-class hub control + biometric direct BOP ── */
+(function bopFixV45(){
+  if(window.__bopFixV45) return;
+  window.__bopFixV45 = true;
+
+  const HUB_KEYS = ['pengajuan','lpj','persiapan'];
+
+  /* CSS-class based hub toggle — removes inline styles so CSS !important takes over */
+  function hubShow(pageKey){
+    const page = document.getElementById('page-'+pageKey);
+    if(!page) return;
+    page.classList.add('has-hub');
+    page.classList.remove('hub-active');
+    const hub = document.getElementById('bop-hub-'+pageKey);
+    const nav = page.querySelector('.subnav');
+    page.querySelectorAll('.tab-content').forEach(c=>c.style.display='');
+    page.querySelectorAll('.module-guide-v20').forEach(g=>g.style.display='');
+    if(hub) hub.style.display='';
+    if(nav) nav.style.display='';
+  }
+
+  function hubOpenTab(pageKey, tabId){
+    const page = document.getElementById('page-'+pageKey);
+    if(!page) return;
+    page.classList.add('has-hub','hub-active');
+    const hub = document.getElementById('bop-hub-'+pageKey);
+    const nav = page.querySelector('.subnav');
+    page.querySelectorAll('.tab-content').forEach(c=>c.style.display='');
+    page.querySelectorAll('.module-guide-v20').forEach(g=>g.style.display='');
+    if(hub) hub.style.display='';
+    if(nav) nav.style.display='';
+    if(typeof activateTab === 'function') activateTab(tabId);
+  }
+
+  window.bopHubShow    = hubShow;
+  window.bopHubOpenTab = hubOpenTab;
+
+  /* Override hub-card click to use class-based version (fires after old listener) */
+  document.addEventListener('click', e => {
+    const card = e.target.closest('.bop-hub-card');
+    if(!card) return;
+    hubOpenTab(card.dataset.page, card.dataset.tab);
+  });
+
+  /* Override back button to use class-based hub show */
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.bop-hub-back');
+    if(!btn) return;
+    const page = btn.closest('.page');
+    if(!page) return;
+    hubShow(page.id.replace('page-',''));
+  });
+
+  /* Wrap goPage — auto BOP access mode for biometric, then CSS hub show */
+  const _gp45 = window.goPage;
+  window.goPage = async function(page){
+    if(page && page !== 'akses' && window.__bopBioAuth){
+      window.__bopBioAuth = false;
+      if(typeof setAccessModeV31 === 'function') setAccessModeV31('bop');
+    }
+    const r = _gp45 ? await _gp45(page) : undefined;
+    if(HUB_KEYS.includes(page)) setTimeout(()=>hubShow(page), 80);
+    return r;
+  };
+
+  /* Biometric success detector via MutationObserver on hint element */
+  function hookBiometric(){
+    const hint = document.getElementById('biometricHintV43');
+    if(!hint) return;
+    new MutationObserver(()=>{
+      if(hint.textContent.includes('✅ Berhasil')) window.__bopBioAuth = true;
+    }).observe(hint, {childList:true, characterData:true, subtree:true});
+  }
+
+  /* Init — add has-hub class + hubShow all hub pages + hook biometric + nav buttons */
+  function init(){
+    HUB_KEYS.forEach(key => {
+      const page = document.getElementById('page-'+key);
+      if(page) hubShow(key);
+    });
+    hookBiometric();
+    document.querySelectorAll('.nav button[data-page]').forEach(btn => {
+      btn.addEventListener('click', ()=>{
+        const pg = btn.dataset.page;
+        if(HUB_KEYS.includes(pg)) setTimeout(()=>hubShow(pg), 80);
+      });
+    });
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', ()=>setTimeout(init, 780));
+  } else {
+    setTimeout(init, 780);
+  }
+})();

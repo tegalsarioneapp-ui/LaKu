@@ -121,13 +121,11 @@
           <h3>Daftar Kegiatan</h3>
           <div style="display:flex;align-items:center;gap:8px">
             <button id="bopSyncBtn" class="month-filter-select" type="button" style="cursor:pointer;font-size:12px;padding:5px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#0c4880;font-weight:600" title="Sinkronisasi kegiatan dari BOP">🔄 Sync BOP</button>
-            <label id="importActivityLabel" style="cursor:pointer;font-size:12px;padding:5px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#475569;font-weight:600;white-space:nowrap" title="Import kegiatan dari file JSON">📂 Import</label>
             <select id="activityMonthFilter" class="month-filter-select">
               <option value="">Semua Bulan</option>
             </select>
           </div>
         </div>
-        <input type="file" id="importActivityFile" accept=".json" hidden>
         <div id="activityList" class="list-wrap"></div>
       </section>
 

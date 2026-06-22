@@ -87,37 +87,76 @@
       </section>
 
       <section class="page" id="page-dashboard">
-        <div class="hero">
-          <div>
-            <h2>Dashboard BOP RT</h2>
-            <p>Ringkasan pengajuan, LPJ, riwayat dokumen, dan status data lokal.</p>
+
+        <!-- Hero Banner -->
+        <div class="dbx-hero">
+          <div class="dbx-hero-left">
+            <span class="dbx-hero-eyebrow">RT 005 · RW 012 · Tegalsari, Semarang</span>
+            <h2 class="dbx-hero-title">BOP Dashboard</h2>
+            <p class="dbx-hero-sub">Bantuan Operasional RT — Tahun Anggaran 2026</p>
           </div>
-          <div class="hero-actions">
-            <button class="primary" data-go="pengajuan">Buat Pengajuan</button>
-            <button class="secondary" data-go="lpj">Buat LPJ</button>
+          <div class="dbx-hero-actions">
+            <button class="dbx-btn-primary" data-go="pengajuan">＋ Pengajuan</button>
+            <button class="dbx-btn-secondary" data-go="lpj">＋ LPJ</button>
           </div>
         </div>
 
-        <div class="cards">
-          <div class="card"><span>Total Anggaran BOP</span><strong id="dashTotal">Rp25.000.000</strong><small>Tahun 2026</small></div>
-          <div class="card"><span>Teralokasi RAP</span><strong id="dashAllocated">Rp0</strong><small id="dashPercent">0%</small></div>
-          <div class="card"><span>Sisa Anggaran</span><strong id="dashSisa">Rp25.000.000</strong><small>Validasi otomatis</small></div>
-          <div class="card"><span>Riwayat Dokumen</span><strong id="dashHistory">0</strong><small>Pengajuan & LPJ</small></div>
+        <!-- KPI Cards -->
+        <div class="dbx-kpi-row">
+          <div class="dbx-kpi-card" style="--kpi-accent:#3b82f6">
+            <div class="dbx-kpi-icon" style="background:rgba(59,130,246,.15);color:#3b82f6">💰</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Total Anggaran BOP</span>
+              <strong class="dbx-kpi-val" id="dashTotal">Rp25.000.000</strong>
+              <small class="dbx-kpi-sub">Tahun 2026</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#10b981">
+            <div class="dbx-kpi-icon" style="background:rgba(16,185,129,.15);color:#10b981">📊</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Teralokasi RAP</span>
+              <strong class="dbx-kpi-val" id="dashAllocated">Rp0</strong>
+              <small class="dbx-kpi-sub" id="dashPercent">0% dari total</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#f59e0b">
+            <div class="dbx-kpi-icon" style="background:rgba(245,158,11,.15);color:#f59e0b">📋</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Sisa Anggaran</span>
+              <strong class="dbx-kpi-val" id="dashSisa">Rp25.000.000</strong>
+              <small class="dbx-kpi-sub">Validasi otomatis</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#8b5cf6">
+            <div class="dbx-kpi-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🗂</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Riwayat Dokumen</span>
+              <strong class="dbx-kpi-val" id="dashHistory">0</strong>
+              <small class="dbx-kpi-sub">Pengajuan & LPJ</small>
+            </div>
+          </div>
         </div>
 
-        <div class="grid-2">
-          <div class="panel">
-            <div class="panel-head">
-              <h3>Checklist 7 Syarat Pengajuan</h3>
-              <span id="checkProgress" class="badge">0 / 7</span>
+        <!-- Content Grid -->
+        <div class="dbx-grid">
+          <div class="dbx-panel">
+            <div class="dbx-panel-head">
+              <div>
+                <h3 class="dbx-panel-title">Checklist 7 Syarat Pengajuan</h3>
+                <p class="dbx-panel-sub">Kelengkapan dokumen pengajuan dana BOP</p>
+              </div>
+              <span id="checkProgress" class="dbx-badge">0 / 7</span>
             </div>
             <div class="checklist" id="dashboardChecklist"></div>
           </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <h3>Riwayat Terbaru</h3>
-              <button class="secondary small" id="clearDashboardFilter">Lihat Semua</button>
+          <div class="dbx-panel">
+            <div class="dbx-panel-head">
+              <div>
+                <h3 class="dbx-panel-title">Aktivitas Terbaru</h3>
+                <p class="dbx-panel-sub">Dokumen yang terakhir dibuat atau diperbarui</p>
+              </div>
+              <button class="dbx-btn-ghost" id="clearDashboardFilter">Lihat Semua</button>
             </div>
             <div id="recentHistory" class="history-list"></div>
           </div>
@@ -1020,7 +1059,7 @@
     </main>
   </div>
 
-  <script src="app.js?v=20260622i"></script>
+  <script src="app.js?v=20260622j"></script>
   <script src="document-studio/document-studio.js"></script>
 </body>
 </html>

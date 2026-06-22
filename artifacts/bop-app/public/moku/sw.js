@@ -1,4 +1,4 @@
-const CACHE = "moku-v3";
+const CACHE = "moku-v5";
 const FILES = ["./", "./index.html", "./app.js", "./styles.css", "./manifest.json"];
 
 self.addEventListener("install", e => {

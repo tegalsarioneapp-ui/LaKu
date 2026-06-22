@@ -1671,18 +1671,26 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       });
     }
 
-    // Import file
-    $("importActivityFile").addEventListener("change", e => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const fr = new FileReader();
-      fr.onload = () => {
-        try { importActivitiesPayload(JSON.parse(fr.result)); }
-        catch(_) { showToast("File tidak valid. Pastikan dari Export Kegiatan BOP.", "error"); }
-      };
-      fr.readAsText(file);
-      e.target.value = "";
-    });
+    // Import file (hidden input — null guard wajib karena mungkin belum ada di DOM)
+    const importFileEl = $("importActivityFile");
+    if (importFileEl) {
+      importFileEl.addEventListener("change", e => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const fr = new FileReader();
+        fr.onload = () => {
+          try { importActivitiesPayload(JSON.parse(fr.result)); }
+          catch(_) { showToast("File tidak valid. Pastikan dari Export Kegiatan BOP.", "error"); }
+        };
+        fr.readAsText(file);
+        e.target.value = "";
+      });
+    }
+    // Label import → trigger file input
+    const importLabelEl = $("importActivityLabel");
+    if (importLabelEl && importFileEl) {
+      importLabelEl.addEventListener("click", () => importFileEl.click());
+    }
 
     // Lightbox
     $("closeLightbox").addEventListener("click", () => $("lightbox").hidden = true);

@@ -11,11 +11,11 @@
 
 <!-- PATCH 012 - Runtime API config for Vercel + Railway -->
 <script>
-  window.BOP_API_BASE = "%VITE_API_BASE%";
-  if (!window.BOP_API_BASE || window.BOP_API_BASE.includes("VITE_API_BASE")) {
-    window.BOP_API_BASE = "";
-  }
-  window.BOP_API_BASE = String(window.BOP_API_BASE || "").replace(/\/+$/, "");
+  /* API base: diisi saat deploy (Vercel env), kosong = relative /api */
+  (function(){
+    var b = typeof __BOP_API_BASE__ !== "undefined" ? __BOP_API_BASE__ : "";
+    window.BOP_API_BASE = String(b || "").replace(/\/+$/, "");
+  })();
 </script>
 
 </head>

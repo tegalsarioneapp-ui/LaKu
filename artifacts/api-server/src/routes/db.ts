@@ -3,6 +3,12 @@ import { pool } from "@workspace/db";
 
 const router = Router();
 
+/* ── Pastikan unique index ada agar UPSERT bisa berjalan ─────── */
+pool.query(
+  `CREATE UNIQUE INDEX IF NOT EXISTS moku_results_sync_act_idx
+   ON moku_results_sync(activity_id)`
+).catch(() => {});
+
 /* ── POST /api/db/bop-sync ──────────────────────────────────────
    Simpan snapshot data BOP ke PostgreSQL untuk cloud backup.
    Body: { data: object, label?: string }
@@ -113,7 +119,13 @@ router.post("/db/results-sync", async (req, res) => {
         await client.query(
           `INSERT INTO moku_results_sync
              (activity_id, activity_name, status, photo_count, note, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (activity_id) DO UPDATE SET
+             activity_name = EXCLUDED.activity_name,
+             status        = EXCLUDED.status,
+             photo_count   = EXCLUDED.photo_count,
+             note          = EXCLUDED.note,
+             updated_at    = EXCLUDED.updated_at`,
           [
             r.activityId, r.activityName || null, r.status || null,
             r.photoCount || 0, r.note || null,

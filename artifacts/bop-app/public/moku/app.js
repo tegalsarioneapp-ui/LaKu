@@ -1367,6 +1367,25 @@
     });
   }
 
+  /* ── Server Status Ping ─────────────────────────────────── */
+  async function pingServerStatus() {
+    const el = $("resultSyncInfo");
+    if (!el) return;
+    try {
+      const r = await fetch("/api/bop/status", { signal: AbortSignal.timeout(4000) });
+      if (r.ok) {
+        el.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#22c55e"/></svg> Server terhubung · Sinkron aktif`;
+        el.style.color = "#22c55e";
+      } else {
+        el.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#f59e0b"/></svg> Mode lokal · Server tidak merespons`;
+        el.style.color = "#f59e0b";
+      }
+    } catch (_) {
+      el.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="#f59e0b"/></svg> Mode lokal · Tanpa koneksi server`;
+      el.style.color = "#f59e0b";
+    }
+  }
+
   /* ── Toast ──────────────────────────────────────────────── */
   let toastTimer = null;
   function showToast(msg, type = "info") {
@@ -1587,14 +1606,32 @@
   loadPhotoCache();
 
   /* ── BOP Sync: auto-sinkron kegiatan saat boot ──────────
-     Pertama cek apakah ada kegiatan baru (tidak bikin notif),
-     lalu sinkronkan secara otomatis tanpa gangguan.          */
-  setTimeout(() => {
-    const added = syncFromBOP({ silent: true });
+     Coba dari localStorage dulu; jika kosong, ambil dari server
+     agar data BOP selalu tersedia walau localStorage baru/kosong. */
+  setTimeout(async () => {
+    let added = syncFromBOP({ silent: true });
+
+    /* Fallback: ambil dari server jika localStorage kosong */
+    if (added === 0 && (state.activities || []).length === 0) {
+      try {
+        const r = await fetch("/api/bop/data", { signal: AbortSignal.timeout(6000) });
+        if (r.ok) {
+          const j = await r.json();
+          if (j.ok && j.data) {
+            try { localStorage.setItem("bop_rt005_data_v1_25", JSON.stringify(j.data)); } catch (_) {}
+            added = syncFromBOP({ silent: true });
+          }
+        }
+      } catch (_) {}
+    }
+
     if (added > 0)
-      showToast(`📋 ${added} kegiatan BOP otomatis disinkronkan`, "info");
+      showToast(`📋 ${added} kegiatan BOP disinkronkan`, "info");
     else
-      checkBopSync(); /* cek badge jika ada yg belum disinkron */
+      checkBopSync(); /* cek badge jika ada yang belum disinkron */
   }, 600);
+
+  /* ── Status server: ping setelah boot selesai ─────────── */
+  setTimeout(() => pingServerStatus(), 2500);
 
 })();

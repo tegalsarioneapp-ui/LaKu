@@ -3824,46 +3824,162 @@ function setAccessModeV31(mode){
 
 async function requireBopPinV31(){
   if(typeof Swal === "undefined"){
-    const pin = window.prompt("Masukkan PIN Admin BOP:");
+    const pin = window.prompt("Masukkan PIN Admin BOP (6 digit):");
     if(pin === null) return false;
     if(String(pin).trim() === String(BOP_ADMIN_PIN_V31).trim()) return true;
-    bopAlert("PIN Salah","PIN Admin BOP yang Anda masukkan tidak sesuai.","error");
+    alert("PIN Admin BOP yang Anda masukkan tidak sesuai.");
     return false;
   }
-  const {value: pin, isConfirmed} = await Swal.fire({
-    title: "🔐 Akses BOP Admin",
-    html: `<p style="margin:0 0 10px;color:#667085;font-size:13px">Masukkan PIN untuk membuka menu administrasi BOP RT 005</p>`,
-    input: "password",
-    inputPlaceholder: "Masukkan PIN...",
-    inputAttributes: { autocomplete: "off", maxlength: "12" },
-    showCancelButton: true,
-    confirmButtonText: "Buka Akses",
-    cancelButtonText: "Batal",
-    confirmButtonColor: "#0b2e59",
-    cancelButtonColor: "#6b7280",
-    customClass: { popup: "swal-bop-popup" },
-    preConfirm: (v) => {
-      if(!v) return Swal.showValidationMessage("PIN tidak boleh kosong");
-      return v;
-    }
-  });
-  if(!isConfirmed) return false;
-  if(String(pin).trim() === String(BOP_ADMIN_PIN_V31).trim()){
-    await Swal.fire({
-      icon: "success", title: "Akses Diberikan",
-      text: "Selamat datang di BOP Administrasi RT 005!",
-      timer: 1400, showConfirmButton: false,
-      customClass: { popup: "swal-bop-popup" }
-    });
-    return true;
+
+  /* ── Inject premium CSS sekali saja ── */
+  if(!document.getElementById("swal-bop-pin-css-v42")){
+    const st = document.createElement("style");
+    st.id = "swal-bop-pin-css-v42";
+    st.textContent = `
+      .swal-bop-pin-v42{border-radius:28px!important;padding:32px 28px 24px!important;max-width:400px!important;box-shadow:0 32px 80px rgba(7,27,56,.22),0 0 0 1px rgba(11,46,89,.08)!important;border:none!important}
+      .swal-bop-pin-v42 .swal2-html-container{margin:0!important;padding:0!important;overflow:visible!important}
+      .swal-bop-pin-v42 .swal2-actions{gap:10px!important;margin-top:20px!important}
+      .swal-bop-confirm-v42{border-radius:14px!important;padding:13px 32px!important;font-weight:700!important;font-size:14px!important;letter-spacing:.4px!important;box-shadow:0 6px 18px rgba(11,46,89,.4)!important;background:linear-gradient(135deg,#0b2e59,#1a4a8a)!important;border:none!important;transition:.15s!important}
+      .swal-bop-confirm-v42:hover{background:linear-gradient(135deg,#0d3870,#1f5299)!important;transform:translateY(-1px)!important;box-shadow:0 8px 22px rgba(11,46,89,.5)!important}
+      .swal-bop-cancel-v42{border-radius:14px!important;padding:13px 22px!important;font-weight:600!important;font-size:13px!important;background:#f1f5f9!important;color:#64748b!important;border:none!important}
+      .swal-bop-cancel-v42:hover{background:#e2e8f0!important;color:#475569!important}
+      .swal-bop-success-v42{border-radius:28px!important;padding:32px 28px!important;max-width:360px!important;box-shadow:0 32px 80px rgba(7,27,56,.18)!important}
+      .swal-bop-success-v42 .swal2-html-container{margin:0!important;padding:0!important}
+      @keyframes bop-pin-shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+      .bop-pin-shake{animation:bop-pin-shake .4s ease!important}
+    `;
+    document.head.appendChild(st);
   }
-  await Swal.fire({
-    icon: "error", title: "PIN Salah",
-    text: "PIN Admin BOP tidak valid. Akses ditolak.",
-    confirmButtonColor: "#0b2e59",
-    customClass: { popup: "swal-bop-popup" }
+
+  return new Promise(resolve => {
+    Swal.fire({
+      html: `
+        <div style="text-align:center">
+          <div style="width:72px;height:72px;background:linear-gradient(145deg,#071b38 0%,#0b2e59 55%,#163d73 100%);border-radius:22px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:18px;box-shadow:0 12px 32px rgba(7,27,56,.45),inset 0 1px 0 rgba(255,255,255,.08)">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d5a83f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <div style="font-size:10px;letter-spacing:2.8px;color:#d5a83f;font-weight:800;text-transform:uppercase;margin-bottom:8px;opacity:.9">RT 005 RW 012 · Tegalsari</div>
+          <div style="font-size:21px;font-weight:800;color:#0f1f38;margin-bottom:8px;letter-spacing:-.3px;line-height:1.2">Akses BOP Administrasi</div>
+          <div style="font-size:13px;color:#64748b;line-height:1.6;margin-bottom:24px">Masukkan PIN Admin untuk membuka<br>menu administrasi BOP RT 005</div>
+
+          <div style="position:relative;margin-bottom:8px">
+            <input id="bop-pin-field" type="password" maxlength="6" autocomplete="off" inputmode="numeric" pattern="[0-9]*"
+              placeholder="● ● ● ● ● ●"
+              style="width:100%;box-sizing:border-box;border:2px solid #e2e8f0;border-radius:16px;padding:16px 52px 16px 20px;font-size:26px;letter-spacing:10px;text-align:center;background:#f8fafc;color:#0f1f38;font-weight:700;outline:none;transition:border-color .2s,background .2s,box-shadow .2s;font-family:inherit"
+            >
+            <button id="bop-pin-eye" type="button" title="Tampilkan/Sembunyikan PIN"
+              style="position:absolute;right:14px;top:50%;transform:translateY(-50%);border:0;background:transparent;cursor:pointer;color:#94a3b8;padding:6px;display:flex;align-items:center;border-radius:8px;transition:color .15s">
+              <svg id="bop-eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+            </button>
+          </div>
+          <div id="bop-pin-err" style="min-height:18px;font-size:12px;color:#dc2626;font-weight:600;text-align:center;letter-spacing:.2px"></div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: "Buka Akses",
+      cancelButtonText: "Batal",
+      reverseButtons: false,
+      focusConfirm: false,
+      customClass: {
+        popup: "swal-bop-pin-v42",
+        confirmButton: "swal-bop-confirm-v42",
+        cancelButton: "swal-bop-cancel-v42"
+      },
+      didOpen: () => {
+        const field  = document.getElementById("bop-pin-field");
+        const eyeBtn = document.getElementById("bop-pin-eye");
+        const errEl  = document.getElementById("bop-pin-err");
+
+        if(field){
+          field.focus();
+          field.addEventListener("focus", () => {
+            field.style.borderColor = "#0b2e59";
+            field.style.background  = "#fff";
+            field.style.boxShadow   = "0 0 0 4px rgba(11,46,89,.1)";
+          });
+          field.addEventListener("blur", () => {
+            field.style.borderColor = "#e2e8f0";
+            field.style.background  = "#f8fafc";
+            field.style.boxShadow   = "none";
+          });
+          field.addEventListener("input", () => { if(errEl) errEl.textContent = ""; });
+          field.addEventListener("keydown", e => {
+            if(e.key === "Enter"){
+              e.preventDefault();
+              document.querySelector(".swal-bop-confirm-v42")?.click();
+            }
+          });
+        }
+
+        if(eyeBtn && field){
+          const icon = document.getElementById("bop-eye-icon");
+          eyeBtn.addEventListener("mouseenter", () => eyeBtn.style.color = "#0b2e59");
+          eyeBtn.addEventListener("mouseleave", () => eyeBtn.style.color = "#94a3b8");
+          eyeBtn.addEventListener("click", () => {
+            const isPass = field.type === "password";
+            field.type   = isPass ? "text" : "password";
+            field.style.letterSpacing = isPass ? "4px" : "10px";
+            icon.innerHTML = isPass
+              ? `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>`
+              : `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+          });
+        }
+      },
+      preConfirm: () => {
+        const field = document.getElementById("bop-pin-field");
+        const errEl = document.getElementById("bop-pin-err");
+        const val   = (field?.value || "").trim();
+        if(!val){
+          if(errEl) errEl.textContent = "PIN tidak boleh kosong";
+          field?.classList.add("bop-pin-shake");
+          setTimeout(() => field?.classList.remove("bop-pin-shake"), 500);
+          return false;
+        }
+        if(String(val) !== String(BOP_ADMIN_PIN_V31).trim()){
+          if(errEl) errEl.textContent = "❌ PIN tidak valid. Silakan coba lagi.";
+          if(field){
+            field.value = "";
+            field.style.borderColor = "#dc2626";
+            field.style.boxShadow   = "0 0 0 4px rgba(220,38,38,.12)";
+            field.classList.add("bop-pin-shake");
+            setTimeout(() => {
+              field.classList.remove("bop-pin-shake");
+              field.style.borderColor = "#e2e8f0";
+              field.style.boxShadow   = "none";
+              field.focus();
+            }, 500);
+          }
+          return false;
+        }
+        return true;
+      }
+    }).then(async result => {
+      if(!result.isConfirmed){ resolve(false); return; }
+      await Swal.fire({
+        html: `
+          <div style="text-align:center;padding:4px 0">
+            <div style="width:72px;height:72px;background:linear-gradient(145deg,#14532d,#16a34a);border-radius:22px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px;box-shadow:0 12px 32px rgba(22,101,52,.4)">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <div style="font-size:20px;font-weight:800;color:#0f1f38;margin-bottom:8px">Akses Diberikan!</div>
+            <div style="font-size:13px;color:#64748b;line-height:1.6">Selamat datang,<br><strong style="color:#0b2e59">BOP Administrasi RT 005</strong> terbuka.</div>
+          </div>
+        `,
+        timer: 1500,
+        showConfirmButton: false,
+        customClass: { popup: "swal-bop-success-v42" }
+      });
+      resolve(true);
+    });
   });
-  return false;
 }
 
 function showOnlyPageV31(page){
@@ -3884,7 +4000,7 @@ function loadMokuFrameV31(){
   }
 }
 
-function goPage(page){
+async function goPage(page){
   if(!$("page-" + page)) page = "akses";
 
   if(page === "akses"){
@@ -3893,10 +4009,13 @@ function goPage(page){
     return;
   }
 
+  /* Minta PIN BOP saat pertama masuk dari halaman gate */
   if(!ACCESS_MODE_V31){
     if(page === "moku"){
       setAccessModeV31("moku");
     } else {
+      const ok = await requireBopPinV31();
+      if(!ok) return;
       setAccessModeV31("bop");
     }
   }

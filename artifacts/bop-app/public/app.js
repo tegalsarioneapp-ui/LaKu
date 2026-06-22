@@ -5133,25 +5133,49 @@ async function goPage(page){
         autoSetupBtn.textContent = "⏳ Memeriksa...";
 
         try{
-          /* Langkah 1 — Cek server */
-          step("⏳ <b>[1/3]</b> Mengecek koneksi ke server Railway...");
+          /* Langkah 1 — Ping koneksi DB mentah */
+          step("⏳ <b>[1/4]</b> Mengecek koneksi ke server Railway...");
+          let pingOk = false;
+          try{
+            const rp = await fetch("/api/bop/ping", {
+              ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {}),
+            });
+            const dp = await rp.json();
+            if(!dp.ok){
+              step("❌ <b>Koneksi database gagal.</b><br>Host: <code>"+(dp.host||"?")+"</code><br>Error: <b>"+(dp.error||"Tidak diketahui")+"</b><br><small>Pastikan DATABASE_URL sudah benar di Railway dan service Postgres sudah terhubung ke service API di Railway dashboard.</small>", "#b91c1c");
+              setTopbarStatus(false);
+              autoSetupBtn.disabled = false;
+              autoSetupBtn.textContent = "🚀 Setup Otomatis";
+              return;
+            }
+            step("✅ <b>[1/4]</b> Koneksi DB OK — Host: <code>"+(dp.host||"?")+"</code> | "+( dp.pgVer||"PostgreSQL")+"<br>⏳ <b>[2/4]</b> Mengecek status tabel...");
+            pingOk = true;
+          } catch(pe){
+            step("❌ <b>Tidak bisa reach server Railway:</b> "+pe.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
+            setTopbarStatus(false);
+            autoSetupBtn.disabled = false;
+            autoSetupBtn.textContent = "🚀 Setup Otomatis";
+            return;
+          }
+
+          /* Langkah 2 — Cek status tabel */
+          await new Promise(r => setTimeout(r, 400));
           const r1 = await fetch("/api/bop/status", {
-            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {}),
           });
           const d1 = await r1.json();
 
           if(d1.ok){
-            /* Server & DB sudah OK — selesai */
             const ts = d1.updatedAt ? new Date(d1.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
-            step("✅ <b>Server &amp; database sudah OK!</b><br>Database: PostgreSQL (Railway)<br>Punya data: "+(d1.hasData?"Ya":"Tidak")+"<br>Versi: "+(d1.version||0)+"<br>Terakhir update: "+ts+"<br>Riwayat: "+(d1.historyCount||0)+" entri", "#15803d");
+            step("✅ <b>Server &amp; database sudah OK!</b><br>Koneksi: PostgreSQL (Railway)<br>Punya data: "+(d1.hasData?"Ya":"Tidak")+"<br>Versi: "+(d1.version||0)+"<br>Terakhir update: "+ts+"<br>Riwayat: "+(d1.historyCount||0)+" entri"+(d1.autoInited?" <i>(tabel baru dibuat otomatis)</i>":""), "#15803d");
             setTopbarStatus(true);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
           }
 
-          /* Langkah 2 — Database belum siap, coba init */
-          step("⏳ <b>[2/3]</b> Server online, database belum siap. Menginisialisasi tabel...");
+          /* Langkah 3 — Tabel belum ada, init */
+          step("⏳ <b>[3/4]</b> Koneksi OK, tabel belum ada. Membuat tabel database...");
           const r2 = await fetch("/api/bop/init-db", {
             method: "GET",
             ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {}),
@@ -5159,32 +5183,31 @@ async function goPage(page){
           const d2 = await r2.json();
 
           if(!d2.ok){
-            step("❌ <b>Init database gagal:</b> "+(d2.error||"Tidak diketahui")+"<br><small>Pastikan DATABASE_URL sudah diset di Railway.</small>", "#b91c1c");
+            step("❌ <b>Buat tabel gagal:</b> "+(d2.error||"Tidak diketahui")+"<br><small>Koneksi DB OK tapi tidak bisa buat tabel. Cek apakah user DB punya hak akses CREATE TABLE.</small>", "#b91c1c");
             setTopbarStatus(false);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
           }
 
-          /* Langkah 3 — Verifikasi ulang setelah init */
-          step("⏳ <b>[3/3]</b> Tabel berhasil dibuat. Memverifikasi ulang...");
-          await new Promise(res => setTimeout(res, 800));
+          /* Langkah 4 — Verifikasi akhir */
+          step("⏳ <b>[4/4]</b> Tabel berhasil dibuat. Memverifikasi...");
+          await new Promise(r => setTimeout(r, 600));
           const r3 = await fetch("/api/bop/status", {
             ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
           });
           const d3 = await r3.json();
 
           if(d3.ok){
-            const ts2 = d3.updatedAt ? new Date(d3.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
-            step("✅ <b>Setup selesai! Server &amp; database siap.</b><br>Tabel berhasil dibuat.<br>Punya data: "+(d3.hasData?"Ya":"Tidak")+"<br>Sekarang kamu bisa klik <b>☁️ Simpan ke Server</b> untuk upload data.", "#15803d");
+            step("✅ <b>Setup selesai! Server &amp; database siap digunakan.</b><br>Tabel berhasil dibuat dari awal.<br>Punya data: "+(d3.hasData?"Ya":"Tidak")+"<br>Sekarang kamu bisa klik <b>☁️ Simpan ke Server</b> untuk upload data.", "#15803d");
             setTopbarStatus(true);
           } else {
-            step("⚠ <b>Tabel sudah dibuat</b> tapi verifikasi akhir gagal: "+(d3.error||"")+"<br><small>Coba klik 🔍 Cek Server dalam beberapa detik.</small>", "#b45309");
+            step("⚠ <b>Tabel dibuat tapi verifikasi akhir gagal:</b> "+(d3.error||"")+"<br><small>Coba klik Setup Otomatis sekali lagi dalam beberapa detik.</small>", "#b45309");
             setTopbarStatus(false);
           }
 
         } catch(e){
-          step("❌ <b>Tidak bisa reach server:</b> "+e.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
+          step("❌ <b>Tidak bisa reach server Railway:</b> "+e.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
           setTopbarStatus(false);
         }
 

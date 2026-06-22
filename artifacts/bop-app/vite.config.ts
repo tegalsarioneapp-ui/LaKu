@@ -13,7 +13,10 @@ const basePath = process.env.BASE_PATH || "/";
 export default defineConfig({
   base: basePath,
   define: {
-    __BOP_API_BASE__: JSON.stringify(process.env.VITE_API_BASE || ""),
+    /* Dukung VITE_API_URL (Vercel) atau VITE_API_BASE — mana yang diset */
+    __BOP_API_BASE__: JSON.stringify(
+      process.env.VITE_API_BASE || process.env.VITE_API_URL || ""
+    ),
   },
   plugins: [react(), tailwindcss()],
   resolve: {

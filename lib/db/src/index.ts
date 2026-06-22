@@ -10,14 +10,38 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-/* Railway PostgreSQL memerlukan SSL. Aktifkan SSL kecuali di localhost. */
-const isLocal =
-  process.env.DATABASE_URL.includes("localhost") ||
-  process.env.DATABASE_URL.includes("127.0.0.1");
+const dbUrl = process.env.DATABASE_URL;
+
+/*
+ * SSL logic:
+ * - localhost / 127.0.0.1          → no SSL (local dev)
+ * - *.railway.internal             → no SSL (Railway internal network)
+ * - everything else (public URLs)  → SSL with rejectUnauthorized: false
+ */
+function resolveSsl(url: string): pg.PoolConfig["ssl"] {
+  try {
+    const { hostname } = new URL(url);
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.endsWith(".railway.internal")
+    ) {
+      return false;
+    }
+  } catch (_) {
+    /* kalau URL tidak bisa di-parse, fallback ke no-SSL */
+    return false;
+  }
+  return { rejectUnauthorized: false };
+}
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: isLocal ? false : { rejectUnauthorized: false },
+  connectionString: dbUrl,
+  ssl: resolveSsl(dbUrl),
+  /* Batas koneksi yang aman untuk Railway free tier */
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
 });
 
 export const db = drizzle(pool, { schema });

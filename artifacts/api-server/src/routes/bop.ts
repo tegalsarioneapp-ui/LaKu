@@ -274,9 +274,31 @@ router.delete("/bop/history/:id", async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   GET /api/bop/ping
+   Test koneksi DB mentah — selalu return JSON, tidak pernah throw.
+   Digunakan oleh Setup Otomatis untuk diagnosa cepat.
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/ping", async (req, res) => {
+  const dbUrl = process.env.DATABASE_URL || "(tidak diset)";
+  const host  = (() => { try { return new URL(dbUrl).hostname; } catch { return dbUrl.slice(0, 30); } })();
+  try {
+    const r = await pool.query("SELECT NOW() as now, version() as ver");
+    res.json({
+      ok:      true,
+      host,
+      now:     r.rows[0].now,
+      pgVer:   String(r.rows[0].ver).split(" ").slice(0, 2).join(" "),
+      ssl:     !host.includes(".railway.internal"),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ ok: false, host, error: msg });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
    GET /api/bop/status
    Cek ketersediaan database + statistik ringkas.
-   Juga dipakai sebagai ping endpoint oleh frontend.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/bop/status", async (req, res) => {
   try {
@@ -288,7 +310,7 @@ router.get("/bop/status", async (req, res) => {
       pool.query(`SELECT COUNT(*) as count FROM bop_history`),
     ]);
     res.json({
-      ok: true,
+      ok:           true,
       hasData:      dataRow.rows.length > 0,
       updatedAt:    dataRow.rows[0]?.updated_at ?? null,
       version:      dataRow.rows[0]?.version ?? 0,
@@ -297,22 +319,44 @@ router.get("/bop/status", async (req, res) => {
   } catch (e) {
     req.log.error(e);
     const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ ok: false, error: "Database tidak tersedia: " + msg });
+    /* Kalau tabel belum ada, coba auto-init dulu lalu retry sekali */
+    if (msg.includes("does not exist") || msg.includes("relation")) {
+      try {
+        await runInitDb();
+        const [d2, h2] = await Promise.all([
+          pool.query(`SELECT updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]),
+          pool.query(`SELECT COUNT(*) as count FROM bop_history`),
+        ]);
+        res.json({
+          ok:           true,
+          hasData:      d2.rows.length > 0,
+          updatedAt:    d2.rows[0]?.updated_at ?? null,
+          version:      d2.rows[0]?.version ?? 0,
+          historyCount: Number(h2.rows[0].count),
+          autoInited:   true,
+        });
+        return;
+      } catch (e2) {
+        const msg2 = e2 instanceof Error ? e2.message : String(e2);
+        res.status(500).json({ ok: false, error: "Auto-init gagal: " + msg2 });
+        return;
+      }
+    }
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /api/bop/init-db
-   Buat semua tabel yang diperlukan jika belum ada.
-   Aman dijalankan berkali-kali (idempotent).
-   Berguna saat deploy ke Railway dengan PostgreSQL baru.
+   GET|POST /api/bop/init-db
+   Buat semua tabel (idempotent). Aman dijalankan berkali-kali.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/bop/init-db", async (req, res) => {
   try {
     await runInitDb();
     res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e) });
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 
@@ -322,7 +366,8 @@ router.post("/bop/init-db", async (req, res) => {
     res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
   } catch (e) {
     req.log.error(e);
-    res.status(500).json({ ok: false, error: String(e) });
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 

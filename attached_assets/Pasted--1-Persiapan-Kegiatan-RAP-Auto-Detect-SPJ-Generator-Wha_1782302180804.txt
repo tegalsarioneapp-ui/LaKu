@@ -1,0 +1,30 @@
+#1 - Persiapan Kegiatan — RAP Auto-Detect & SPJ Generator
+What & Why
+Saat ini Persiapan Kegiatan membutuhkan input manual dari awal. Pengguna harus mengetik ulang nama kegiatan, jenis, dan detail yang sebetulnya sudah ada di RAP Bulanan. Fitur ini:
+
+Menampilkan daftar kegiatan otomatis dari RAP bulan yang dipilih
+Satu klik → form terisi otomatis sesuai jenis kegiatan
+Seluruh dokumen SPJ (Undangan, Daftar Hadir, Notulen, Kuitansi) memakai KOP V37 yang sama dengan Surat Pengajuan
+Done looks like
+Di tab "Persiapan Kegiatan", ada panel pemilih bulan + kartu kegiatan yang muncul otomatis dari RAP
+Kegiatan dikelompokkan per kategori (Administratif, Sosial-Budaya, Penataan Lingkungan)
+Klik satu kartu → form "Data Kegiatan" terisi otomatis (nama, jenis, agenda) dan field tambahan muncul sesuai tipe kegiatan (Rapat → peserta/notulen; Konsumsi → nominal/penerima; ATK/Cetak → deskripsi barang)
+Semua dokumen SPJ yang dicetak/preview menggunakan KOP resmi yang sama (class="official official-v36 official-v37") dengan garis bawah tebal dan logo
+Tampilan nyaman: state kosong jelas ("RAP bulan ini belum ada"), kartu kegiatan informatif (kategori, jumlah anggaran, volume), tombol aksi jelas
+Out of scope
+Perubahan pada struktur data RAP itu sendiri
+Integrasi MoKu Mobile (sudah ada fitur sendiri)
+Multi-kegiatan serentak (satu sesi = satu kegiatan)
+Steps
+Panel Pemilih Kegiatan dari RAP — Tambahkan komponen UI di atas form pk-data: dropdown bulan (default bulan ini), lalu grid kartu kegiatan dari data.pengajuan.rap yang difilter per bulan dan dikelompokkan per kategori. Kartu menampilkan nama kegiatan, volume, anggaran. State kosong ditampilkan dengan pesan jelas.
+Auto-fill form saat kartu diklik — Saat kartu diklik, panggil fungsi loadRapKegiatan(rapRow) yang mengisi pkNama, pkJenis, pkAgenda, pkKeperluan, pkNominal dari data RAP yang dipilih, dan terapkan activateTab('pk-data') untuk memfokuskan form.
+Form adaptif berdasarkan tipe kegiatan — Deteksi tipe dari tipe RAP row: Rapat/Musyawarah (tampilkan fields notulen + peserta), Konsumsi/Makan-Minum (tampilkan nominal + penerima), Cetak/ATK/Operasional (tampilkan deskripsi barang). Implementasikan via CSS class toggle pada grup field.
+Override dokumen SPJ ke format KOP V37 — Buat versi baru docPkUndanganV47, docPkHadirV47, docPkNotulenV47, docPkKuitansiV47 menggunakan officialWrap46() (sudah ada dari PATCH v1.46) dan override window.docPkUndangan dll. Gunakan collectPersiapan() sebelum generate.
+Auto-preview dokumen setelah pilih kegiatan — Setelah loadRapKegiatan(), auto-navigate ke pk-generate dan langsung preview dokumen yang relevan sesuai tipe kegiatan (Rapat → Undangan; Konsumsi → Kuitansi).
+Indikator kegiatan aktif — Tampilkan badge/highlight pada kartu yang sedang aktif, dan breadcrumb "Kegiatan: [nama]" di atas form agar pengguna tahu konteks.
+Relevant files
+artifacts/bop-app/index.html:415-866
+artifacts/bop-app/public/app.js:738-866
+artifacts/bop-app/public/app.js:6402-6722
+artifacts/bop-app/public/styles.css:1-30
+artifacts/bop-app/public/styles.css:829-1000

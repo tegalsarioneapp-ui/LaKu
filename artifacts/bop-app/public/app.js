@@ -6765,3 +6765,130 @@ ${KOP_PDF_CSS}
 
   console.log('[BOP Form Fix v1.47] fillInputs() auto-simpan & nav-save aktif.');
 })();
+
+
+/* ==========================================================
+   PATCH v1.48 — Fix RAP Bulanan di tab Generate 7 Dokumen
+   Masalah: monthlyDocMonth hanya ada di tab RAP Bulanan,
+   bukan di tab-dokumen. Saat generate RAP Bulanan dari
+   tab Dokumen, bulan tidak tersinkron → hasil selalu sama.
+   Fix: inject selector bulan di panel generate dokumen,
+   sinkronkan ke data.pengajuan.selectedMonth & monthlyDocMonth
+   sebelum memanggil previewDoc.
+   ========================================================== */
+(function bopFixRapBulananDokTabV48(){
+  const RAP_MONTHS_V48 = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+
+  function init(){
+    const docSel  = document.getElementById("dsDocSelectV43");
+    const genBtn  = document.getElementById("dsDocGenBtnV43");
+    if(!docSel || !genBtn) return;
+
+    /* -- 1. Buat selector bulan & inject setelah dsDocSelectV43 -- */
+    const wrapper = document.createElement("div");
+    wrapper.id = "v48RapBulanWrap";
+    wrapper.style.cssText = "display:none;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;";
+
+    const lbl = document.createElement("label");
+    lbl.style.cssText = "font-size:0.82rem;font-weight:600;color:#64748b;white-space:nowrap;";
+    lbl.textContent = "Bulan RAP:";
+
+    const msel = document.createElement("select");
+    msel.id = "v48RapBulanSel";
+    msel.className = "ds-doc-select-v43";
+    msel.style.cssText = "min-width:150px;";
+    RAP_MONTHS_V48.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      msel.appendChild(opt);
+    });
+
+    wrapper.appendChild(lbl);
+    wrapper.appendChild(msel);
+
+    /* Sisipkan setelah grup select+button */
+    const grp = document.querySelector(".ds-doc-select-group-v43");
+    if(grp) grp.insertAdjacentElement("afterend", wrapper);
+    else {
+      const left = document.querySelector(".ds-gen-left");
+      if(left) left.appendChild(wrapper);
+    }
+
+    /* -- 2. Set nilai awal dari data tersimpan -- */
+    function syncInitialMonth(){
+      try {
+        const saved = (typeof data !== "undefined" && data?.pengajuan?.selectedMonth)
+          ? data.pengajuan.selectedMonth
+          : (document.getElementById("monthlyDocMonth")?.value || "Januari 2026");
+        if(RAP_MONTHS_V48.includes(saved)) msel.value = saved;
+      } catch(e){}
+    }
+    syncInitialMonth();
+
+    /* -- 3. Tampilkan/sembunyikan selector bulan sesuai pilihan -- */
+    function toggleMonthSel(){
+      const show = docSel.value === "rapbulanan";
+      wrapper.style.display = show ? "flex" : "none";
+    }
+    docSel.addEventListener("change", toggleMonthSel);
+    toggleMonthSel();
+
+    /* -- 4. Sync bulan ke data sebelum generate -- */
+    function syncMonth(){
+      const month = msel.value;
+      /* tulis ke data.pengajuan.selectedMonth */
+      try {
+        if(typeof data !== "undefined" && data.pengajuan) {
+          data.pengajuan.selectedMonth = month;
+        }
+        if(window.data?.pengajuan) window.data.pengajuan.selectedMonth = month;
+      } catch(e){}
+      /* juga sync ke monthlyDocMonth di tab-rap-bulanan */
+      const globalSel = document.getElementById("monthlyDocMonth");
+      if(globalSel) globalSel.value = month;
+      /* simpan ke localStorage */
+      try {
+        const STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+        localStorage.setItem(STORE_KEY, JSON.stringify(window.data));
+      } catch(e){}
+    }
+
+    /* -- 5. Override tombol Generate agar sync bulan dulu -- */
+    /* Hapus semua listener lama dengan clone */
+    const newBtn = genBtn.cloneNode(true);
+    genBtn.parentNode.replaceChild(newBtn, genBtn);
+
+    newBtn.addEventListener("click", () => {
+      const type = docSel.value;
+      if(!type) return;
+      /* Jika RAP Bulanan, sync bulan sebelum generate */
+      if(type === "rapbulanan") syncMonth();
+      if(typeof previewDoc === "function"){
+        previewDoc(type);
+      } else {
+        const hiddenBtn = document.querySelector(`.doc-btn[data-doc="${type}"]`);
+        if(hiddenBtn) hiddenBtn.click();
+      }
+    });
+
+    /* -- 6. Auto-preview on month change -- */
+    msel.addEventListener("change", () => {
+      if(docSel.value === "rapbulanan"){
+        syncMonth();
+        if(typeof previewDoc === "function") previewDoc("rapbulanan");
+      }
+    });
+
+    console.log("[BOP Fix v1.48] Selector bulan RAP Bulanan di tab Dokumen aktif.");
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1500));
+  else
+    setTimeout(init, 1500);
+})();

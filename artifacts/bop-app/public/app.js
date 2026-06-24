@@ -6398,3 +6398,324 @@ function printCssV22(){
     setTimeout(init, 780);
   }
 })();
+
+
+/* ================================================================
+   PATCH v1.46 — KOP Uniformity + Data Sync Fix (docHadir/SK/Rekening)
+   Tujuan:
+   1. Override kopHTML() → pakai tag h1/h2/p + class agar PDF CSS &
+      print CSS sama-sama bekerja.
+   2. docHadir, docSK, docRekening → rebuild pakai wrapper official-v37
+      (class="official official-v36 official-v37") sehingga styling
+      cetak & PDF identik dengan 4 dokumen V37 lainnya.
+   3. Sinkronisasi data: semua dokumen baca dari window.data via
+      collectAll() yang sudah dijalankan oleh previewDocV37.
+   ================================================================ */
+(function bopKopFixV46(){
+  if(window.__bopKopFixV46) return;
+  window.__bopKopFixV46 = true;
+
+  /* ── 1. Override kopHTML() — backward-compatible dengan PDF & print CSS ── */
+  window.kopHTML = function kopHTML(){
+    const k = (window.data && window.data.kop) ? window.data.kop : {};
+    const m = (window.data && window.data.master) ? window.data.master : {};
+    const b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
+    const b2 = k.baris2 || "KECAMATAN CANDISARI";
+    const b3 = k.baris3 || "KELURAHAN TEGALSARI";
+    const b4 = k.baris4 || "RW 012 RT 005";
+    const addr = k.alamat || m.alamat || "";
+    return `<div class="kop">` +
+      `<div class="kop-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang"></div>` +
+      `<div class="kop-text">` +
+        `<h1 class="kop-b1">${b1}</h1>` +
+        `<h2 class="kop-b2">${b2}</h2>` +
+        `<h2 class="kop-b2">${b3}</h2>` +
+        `<h2 class="kop-b2">${b4}</h2>` +
+        `<p class="kop-addr">${addr}</p>` +
+      `</div>` +
+      `<div class="kop-logo-spacer"></div>` +
+    `</div>`;
+  };
+
+  /* ── 2. Helper: official wrapper V37 (sama persis dengan officialV37 di IIFE) ── */
+  function officialWrap46(body){
+    const kop = (typeof kopHTML === "function") ? kopHTML() : "";
+    return `<div class="official official-v36 official-v37">${kop}<div class="official-body-v37">${body}</div></div>`;
+  }
+
+  /* ── 3. Helper data access ── */
+  function d46(){ return window.data || {}; }
+  function m46(){ return d46().master || {}; }
+  function p46(){ return d46().pengajuan || {}; }
+  function esc46(s){
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function safe46(v, fb){ return String(v == null ? "" : v).trim() || (fb != null ? fb : ".................."); }
+  function rupiah46(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+  function terbilang46(n){
+    try{ if(typeof terbilang==="function") return String(terbilang(Number(n||0))).replace(/\s+/g," ").trim(); }catch(e){}
+    return "..................";
+  }
+  function tanggalSurat46(){
+    const p=p46();
+    return String(p.tanggalSurat||p.undTanggalSurat||"Semarang, tanggal bulan tahun").trim() || "Semarang, tanggal bulan tahun";
+  }
+
+  /* Normalisasi RAP rows — sama persis dengan normalizeRapRowV37 */
+  function normalizeRapRow46(row, i){
+    if(Array.isArray(row)){
+      return {no:i+1,uraian:row[0]||"",volume:row[1]||"",jumlah:Number(row[2]||0),keterangan:row[3]||""};
+    }
+    row = row || {};
+    return {
+      no:i+1,
+      uraian: row.uraian||row.kegiatan||row.nama||"",
+      volume: row.volume||row.satuan||row.satuanVolume||"",
+      jumlah: Number(row.jumlah != null ? row.jumlah : (row.anggaran != null ? row.anggaran : (row.rencanaAnggaran||0))),
+      keterangan: row.keterangan||row.ket||""
+    };
+  }
+  function rapRows46(){
+    const rows = Array.isArray(p46().rap) ? p46().rap : [];
+    return rows.map(normalizeRapRow46).filter(r=>r.uraian||r.jumlah||r.volume);
+  }
+  function totalRap46(){ return rapRows46().reduce((s,r)=>s+Number(r.jumlah||0),0); }
+
+  /* Normalisasi peserta — handles array atau object format */
+  function pesertaRows46(){
+    const raw = Array.isArray(p46().peserta) ? p46().peserta : [];
+    return raw.map((r,i)=>{
+      if(Array.isArray(r)) return {no:i+1,nama:r[0]||"",jabatan:r[1]||"",alamat:r[2]||""};
+      return {no:i+1,nama:r?.nama||"",jabatan:r?.jabatan||r?.status||"",alamat:r?.alamat||r?.rt||""};
+    }).filter(r=>r.nama||r.jabatan||r.alamat);
+  }
+
+  /* ── 4. docHadir V46 — Daftar Hadir dengan format V37 ── */
+  function docHadirV46(){
+    const m=m46(), p=p46();
+    let peserta = pesertaRows46();
+    const hadirRows = Math.max(Number(p.hadirRows||20), peserta.length);
+    // Lengkapi hingga hadirRows baris
+    while(peserta.length < hadirRows) peserta.push({no:peserta.length+1,nama:"",jabatan:"",alamat:""});
+
+    const rows = peserta.map((r,i)=>
+      `<tr><td class="col-no-v37">${i+1}</td><td>${esc46(r.nama)}</td><td>${esc46(r.jabatan)}</td><td>${esc46(r.alamat)}</td><td style="min-width:70px">${i+1}.</td></tr>`
+    ).join("");
+
+    const tanggal = safe46(p.hadirTanggal||p.tanggalSurat,"Semarang, tanggal bulan tahun");
+    const waktu   = safe46(p.hadirWaktu,"..................");
+    const tempat  = safe46(p.hadirTempat||m.sekretariat,"Sekretariat RT 005 RW 012");
+    const agenda  = safe46(p.hadirAgenda||p.hadirKegiatan||p.perihal,"Rapat Koordinasi Operasional RT");
+
+    const body =
+      `<div class="title">DAFTAR HADIR</div>` +
+      `<table class="no-border identity-table-v37"><tbody>` +
+        `<tr><td>Nama Kegiatan</td><td>:</td><td>${esc46(safe46(p.hadirKegiatan||p.perihal||p.undJudul,"Kegiatan Operasional RT"))}</td></tr>` +
+        `<tr><td>Hari / Tanggal</td><td>:</td><td>${esc46(tanggal)}</td></tr>` +
+        `<tr><td>Waktu</td><td>:</td><td>${esc46(waktu)}</td></tr>` +
+        `<tr><td>Tempat</td><td>:</td><td>${esc46(tempat)}</td></tr>` +
+        `<tr><td>Agenda</td><td>:</td><td>${esc46(agenda)}</td></tr>` +
+      `</tbody></table>` +
+      `<table><thead><tr>` +
+        `<th class="col-no-v37">No.</th>` +
+        `<th>Nama</th>` +
+        `<th>Jabatan / Status</th>` +
+        `<th>Alamat / RT</th>` +
+        `<th>Tanda Tangan</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `<table class="no-border sign-right-v37" style="margin-top:16px"><tbody><tr>` +
+        `<td style="width:60%"></td>` +
+        `<td style="text-align:center">` +
+          `${esc46(tanggal)}<br>` +
+          `Ketua RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")},<br>` +
+          `<div class="sign-space-v37"></div>` +
+          `<b>${esc46(safe46(m.ketua,"Nama Ketua RT"))}</b>` +
+        `</td>` +
+      `</tr></tbody></table>`;
+    return officialWrap46(body);
+  }
+
+  /* ── 5. docSK V46 — SK Lurah Pembentukan Pengurus RT dengan format V37 ── */
+  function docSKV46(){
+    const m=m46(), p=p46();
+    const nomorSK   = safe46(p.nomorSK,"................................");
+    const tanggalSK = safe46(p.tanggalSK,"................................");
+    const masaBerlaku = safe46(p.masaBerlakuSK,"................................");
+    const noKtpKetua  = safe46(m.noKtpKetua||p.noKtpKetua,"................................");
+
+    const body =
+      `<div class="title">SURAT KEPUTUSAN LURAH ${esc46((m.kelurahan||"").toUpperCase())}<br>` +
+        `PEMBENTUKAN PENGURUS RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}</div>` +
+      `<table class="no-border identity-table-v37"><tbody>` +
+        `<tr><td>Nomor SK</td><td>:</td><td><b>${esc46(nomorSK)}</b></td></tr>` +
+        `<tr><td>Tanggal SK</td><td>:</td><td>${esc46(tanggalSK)}</td></tr>` +
+        `<tr><td>Perihal</td><td>:</td><td>Pembentukan Pengurus RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")} Kel. ${esc46(m.kelurahan||"")}</td></tr>` +
+        `<tr><td>Masa Berlaku</td><td>:</td><td>${esc46(masaBerlaku)}</td></tr>` +
+      `</tbody></table>` +
+      `<table style="margin-top:10px"><thead>` +
+        `<tr><th class="col-no-v37">No.</th><th>Jabatan</th><th>Nama</th><th>No. KTP / NIK</th></tr>` +
+      `</thead><tbody>` +
+        `<tr><td class="col-no-v37">1</td><td>Ketua RT ${esc46(m.rt||"005")}</td><td>${esc46(safe46(m.ketua,"................................"))}</td><td>${esc46(noKtpKetua)}</td></tr>` +
+        `<tr><td class="col-no-v37">2</td><td>Sekretaris</td><td>${esc46(safe46(m.sekretaris,"................................"))}</td><td>................................</td></tr>` +
+        `<tr><td class="col-no-v37">3</td><td>Bendahara</td><td>${esc46(safe46(m.bendahara,"................................"))}</td><td>................................</td></tr>` +
+      `</tbody></table>` +
+      `<p class="center-v37" style="border:1px solid #bbb;padding:8px;font-style:italic;color:#555;margin-top:10px">` +
+        `&#9888; Lampirkan fotokopi SK Lurah asli yang telah dilegalisir bersama berkas pengajuan ini.` +
+      `</p>` +
+      `<table class="no-border sign-two-v37 mengetahui-v37"><tbody><tr>` +
+        `<td style="text-align:center">Ketua RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}<br><div class="sign-space-v37"></div><b>${esc46(safe46(m.ketua,"Nama Jelas"))}</b></td>` +
+        `<td style="text-align:center">Lurah ${esc46(m.kelurahan||"")}<br><div class="sign-space-v37"></div>NIP. ................................</td>` +
+      `</tr></tbody></table>`;
+    return officialWrap46(body);
+  }
+
+  /* ── 6. docRekening V46 — Informasi Rekening Bank dengan format V37 ── */
+  function docRekeningV46(){
+    const m=m46(), p=p46();
+    const namaBank        = safe46(p.namaBank,"Bank Pembangunan Daerah (BPD) Jateng");
+    const nomorRekening   = safe46(p.nomorRekening,"................................");
+    const namaPemilik     = safe46(p.namaPemilikRekening||m.ketua,"................................");
+    const cabangBank      = safe46(p.cabangBank,"................................");
+
+    const body =
+      `<div class="title">INFORMASI REKENING BANK<br>` +
+        `RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")} ${esc46((m.kelurahan||"").toUpperCase())}</div>` +
+      `<p class="center-v37">Data rekening bank untuk keperluan pencairan BOP RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}, ` +
+        `${esc46(m.kelurahan||"")}, Kota ${esc46(m.kota||"Semarang")}</p>` +
+      `<table class="no-border identity-table-v37"><tbody>` +
+        `<tr><td><b>Nama Bank</b></td><td>:</td><td><b>${esc46(namaBank)}</b></td></tr>` +
+        `<tr><td><b>Nomor Rekening</b></td><td>:</td><td><b>${esc46(nomorRekening)}</b></td></tr>` +
+        `<tr><td><b>Nama Pemilik Rekening</b></td><td>:</td><td>${esc46(namaPemilik)}</td></tr>` +
+        `<tr><td><b>Cabang</b></td><td>:</td><td>${esc46(cabangBank)}</td></tr>` +
+      `</tbody></table>` +
+      `<table class="no-border identity-table-v37" style="margin-top:8px"><tbody>` +
+        `<tr><td>Atas Nama Lembaga</td><td>:</td><td>RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")} ${esc46(m.kelurahan||"")}</td></tr>` +
+        `<tr><td>Kelurahan</td><td>:</td><td>${esc46(m.kelurahan||"")}</td></tr>` +
+        `<tr><td>Kecamatan</td><td>:</td><td>${esc46(m.kecamatan||"Candisari")}</td></tr>` +
+        `<tr><td>Kota</td><td>:</td><td>Kota ${esc46(m.kota||"Semarang")}</td></tr>` +
+      `</tbody></table>` +
+      `<p class="center-v37" style="border:1px solid #bbb;padding:8px;font-style:italic;color:#555;margin-top:10px">` +
+        `&#9888; Lampirkan fotokopi Buku Rekening BPD/Bank Jateng (halaman depan) bersama berkas pengajuan ini.` +
+      `</p>` +
+      `<table class="no-border sign-two-v37 mengetahui-v37"><tbody><tr>` +
+        `<td style="text-align:center">Ketua RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}<br><div class="sign-space-v37"></div><b>${esc46(safe46(m.ketua,"Nama Jelas"))}</b></td>` +
+        `<td style="text-align:center">Mengetahui<br>Lurah ${esc46(m.kelurahan||"")}<br><div class="sign-space-v37"></div>NIP. ................................</td>` +
+      `</tr></tbody></table>`;
+    return officialWrap46(body);
+  }
+
+  /* ── 7. Override globals — previewDocV37 & docMapV37 akan auto-pickup ── */
+  window.docHadir    = docHadirV46;
+  window.docSK       = docSKV46;
+  window.docRekening = docRekeningV46;
+
+  /* ── 8. Fix CSS untuk kop-b1/b2/addr di print CSS V37 & PDF export ──
+     Inject style ke <head> saat DOM ready agar screen preview juga benar */
+  function injectKopCssV46(){
+    if(document.getElementById("kopCssFixV46")) return;
+    const style = document.createElement("style");
+    style.id = "kopCssFixV46";
+    style.textContent = `
+      /* V46 — KOP semantic tag fix: h1/h2/p inside .kop-text */
+      .kop h1.kop-b1, .kop .kop-b1 { font-family:"Times New Roman",serif; font-size:15pt; font-weight:bold; text-transform:uppercase; text-align:center; white-space:nowrap; line-height:1.1; margin:0; padding:0; display:block; }
+      .kop h2.kop-b2, .kop .kop-b2 { font-family:"Times New Roman",serif; font-size:12.5pt; font-weight:bold; text-transform:uppercase; text-align:center; white-space:nowrap; line-height:1.1; margin:1px 0; padding:0; display:block; }
+      .kop p.kop-addr, .kop .kop-addr { font-family:"Times New Roman",serif; font-size:9pt; font-weight:normal; text-align:center; margin-top:3px; line-height:1.2; white-space:normal; display:block; }
+      .kop h1, .kop h2 { margin:0; padding:0; border:none; }
+      /* Ensure official-body-v37 on new docs fills width */
+      .official-body-v37 { width:100%; display:block; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /* ── 9. Patch exportPdfDocV38 — inject KOP CSS fix ke popup PDF ── */
+  const KOP_PDF_CSS = `
+    .kop{display:flex!important;align-items:center!important;border-bottom:3px double #000!important;padding:4px 0 8px 0!important;margin-bottom:14px!important;width:100%!important;box-sizing:border-box!important}
+    .kop-logo-wrap{width:60px;min-width:60px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+    .kop-logo{width:54px!important;max-width:54px!important;height:auto!important;max-height:66px!important;object-fit:contain!important;display:block!important}
+    .kop-logo-spacer{width:60px;min-width:60px;flex-shrink:0}
+    .kop-text{flex:1!important;text-align:center!important;padding:0 4px!important}
+    .kop h1,.kop-b1{font-family:"Times New Roman",serif!important;font-size:15pt!important;font-weight:bold!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;line-height:1.1!important;margin:0!important;padding:0!important;display:block!important}
+    .kop h2,.kop-b2{font-family:"Times New Roman",serif!important;font-size:12.5pt!important;font-weight:bold!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;line-height:1.1!important;margin:1px 0!important;padding:0!important;display:block!important}
+    .kop p,.kop-addr{font-family:"Times New Roman",serif!important;font-size:9pt!important;font-weight:normal!important;text-align:center!important;margin-top:3px!important;line-height:1.2!important;white-space:normal!important;display:block!important}
+    .official-body-v37{width:100%;display:block}
+  `;
+
+  const _origExportPdfDoc = window.exportPdfDocV38;
+  window.exportPdfDocV38 = async function exportPdfDocV46(){
+    if(typeof collectAll==="function") collectAll();
+    const type=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+    if(typeof previewDoc==="function") previewDoc(type);
+    await new Promise(r=>setTimeout(r,180));
+    const el=document.getElementById("docOutput");
+    if(!el||!el.innerHTML.trim()){
+      if(typeof bopAlert==="function") bopAlert("Export PDF","Pilih dokumen terlebih dahulu sebelum export PDF.","warning");
+      return;
+    }
+    const inner=el.innerHTML;
+    const printWin=window.open("","_blank","width=920,height=1150");
+    if(!printWin){
+      if(typeof bopAlert==="function") bopAlert("Popup Diblokir","Izinkan popup untuk halaman ini di browser, lalu coba lagi.","warning");
+      return;
+    }
+    const title="Dokumen BOP RT 005 — "+type;
+    printWin.document.write(`<!doctype html><html lang="id"><head>
+<meta charset="UTF-8"><title>${title}</title>
+<style>
+@page{size:A4;margin:14mm}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;font-family:"Times New Roman",serif;font-size:12pt;color:#000;background:#fff}
+.official,.official-v36,.official-v37{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26;color:#000}
+.official .title,.official-v36 .title,.official-v37 .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 16px}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #000;padding:5px 8px;font-size:11pt}
+.no-border td,.no-border th,.no-border{border:none!important}
+.col-no-v37{width:8mm!important;text-align:center!important}
+.money-cell-v37{text-align:right!important;white-space:nowrap}
+.identity-table-v37 td:first-child{width:36mm;white-space:nowrap}
+.sign-two-v37 td{width:50%;text-align:center!important;vertical-align:top;border:none!important}
+.sign-right-v37 td{border:none!important}
+.sign-space-v37{height:54px;display:block}
+.center-v37{text-align:center!important}
+.date-right-v37{text-align:right!important}
+.mengetahui-v37{margin-top:14px!important}
+p{margin:7px 0}
+ol{margin:5px 0 8px 22px;padding:0}
+li{margin:4px 0}
+.page-break-v37{page-break-after:always;break-after:page;height:0;border:none}
+${KOP_PDF_CSS}
+</style>
+</head><body>${inner}</body></html>`);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(()=>printWin.print(),650);
+  };
+
+  /* ── Init ── */
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded",()=>{
+      injectKopCssV46();
+      /* Re-render dokumen aktif setelah patch selesai */
+      setTimeout(()=>{
+        if(typeof previewDoc==="function"){
+          const t=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+          try{ previewDoc(t); }catch(e){}
+        }
+      },300);
+    });
+  } else {
+    injectKopCssV46();
+    setTimeout(()=>{
+      if(typeof previewDoc==="function"){
+        const t=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+        try{ previewDoc(t); }catch(e){}
+      }
+    },300);
+  }
+
+  console.log("[BOP KOP Fix v1.46] kopHTML, docHadir/SK/Rekening, dan PDF CSS diperbarui.");
+})();

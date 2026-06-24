@@ -3,3 +3,4 @@
 - [MoKu IndexedDB + BOP Sync](moku-idb-sync.md) — Photos stored in IndexedDB (db.js) + photoCache Map; BOP sync reads bop_rt005_data_v1_25; PostgreSQL tables: moku_photos, bop_snapshots, moku_results_sync.
 - [BOP PostgreSQL Sync Bugs Fixed](bop-pg-sync-fixes.md) — 5 critical multi-device sync bugs fixed; see file for details.
 - [MoKu initEvents crash fix](moku-init-crash.md) — importActivityFile null crash kills clock+GPS; always null-guard DOM queries in initEvents before addEventListener.
+- [KOP uniformity + doc sync fix](kop-fix-v46.md) — PATCH v1.46: kopHTML() emits h1/h2/p tags + class names; docHadir/SK/Rekening rebuilt dengan officialV37 wrapper; exportPdfDocV38 patched CSS lengkap.

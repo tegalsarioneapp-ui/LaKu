@@ -7571,3 +7571,279 @@ ${KOP_PDF_CSS}
   else
     setTimeout(init48b,2200);
 })();
+
+
+/* ================================================================
+   PATCH v1.49b — Fix RAP Auto-Detect: pakai getMonthlyRapRows v1.19
+   Masalah: renderCardGrid49 pakai getRowsForMonth49 kustom yang
+            cek r.bulan===month (format lama). Versi aktif app
+            (v1.19) pakai monthsScheduledV19 + bulanMulai/bulanSelesai
+            sehingga selalu kosong.
+   Fix:
+     1. Override renderCardGrid49 → pakai global getMonthlyRapRows
+     2. Override _pkLoadRap49 → ambil jumlahBulanan dari monthly rows
+     3. Patch activateTab agar re-render kartu saat masuk Persiapan
+     4. Default month = data.pengajuan.selectedMonth (bulan aktif RAP)
+   ================================================================ */
+(function bopRapAutoDetectFixV49b(){
+  if(window.__bopRapAutoDetectFixV49b) return;
+  window.__bopRapAutoDetectFixV49b = true;
+
+  /* ── Helpers ── */
+  function esc49b(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function rupiah49b(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+
+  /* ── Ambil rows untuk bulan via getMonthlyRapRows global ── */
+  function getRowsV49b(month){
+    try{
+      if(typeof getMonthlyRapRows==="function") return getMonthlyRapRows(month)||[];
+    }catch(e){}
+    return [];
+  }
+
+  /* ── Mapping tipe/kategori → pkJenis options ── */
+  function mapJenis49b(r){
+    var tipe=((r.tipe)||"").toLowerCase();
+    var kat=((r.kategori)||"").toLowerCase();
+    var sub=((r.subKategori)||"").toLowerCase();
+    var ur=((r.uraian)||"").toLowerCase();
+    if(tipe.indexOf("makan")>=0||tipe.indexOf("konsumsi")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(tipe.indexOf("jasa")>=0||tipe.indexOf("tukang")>=0||tipe.indexOf("honor")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(tipe.indexOf("sewa")>=0) return "Sewa Peralatan / Tempat";
+    if(tipe.indexOf("barang")>=0||tipe.indexOf("material")>=0) return "Belanja Barang / Material";
+    if(sub.indexOf("kerja bakti")>=0||sub.indexOf("gotong")>=0||ur.indexOf("kerja bakti")>=0||ur.indexOf("gotong")>=0) return "Kerja Bakti / Gotong Royong";
+    if(sub.indexOf("hari besar")>=0||sub.indexOf("hut")>=0||ur.indexOf("hut ri")>=0||ur.indexOf("17 agustus")>=0) return "HUT RI / Kegiatan Sosial Budaya";
+    if(sub.indexOf("sampah")>=0||ur.indexOf("sampah")>=0||kat.indexOf("sampah")>=0) return "Pengelolaan Sampah / Kebersihan Lingkungan";
+    if(sub.indexOf("rapat")>=0||sub.indexOf("pertemuan")>=0||ur.indexOf("rapat")>=0||ur.indexOf("pertemuan")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(kat.indexOf("penataan")>=0||kat.indexOf("lingkungan")>=0||kat.indexOf("pemeliharaan")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    return "Lainnya";
+  }
+
+  function autoDocType49b(jenis){
+    var j=(jenis||"").toLowerCase();
+    if(j.indexOf("konsumsi")>=0||j.indexOf("rapat")>=0||j.indexOf("gotong")>=0||
+       j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("bakti")>=0) return "pk-undangan";
+    return "pk-kuitansi";
+  }
+
+  function formHint49b(jenis){
+    var j=(jenis||"").toLowerCase();
+    if(j.indexOf("rapat")>=0||j.indexOf("konsumsi")>=0) return "&#128204; Tipe <b>Rapat/Pertemuan</b> \u2014 lengkapi tab <b>Notulen</b>, <b>Daftar Hadir</b>, dan nominal Kuitansi.";
+    if(j.indexOf("sampah")>=0||j.indexOf("jasa")>=0||j.indexOf("tukang")>=0) return "&#128204; Tipe <b>Jasa/Honorarium</b> \u2014 lengkapi <b>Penerima</b>, <b>Nominal</b>, dan <b>Keperluan Pembayaran</b>.";
+    if(j.indexOf("barang")>=0||j.indexOf("material")>=0||j.indexOf("sewa")>=0) return "&#128204; Tipe <b>Pengadaan/Belanja</b> \u2014 lengkapi <b>Deskripsi Barang</b> di Keperluan dan Nominal Kuitansi.";
+    if(j.indexOf("gotong")>=0||j.indexOf("bakti")>=0) return "&#128204; Tipe <b>Gotong Royong</b> \u2014 lengkapi <b>Agenda</b> dan <b>Daftar Hadir</b> warga.";
+    if(j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("budaya")>=0) return "&#128204; Tipe <b>Kegiatan Sosial/Budaya</b> \u2014 lengkapi <b>Agenda</b>, <b>Notulen</b>, dan dokumentasi.";
+    return "&#128204; Lengkapi data kegiatan di bawah, lalu generate dokumen di tab <b>Generate Bukti SPJ</b>.";
+  }
+
+  function katBadge49b(kategori){
+    var k=(kategori||"").toLowerCase();
+    if(k.indexOf("administratif")>=0||k.indexOf("administrasi")>=0) return {label:"Administratif",color:"#3b82f6"};
+    if(k.indexOf("sosial")>=0||k.indexOf("budaya")>=0) return {label:"Sosial & Budaya",color:"#10b981"};
+    if(k.indexOf("penataan")>=0||k.indexOf("lingkungan")>=0||k.indexOf("pemeliharaan")>=0) return {label:"Lingkungan",color:"#f59e0b"};
+    return {label:"Operasional",color:"#6b7280"};
+  }
+
+  /* ── Render kartu: pakai getMonthlyRapRows global ── */
+  window.renderCardGrid49 = function(month){
+    var el=document.getElementById("pkRapCardGridV49");
+    if(!el) return;
+    var activeIdx=((window.data&&window.data.persiapan)||{}).rapAutoIdx;
+    var rows=getRowsV49b(month);
+
+    if(!rows.length){
+      el.innerHTML='<div class="pk-rap-empty-v49">'+
+        'Belum ada kegiatan terjadwal untuk bulan <b>'+esc49b(month)+'</b>.<br>'+
+        '<small>Pastikan jadwal kegiatan sudah diatur di <b>Pengajuan Dana Operasional &rarr; RAP 1 Tahun</b> dengan bulan yang sesuai.</small>'+
+      '</div>';
+      return;
+    }
+
+    /* Group by kategori */
+    var groups={};
+    var groupOrder=[];
+    rows.forEach(function(r){
+      var k=r.kategori||"Lainnya";
+      if(!groups[k]){ groups[k]=[]; groupOrder.push(k); }
+      groups[k].push(r);
+    });
+
+    var html="";
+    groupOrder.forEach(function(kat){
+      var items=groups[kat];
+      var badge=katBadge49b(kat);
+      html+='<div class="pk-rap-kategori-v49">';
+      html+='<div class="pk-rap-kat-label-v49" style="color:'+badge.color+'">'+esc49b(badge.label)+'</div>';
+      html+='<div class="pk-rap-cards-row-v49">';
+      items.forEach(function(r){
+        var isActive=(r.annualIndex===activeIdx);
+        var vol=r.volumeBulanan||r.volume||"";
+        var sumber=r.sumber||"";
+        html+='<div class="pk-rap-card-v49'+(isActive?" active":"")+'"'+
+          ' onclick="window._pkLoadRap49('+r.annualIndex+',\''+esc49b(month)+'\')"'+
+          ' title="'+esc49b(r.uraian)+'">';
+        html+='<div class="pk-rap-card-nama-v49">'+esc49b(r.uraian)+'</div>';
+        html+='<div class="pk-rap-card-meta-v49">'+esc49b(vol)+(sumber?' &bull; '+esc49b(sumber):'')+'</div>';
+        html+='<div class="pk-rap-card-jumlah-v49">'+rupiah49b(r.jumlahBulanan||0)+'</div>';
+        html+='</div>';
+      });
+      html+='</div></div>';
+    });
+    el.innerHTML=html;
+  };
+
+  /* ── Load kegiatan ke form ── */
+  window._pkLoadRap49 = function(annualIndex, month){
+    /* Cari row dari getMonthlyRapRows untuk bulan ini */
+    var rows=getRowsV49b(month);
+    var r=null;
+    for(var i=0;i<rows.length;i++){
+      if(rows[i].annualIndex===annualIndex){ r=rows[i]; break; }
+    }
+    /* Fallback: ambil langsung dari data.pengajuan.rap */
+    if(!r){
+      var rapArr=(window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))?window.data.pengajuan.rap:[];
+      var raw=rapArr[annualIndex];
+      if(!raw) return;
+      r=Object.assign({},{
+        uraian:raw.uraian||"",
+        volume:raw.volume||"1 Paket",
+        jumlahBulanan:Number(raw.jumlah||0),
+        jumlah:Number(raw.jumlah||0),
+        keterangan:raw.keterangan||"",
+        tipe:raw.tipe||"Lainnya",
+        kategori:raw.kategori||"",
+        subKategori:raw.subKategori||"",
+        sumber:"Langsung",
+        annualIndex:annualIndex
+      });
+    }
+
+    var jenis=mapJenis49b(r);
+    var vol=r.volumeBulanan||r.volume||"1 Paket";
+    var agenda=r.keterangan
+      ? r.uraian+". "+r.keterangan
+      : "Pelaksanaan "+r.uraian+" dalam rangka kegiatan operasional RT 005 RW 012.";
+    var keperluan="Pembayaran "+r.uraian+" ("+vol+") \u2014 Bulan "+month+
+                  "."+(r.keterangan?" "+r.keterangan:" Sesuai mata belanja dalam RAP BOP RT.");
+
+    /* Ensure persiapan ada */
+    if(typeof ensurePersiapan==="function") ensurePersiapan();
+    if(!window.data) return;
+    if(!window.data.persiapan) window.data.persiapan={};
+
+    /* Isi data.persiapan */
+    window.data.persiapan.jenis     = jenis;
+    window.data.persiapan.nama      = r.uraian||"Kegiatan Operasional RT";
+    window.data.persiapan.agenda    = agenda;
+    window.data.persiapan.keperluan = keperluan;
+    window.data.persiapan.nominal   = r.jumlahBulanan||0;
+    window.data.persiapan.rapAutoIdx   = annualIndex;
+    window.data.persiapan.rapAutoMonth = month;
+
+    /* Isi elemen form */
+    if(typeof fillPersiapan==="function") fillPersiapan();
+
+    /* Simpan */
+    try{ localStorage.setItem("bop_rt005_data_v1_25",JSON.stringify(window.data)); }catch(e){}
+
+    /* Update highlight kartu */
+    window.renderCardGrid49(month);
+
+    /* Update breadcrumb + hint */
+    var badge=document.getElementById("pkActiveKegiatanBadgeV49");
+    var name=document.getElementById("pkActiveKegiatanNameV49");
+    var hint=document.getElementById("pkFormHintV49");
+    if(badge) badge.style.display="flex";
+    if(name) name.textContent=r.uraian;
+    if(hint) hint.innerHTML=formHint49b(jenis);
+
+    /* Navigasi ke pk-generate dan preview dokumen */
+    if(typeof activateTab==="function") activateTab("pk-generate");
+    setTimeout(function(){
+      if(typeof collectPersiapan==="function") collectPersiapan();
+      var docType=autoDocType49b(jenis);
+      window.currentPkDoc=docType;
+      if(typeof previewPkDoc==="function") previewPkDoc(docType);
+    },100);
+  };
+
+  /* ── Re-render kartu saat navigasi ke Persiapan Kegiatan ── */
+  (function patchActivateTabV49b(){
+    var _origActivateTab = window.activateTab;
+    window.activateTab = function(id){
+      if(typeof _origActivateTab==="function") _origActivateTab(id);
+      /* Saat user masuk ke halaman Persiapan Kegiatan */
+      if(id==="persiapan"){
+        setTimeout(function(){
+          var panel=document.getElementById("pkRapAutoDetectPanel");
+          if(!panel){
+            /* Panel belum diinject — jalankan ulang inject */
+            if(typeof injectPanel49==="function") injectPanel49();
+          }
+          /* Re-render kartu dengan bulan aktif */
+          var sel=document.getElementById("pkRapMonthV49");
+          var month=(sel&&sel.value)||
+                    (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+                    "Juni 2026";
+          if(sel&&!sel.value) sel.value=month;
+          window.renderCardGrid49(month);
+          /* Restore breadcrumb jika ada active */
+          var savedIdx=((window.data&&window.data.persiapan)||{}).rapAutoIdx;
+          var savedMonth=((window.data&&window.data.persiapan)||{}).rapAutoMonth;
+          if(savedIdx!==undefined&&savedMonth){
+            var rows=getRowsV49b(savedMonth);
+            var activeRow=null;
+            for(var i=0;i<rows.length;i++){if(rows[i].annualIndex===savedIdx){activeRow=rows[i];break;}}
+            if(!activeRow){
+              var rapArr=(window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))?window.data.pengajuan.rap:[];
+              if(rapArr[savedIdx]) activeRow={uraian:rapArr[savedIdx].uraian||"",tipe:rapArr[savedIdx].tipe||""};
+            }
+            if(activeRow){
+              var b=document.getElementById("pkActiveKegiatanBadgeV49");
+              var n=document.getElementById("pkActiveKegiatanNameV49");
+              var h=document.getElementById("pkFormHintV49");
+              if(b) b.style.display="flex";
+              if(n) n.textContent=activeRow.uraian;
+              if(h) h.innerHTML=formHint49b(mapJenis49b(activeRow));
+            }
+          }
+        },200);
+      }
+    };
+  })();
+
+  /* ── Patch month change handler ── */
+  window._pkRapMonthChange49 = function(){
+    var sel=document.getElementById("pkRapMonthV49");
+    if(!sel) return;
+    window.renderCardGrid49(sel.value);
+  };
+
+  /* ── Initial re-render jika panel sudah ada ── */
+  function initV49b(){
+    var panel=document.getElementById("pkRapAutoDetectPanel");
+    if(panel){
+      var sel=document.getElementById("pkRapMonthV49");
+      var month=(sel&&sel.value)||
+                (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+                "Juni 2026";
+      if(sel&&month) sel.value=month;
+      window.renderCardGrid49(month);
+    }
+    console.log("[BOP v1.49b] RAP Auto-Detect fix aktif (getMonthlyRapRows v1.19).");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(initV49b,2400);});
+  else
+    setTimeout(initV49b,2400);
+})();

@@ -6719,3 +6719,49 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP KOP Fix v1.46] kopHTML, docHadir/SK/Rekening, dan PDF CSS diperbarui.");
 })();
+
+
+/* ================================================================
+   PATCH v1.47 — Auto-simpan form values sebelum fillInputs() overwrite
+   Masalah: render() → fillInputs() bisa menimpa nilai yang sudah
+   diketik user sebelum collectAll() sempat menyimpannya.
+   Fix: override fillInputs() untuk panggil collectAll() terlebih
+   dahulu (skip pada render pertama agar localStorage tidak kosong).
+   ================================================================ */
+(function bopFillInputsFixV47(){
+  if(window.__bopFillInputsFixV47) return;
+  window.__bopFillInputsFixV47 = true;
+
+  let _initDone = false;
+  const _origFillInputs = window.fillInputs;
+
+  window.fillInputs = function fillInputsSafe(){
+    if(_initDone){
+      /* Setelah render pertama: simpan nilai form saat ini sebelum di-overwrite */
+      if(typeof collectAll === 'function'){
+        try { collectAll(); } catch(e) { console.warn('[BOP v1.47] collectAll error:', e); }
+      }
+      try { localStorage.setItem('bop_rt005_data_v1_25', JSON.stringify(window.data)); } catch(e) {}
+    }
+    _initDone = true;
+    if(typeof _origFillInputs === 'function') return _origFillInputs();
+  };
+
+  /* Juga perbaiki save otomatis saat user PINDAH halaman (nav click) */
+  document.addEventListener('click', function(e){
+    const navBtn = e.target.closest('[data-page]');
+    if(navBtn && typeof collectAll === 'function'){
+      try {
+        collectAll();
+        localStorage.setItem('bop_rt005_data_v1_25', JSON.stringify(window.data));
+      } catch(_e) {}
+    }
+  }, true /* capture phase: sebelum event handler lain */);
+
+  /* Update document.title */
+  try {
+    document.title = 'LaKu Warga — Laporan & Dokumentasi Online Warga';
+  } catch(_e) {}
+
+  console.log('[BOP Form Fix v1.47] fillInputs() auto-simpan & nav-save aktif.');
+})();

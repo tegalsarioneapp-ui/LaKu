@@ -7847,3 +7847,499 @@ ${KOP_PDF_CSS}
   else
     setTimeout(initV49b,2400);
 })();
+
+
+/* ================================================================
+   PATCH v1.50 — Fix RAP Bulanan + Persiapan Kartu + Validasi Anggaran
+   ================================================================
+   Fix 1: Document Studio template cache override untuk rapbulanan
+           → Hapus bop_rt005_ds_template_rapbulanan sebelum generate
+           sehingga DS selalu tampilkan fresh content
+   Fix 2: Persiapan Kegiatan panel — getRowsV49b dengan fallback
+           langsung ke data.pengajuan.rap (support format lama)
+   Fix 3: Validasi anggaran RAP Bulanan — warning panel di Generate
+           Dokumen jika total bulan melebihi batas BOP tersedia
+   ================================================================ */
+(function bopFixComprehensiveV50(){
+  if(window.__bopFixComprehensiveV50) return;
+  window.__bopFixComprehensiveV50 = true;
+
+  /* ═══════════════════════════════════════════════════════════
+     FIX 1: HAPUS TEMPLATE CACHE rapbulanan SEBELUM GENERATE
+  ═══════════════════════════════════════════════════════════ */
+  var DS_TMPL_PREFIX = "bop_rt005_ds_template_";
+
+  function clearRapBulananDsTemplate(){
+    try{
+      /* Via DocumentStudio public API jika tersedia */
+      if(window.DocumentStudio && typeof window.DocumentStudio.tplDelete === "function"){
+        window.DocumentStudio.tplDelete("rapbulanan");
+      }
+      /* Juga hapus langsung dari localStorage */
+      localStorage.removeItem(DS_TMPL_PREFIX + "rapbulanan");
+      localStorage.removeItem(DS_TMPL_PREFIX + "draft_rapbulanan");
+    }catch(e){}
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     FIX 2: getRowsV49b DENGAN FALLBACK MANUAL
+  ═══════════════════════════════════════════════════════════ */
+  var FULL_MONTHS = window.RAP_MONTHS ||
+    ["Januari 2026","Februari 2026","Maret 2026","April 2026",
+     "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+     "September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  function getRowsV50(month){
+    /* Coba getMonthlyRapRows global (v1.19 / v1.18) */
+    var rows = [];
+    try{ rows = getMonthlyRapRows(month) || []; }catch(e){}
+
+    /* Fallback: iterasi langsung data.pengajuan.rap */
+    if(!rows.length){
+      var rap = (window.data && window.data.pengajuan && Array.isArray(window.data.pengajuan.rap))
+                 ? window.data.pengajuan.rap : [];
+      var curIdx = FULL_MONTHS.indexOf(month);
+
+      rap.forEach(function(r, annualIndex){
+        if(!r || !r.uraian) return;
+        var jumlahBulanan = 0;
+        var vol = r.volumeBulanan || r.volume || "1 Paket";
+        var sumber = "";
+
+        /* Format baru: bulanMulai – bulanSelesai */
+        if(r.bulanMulai && r.bulanSelesai){
+          var s = FULL_MONTHS.indexOf(r.bulanMulai);
+          var e = FULL_MONTHS.indexOf(r.bulanSelesai);
+          if(curIdx >= 0 && s >= 0 && e >= 0 && curIdx >= s && curIdx <= e){
+            var cnt = Math.max(1, e - s + 1);
+            jumlahBulanan = Math.round(Number(r.jumlah||0) / cnt);
+            sumber = "Bulanan ("+cnt+" bln)";
+          }
+        }
+
+        /* Format lama: bulan = bulan spesifik */
+        if(!jumlahBulanan && r.bulan === month){
+          jumlahBulanan = Number(r.jumlah||0);
+          sumber = "Langsung";
+        }
+
+        /* Format lama: bulan = Januari-Desember (semua bulan) */
+        if(!jumlahBulanan){
+          var b = String(r.bulan||"");
+          var isAllYear = b.indexOf("Januari")>=0 && b.indexOf("Desember")>=0;
+          var isAllYearKey = b.indexOf("-")>0 && !b.match(/^\w+ \d{4}$/);
+          if(isAllYear || isAllYearKey){
+            jumlahBulanan = Math.round(Number(r.jumlah||0) / 12);
+            sumber = "Rata 12 bln";
+          }
+        }
+
+        if(jumlahBulanan > 0){
+          rows.push(Object.assign({}, r, {
+            annualIndex: annualIndex,
+            jumlahBulanan: jumlahBulanan,
+            volumeBulanan: vol,
+            sumber: sumber
+          }));
+        }
+      });
+    }
+    return rows;
+  }
+  window._getRowsV50 = getRowsV50; /* expose for tests */
+
+  /* ═══════════════════════════════════════════════════════════
+     PATCH renderCardGrid49 — pakai getRowsV50
+  ═══════════════════════════════════════════════════════════ */
+  function esc50(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function rp50(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+
+  function katBadge50(r){
+    var k = String(r.kategori||"").toLowerCase();
+    if(k.indexOf("administratif")>=0||k.indexOf("administrasi")>=0) return {l:"Administratif",c:"#3b82f6"};
+    if(k.indexOf("sosial")>=0||k.indexOf("budaya")>=0) return {l:"Sosial & Budaya",c:"#10b981"};
+    if(k.indexOf("penataan")>=0||k.indexOf("lingkungan")>=0||k.indexOf("pemeliharaan")>=0) return {l:"Lingkungan",c:"#f59e0b"};
+    if(k.indexOf("sampah")>=0) return {l:"Kebersihan",c:"#06b6d4"};
+    return {l:"Operasional",c:"#6b7280"};
+  }
+
+  function mapJenis50(r){
+    var tipe=String(r.tipe||"").toLowerCase();
+    var kat=String(r.kategori||"").toLowerCase();
+    var sub=String(r.subKategori||"").toLowerCase();
+    var ur=String(r.uraian||"").toLowerCase();
+    if(tipe.indexOf("makan")>=0||tipe.indexOf("konsumsi")>=0||sub.indexOf("rapat")>=0||ur.indexOf("rapat")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(tipe.indexOf("jasa")>=0||tipe.indexOf("honor")>=0||tipe.indexOf("tukang")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(tipe.indexOf("sewa")>=0) return "Sewa Peralatan / Tempat";
+    if(tipe.indexOf("barang")>=0||tipe.indexOf("material")>=0) return "Belanja Barang / Material";
+    if(sub.indexOf("kerja bakti")>=0||ur.indexOf("kerja bakti")>=0||sub.indexOf("gotong")>=0||ur.indexOf("gotong")>=0) return "Kerja Bakti / Gotong Royong";
+    if(sub.indexOf("sampah")>=0||ur.indexOf("sampah")>=0) return "Pengelolaan Sampah / Kebersihan";
+    if(kat.indexOf("penataan")>=0||kat.indexOf("lingkungan")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(sub.indexOf("hari besar")>=0||ur.indexOf("hut")>=0||ur.indexOf("17 agustus")>=0) return "HUT RI / Kegiatan Sosial Budaya";
+    return "Lainnya";
+  }
+
+  function formHint50(jenis){
+    var j = jenis.toLowerCase();
+    if(j.indexOf("rapat")>=0||j.indexOf("konsumsi")>=0) return "&#128204; Tipe <b>Rapat/Pertemuan</b> — lengkapi tab <b>Notulen</b>, <b>Daftar Hadir</b>, dan nominal Kuitansi.";
+    if(j.indexOf("sampah")>=0||j.indexOf("jasa")>=0||j.indexOf("tukang")>=0) return "&#128204; Tipe <b>Jasa/Honorarium</b> — lengkapi <b>Penerima</b>, <b>Nominal</b>, dan <b>Keperluan</b>.";
+    if(j.indexOf("barang")>=0||j.indexOf("material")>=0||j.indexOf("sewa")>=0) return "&#128204; Tipe <b>Pengadaan/Belanja</b> — lengkapi <b>Deskripsi Barang</b> dan Nominal Kuitansi.";
+    if(j.indexOf("gotong")>=0||j.indexOf("bakti")>=0||j.indexOf("kebersihan")>=0) return "&#128204; Tipe <b>Gotong Royong</b> — lengkapi <b>Agenda</b> dan <b>Daftar Hadir</b> warga.";
+    if(j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("budaya")>=0) return "&#128204; Tipe <b>Kegiatan Sosial/Budaya</b> — lengkapi <b>Agenda</b>, <b>Notulen</b>, dan dokumentasi.";
+    return "&#128204; Lengkapi data kegiatan di bawah, lalu generate dokumen di tab <b>Generate Bukti SPJ</b>.";
+  }
+
+  window.renderCardGrid49 = function(month){
+    var el = document.getElementById("pkRapCardGridV49");
+    if(!el) return;
+    var activeIdx = ((window.data && window.data.persiapan)||{}).rapAutoIdx;
+    var rows = getRowsV50(month);
+    var totalItems = (window.data && window.data.pengajuan && Array.isArray(window.data.pengajuan.rap))
+                      ? window.data.pengajuan.rap.filter(function(r){ return r && r.uraian; }).length : 0;
+
+    if(!rows.length){
+      el.innerHTML =
+        '<div class="pk-rap-empty-v49">'+
+        (totalItems > 0
+          ? 'Tidak ada kegiatan terjadwal untuk bulan <b>'+esc50(month)+'</b>.<br>'+
+            '<small>RAP berisi '+totalItems+' mata anggaran, namun tidak ada yang dijadwalkan bulan ini.<br>'+
+            'Cek tab <b>Pengajuan → RAP 1 Tahun</b> dan pastikan rentang bulan mencakup '+esc50(month)+'.</small>'
+          : 'Belum ada data RAP.<br><small>Buat RAP dulu di <b>Pengajuan Dana Operasional → RAP 1 Tahun</b>.</small>'
+        )+
+        '</div>';
+      return;
+    }
+
+    /* Group by kategori */
+    var groups = {}, order = [];
+    rows.forEach(function(r){
+      var k = r.kategori || "Lainnya";
+      if(!groups[k]){ groups[k]=[]; order.push(k); }
+      groups[k].push(r);
+    });
+
+    var html = "";
+    order.forEach(function(kat){
+      var items = groups[kat];
+      var badge = katBadge50({kategori:kat});
+      html += '<div class="pk-rap-kategori-v49">';
+      html += '<div class="pk-rap-kat-label-v49" style="color:'+badge.c+'">'+esc50(badge.l)+'</div>';
+      html += '<div class="pk-rap-cards-row-v49">';
+      items.forEach(function(r){
+        var isActive = (r.annualIndex === activeIdx);
+        var vol = r.volumeBulanan || r.volume || "";
+        var src = r.sumber ? (" &bull; "+esc50(r.sumber)) : "";
+        html += '<div class="pk-rap-card-v49'+(isActive?" active":"")+'"'+
+          ' onclick="window._pkLoadRap49('+r.annualIndex+',\''+esc50(month)+'\')"'+
+          ' title="'+esc50(r.uraian)+'">';
+        html += '<div class="pk-rap-card-nama-v49">'+esc50(r.uraian)+'</div>';
+        html += '<div class="pk-rap-card-meta-v49">'+esc50(vol)+src+'</div>';
+        html += '<div class="pk-rap-card-jumlah-v49">'+rp50(r.jumlahBulanan||0)+'</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+  };
+
+  /* ─ Override _pkLoadRap49 pakai getRowsV50 ─ */
+  window._pkLoadRap49 = function(annualIndex, month){
+    var rows = getRowsV50(month);
+    var r = null;
+    for(var i=0;i<rows.length;i++){
+      if(rows[i].annualIndex===annualIndex){ r=rows[i]; break; }
+    }
+    if(!r){
+      var raw = (window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))
+                 ? window.data.pengajuan.rap[annualIndex] : null;
+      if(!raw) return;
+      r = Object.assign({},raw,{annualIndex:annualIndex,jumlahBulanan:Number(raw.jumlah||0),volumeBulanan:raw.volume||"1 Paket",sumber:"Langsung"});
+    }
+
+    var jenis = mapJenis50(r);
+    var vol = r.volumeBulanan || r.volume || "1 Paket";
+    var agenda = r.uraian + (r.keterangan ? ". " + r.keterangan : "") +
+      ". Kegiatan operasional RT 005 RW 012 bulan "+month+".";
+    var keperluan = "Pembayaran "+r.uraian+" ("+vol+") — Bulan "+month+
+      ". "+(r.keterangan||"Sesuai mata belanja dalam RAP BOP RT.");
+
+    if(typeof ensurePersiapan==="function") ensurePersiapan();
+    if(!window.data || !window.data.persiapan) return;
+
+    window.data.persiapan.jenis      = jenis;
+    window.data.persiapan.nama       = r.uraian || "Kegiatan Operasional RT";
+    window.data.persiapan.agenda     = agenda;
+    window.data.persiapan.keperluan  = keperluan;
+    window.data.persiapan.nominal    = r.jumlahBulanan || 0;
+    window.data.persiapan.rapAutoIdx   = annualIndex;
+    window.data.persiapan.rapAutoMonth = month;
+
+    if(typeof fillPersiapan==="function") fillPersiapan();
+    try{ localStorage.setItem("bop_rt005_data_v1_25",JSON.stringify(window.data)); }catch(e){}
+
+    window.renderCardGrid49(month);
+
+    var badge = document.getElementById("pkActiveKegiatanBadgeV49");
+    var name  = document.getElementById("pkActiveKegiatanNameV49");
+    var hint  = document.getElementById("pkFormHintV49");
+    if(badge) badge.style.display="flex";
+    if(name)  name.textContent = r.uraian;
+    if(hint)  hint.innerHTML   = formHint50(jenis);
+
+    if(typeof activateTab==="function") activateTab("pk-generate");
+    setTimeout(function(){
+      if(typeof collectPersiapan==="function") collectPersiapan();
+      var dt = (jenis.indexOf("Rapat")>=0||jenis.indexOf("Gotong")>=0||jenis.indexOf("HUT")>=0)
+               ? "pk-undangan" : "pk-kuitansi";
+      window.currentPkDoc = dt;
+      if(typeof previewPkDoc==="function") previewPkDoc(dt);
+    }, 100);
+  };
+
+  /* ─ Patch activateTab untuk trigger renderCardGrid49 saat masuk Persiapan ─ */
+  (function(){
+    var _orig = window.activateTab;
+    window.activateTab = function(id){
+      if(typeof _orig==="function") _orig(id);
+      if(id==="persiapan"){
+        setTimeout(function(){
+          var panel = document.getElementById("pkRapAutoDetectPanel");
+          if(!panel && typeof injectPanel49==="function") injectPanel49();
+          var sel = document.getElementById("pkRapMonthV49");
+          var month = (sel&&sel.value)||
+            (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+            "Juni 2026";
+          if(sel && FULL_MONTHS.indexOf(sel.value)<0) sel.value=month;
+          window.renderCardGrid49(month||"Juni 2026");
+
+          /* Restore active badge */
+          var ai = ((window.data&&window.data.persiapan)||{}).rapAutoIdx;
+          var am = ((window.data&&window.data.persiapan)||{}).rapAutoMonth;
+          if(ai!==undefined&&am){
+            var rs = getRowsV50(am), ar=null;
+            for(var i=0;i<rs.length;i++){if(rs[i].annualIndex===ai){ar=rs[i];break;}}
+            if(!ar){var rp2=(window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))?window.data.pengajuan.rap:[];if(rp2[ai]) ar={uraian:rp2[ai].uraian||"",tipe:rp2[ai].tipe||""};}
+            if(ar){
+              var b2=document.getElementById("pkActiveKegiatanBadgeV49");
+              var n2=document.getElementById("pkActiveKegiatanNameV49");
+              var h2=document.getElementById("pkFormHintV49");
+              if(b2) b2.style.display="flex";
+              if(n2) n2.textContent=ar.uraian;
+              if(h2) h2.innerHTML=formHint50(mapJenis50(ar));
+            }
+          }
+        }, 200);
+      }
+    };
+  })();
+
+  /* ─ Patch month change ─ */
+  window._pkRapMonthChange49 = function(){
+    var s = document.getElementById("pkRapMonthV49");
+    if(s) window.renderCardGrid49(s.value);
+  };
+
+  /* ═══════════════════════════════════════════════════════════
+     FIX 3: VALIDASI ANGGARAN RAP BULANAN
+  ═══════════════════════════════════════════════════════════ */
+  var ANNUAL_LIMIT_BOP = 25000000; /* Rp 25 juta / tahun */
+  var MONTHLY_LIMIT    = Math.round(ANNUAL_LIMIT_BOP / 12); /* ≈ Rp 2.083.333 */
+
+  function getAnnualTotal(){
+    try{
+      var rap = (window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))
+                 ? window.data.pengajuan.rap : [];
+      return rap.reduce(function(s,r){ return s+Number(r&&r.jumlah||0); }, 0);
+    }catch(e){ return 0; }
+  }
+
+  function getMonthlyTotalV50(month){
+    var rows = getRowsV50(month);
+    return rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); }, 0);
+  }
+
+  function rp50f(n){ return "Rp\u202f"+Math.round(Number(n||0)).toLocaleString("id-ID"); }
+
+  function renderValidationBanner(month){
+    var el = document.getElementById("rapBulananValidationV50");
+    if(!el) return;
+
+    var monthly  = getMonthlyTotalV50(month);
+    var annual   = getAnnualTotal();
+    var annLimit = ANNUAL_LIMIT_BOP;
+    var annSisa  = annLimit - annual;
+    var pct      = annLimit > 0 ? Math.round(monthly / (annLimit/12) * 100) : 0;
+
+    /* Tentukan status */
+    var status, icon, barColor, borderColor, bgColor, msg;
+    if(annual > annLimit){
+      status = "danger";
+      icon = "&#9888;&#65039;";
+      barColor = "#ef4444";
+      borderColor = "#fecaca";
+      bgColor = "#fff1f2";
+      msg = "Total RAP Tahunan <b>"+rp50f(annual)+"</b> melebihi batas BOP <b>"+rp50f(annLimit)+"</b>. "+
+            "Kurangi mata anggaran sebesar <b>"+rp50f(annual-annLimit)+"</b>.";
+    } else if(monthly > MONTHLY_LIMIT * 2){
+      status = "warn";
+      icon = "&#128308;";
+      barColor = "#f59e0b";
+      borderColor = "#fde68a";
+      bgColor = "#fffbeb";
+      msg = "Anggaran bulan <b>"+month+"</b> sebesar <b>"+rp50f(monthly)+"</b> jauh di atas rata-rata bulanan "+
+            "(<b>"+rp50f(MONTHLY_LIMIT)+"</b>). Pastikan ini sesuai kebutuhan kegiatan.";
+    } else if(monthly > 0){
+      status = "ok";
+      icon = "&#10003;";
+      barColor = "#10b981";
+      borderColor = "#a7f3d0";
+      bgColor = "#f0fdf4";
+      msg = "Anggaran bulan <b>"+month+"</b>: <b>"+rp50f(monthly)+"</b> — "+
+            "Sisa BOP tahunan: <b>"+rp50f(annSisa)+"</b> dari total <b>"+rp50f(annLimit)+"</b>.";
+    } else {
+      status = "empty";
+      icon = "&#8212;";
+      barColor = "#d1d5db";
+      borderColor = "#e5e7eb";
+      bgColor = "#f9fafb";
+      msg = "Belum ada mata anggaran terjadwal untuk bulan <b>"+month+"</b>.";
+    }
+
+    var barW = Math.min(100, pct)+"%";
+
+    el.innerHTML =
+      '<div style="background:'+bgColor+';border:1px solid '+borderColor+';border-radius:10px;padding:12px 14px;margin-top:8px;font-size:0.85rem;">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'+
+        '<span style="font-size:1.1rem;">'+icon+'</span>'+
+        '<span style="font-weight:700;color:'+barColor+'">Validasi Anggaran RAP Bulanan</span>'+
+        '<span style="margin-left:auto;font-size:0.78rem;color:#64748b;">BOP Tahunan: '+rp50f(annLimit)+'</span>'+
+      '</div>'+
+      '<div style="background:#e5e7eb;border-radius:4px;height:6px;margin-bottom:8px;overflow:hidden;">'+
+        '<div style="width:'+barW+';background:'+barColor+';height:100%;border-radius:4px;transition:width 0.4s;"></div>'+
+      '</div>'+
+      '<p style="margin:0;color:#374151;line-height:1.5;">'+msg+'</p>'+
+      (status==="danger" ? '<p style="margin:6px 0 0;color:#dc2626;font-size:0.8rem;font-weight:600;">&#9888; Dokumen RAP tidak dapat diajukan jika total melebihi batas BOP. Harap revisi RAP tahunan.</p>' : '')+
+      (status==="warn"   ? '<p style="margin:6px 0 0;color:#92400e;font-size:0.8rem;">&#128161; Tips: pastikan kegiatan besar tersebar merata atau ada justifikasi khusus untuk bulan ini.</p>' : '')+
+      '</div>';
+
+    el.style.display = "block";
+  }
+
+  function hideValidationBanner(){
+    var el = document.getElementById("rapBulananValidationV50");
+    if(el) el.style.display = "none";
+  }
+
+  /* ─ Inject container validasi ─ */
+  function injectValidationContainer(){
+    if(document.getElementById("rapBulananValidationV50")) return;
+    var wrap = document.getElementById("v48RapBulanWrap");
+    if(!wrap) return;
+    var el = document.createElement("div");
+    el.id = "rapBulananValidationV50";
+    el.style.cssText = "display:none;";
+    wrap.insertAdjacentElement("afterend", el);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     HOOK: INTERCEPT previewDoc UNTUK rapbulanan
+  ═══════════════════════════════════════════════════════════ */
+  (function hookPreviewDocV50(){
+    var _prev = window.previewDoc;
+    window.previewDoc = function(type){
+      if(type === "rapbulanan"){
+        /* 1. Hapus DS template cache supaya fresh content tampil */
+        clearRapBulananDsTemplate();
+
+        /* 2. Sync bulan dari v48RapBulanSel */
+        var v48sel = document.getElementById("v48RapBulanSel");
+        var gsel   = document.getElementById("monthlyDocMonth");
+        var month  = (v48sel&&v48sel.value) || (gsel&&gsel.value) ||
+                     (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth) ||
+                     "Januari 2026";
+        if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth = month;
+        if(gsel) gsel.value = month;
+        if(v48sel&&v48sel.value!==month) v48sel.value = month;
+
+        /* 3. Tampilkan validasi */
+        injectValidationContainer();
+        renderValidationBanner(month);
+
+        /* 4. Show bulan wrap */
+        var wrap = document.getElementById("v48RapBulanWrap");
+        if(wrap) wrap.style.display = "flex";
+      } else {
+        hideValidationBanner();
+      }
+      if(typeof _prev==="function") _prev(type);
+    };
+  })();
+
+  /* Juga hook dsDocSelectV43 change untuk show/hide validasi */
+  function patchDocSelForValidation(){
+    var origSel = document.getElementById("dsDocSelectV43");
+    if(!origSel) return;
+    var newSel = origSel.cloneNode(true);
+    origSel.parentNode.replaceChild(newSel, origSel);
+    newSel.addEventListener("change", function(){
+      if(typeof window.previewDoc==="function") window.previewDoc(newSel.value);
+    });
+    /* Patch generate button */
+    var origBtn = document.getElementById("dsDocGenBtnV43");
+    if(!origBtn) return;
+    var newBtn = origBtn.cloneNode(true);
+    origBtn.parentNode.replaceChild(newBtn, origBtn);
+    newBtn.addEventListener("click", function(){
+      var t = newSel.value;
+      if(!t) return;
+      if(typeof window.previewDoc==="function") window.previewDoc(t);
+    });
+    /* Wire v48RapBulanSel change */
+    var msel = document.getElementById("v48RapBulanSel");
+    if(msel){
+      msel.addEventListener("change", function(){
+        if(newSel.value==="rapbulanan"){
+          if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+        }
+      });
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     INIT
+  ═══════════════════════════════════════════════════════════ */
+  function initV50(){
+    injectValidationContainer();
+    patchDocSelForValidation();
+
+    /* Re-render panel persiapan jika sudah terbuka */
+    var panel = document.getElementById("pkRapAutoDetectPanel");
+    if(panel){
+      var sel = document.getElementById("pkRapMonthV49");
+      var month = (sel&&sel.value)||
+                  (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+                  "Juni 2026";
+      window.renderCardGrid49(month);
+    }
+
+    /* Jika rapbulanan sedang ditampilkan, refresh */
+    if(window.currentDoc === "rapbulanan"){
+      if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+    }
+
+    console.log("[BOP v1.50] Fix DS-cache + Persiapan fallback + Validasi Anggaran aktif.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(initV50,2600); });
+  else
+    setTimeout(initV50,2600);
+})();

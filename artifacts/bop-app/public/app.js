@@ -7390,3 +7390,184 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.49] RAP Auto-Detect Panel + SPJ KOP V37 aktif.");
 })();
+
+
+/* ================================================================
+   PATCH v1.48b — Fix RAP Bulanan: selector readable + docRapBulanan
+   Masalah 1: v48RapBulanSel pakai class ds-doc-select-v43 (dark navy
+              background) tapi berada di panel putih → teks putih
+              tidak terlihat.
+   Masalah 2: docRapBulanan (line 2394, global) pakai
+              getMonthlyFlattenedRows yang butuh breakdown data.
+              Jika breakdown kosong → "Belum ada rencana kegiatan".
+   Masalah 3: change-event pada dsDocSelectV43 (v1.43B) langsung
+              call previewDoc tanpa sync bulan dahulu.
+   Fix:
+     1. Inject CSS khusus #v48RapBulanSel → white bg + dark text
+     2. Override window.docRapBulanan → pakai getMonthlyRapRows
+     3. Clone dsDocSelectV43 & dsDocGenBtnV43 dengan handler baru
+        yang selalu sync bulan sebelum render rapbulanan
+   ================================================================ */
+(function bopFixRapBulananV48b(){
+  if(window.__bopFixRapBulananV48b) return;
+  window.__bopFixRapBulananV48b = true;
+
+  /* ── 1. CSS fix: selector bulan readable ── */
+  function injectCss48b(){
+    if(document.getElementById("css48b")) return;
+    var s=document.createElement("style");
+    s.id="css48b";
+    s.textContent=
+      '#v48RapBulanSel{'+
+        'background:#fff!important;'+
+        'color:#06142b!important;'+
+        'border:1px solid #d9e2ee!important;'+
+        'background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23334155\' stroke-width=\'2.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")!important;'+
+        'background-repeat:no-repeat!important;'+
+        'background-position:right 10px center!important;'+
+        'background-size:14px!important;'+
+        'padding:8px 32px 8px 12px!important;'+
+      '}'+
+      '#v48RapBulanSel option{background:#fff!important;color:#06142b!important;}'+
+      '#v48RapBulanWrap label{color:#667085!important;}';
+    document.head.appendChild(s);
+  }
+
+  /* ── 2. Override window.docRapBulanan ── */
+  window.docRapBulanan = function docRapBulananV48b(){
+    /* Prioritas: v48RapBulanSel → monthlyDocMonth → data.selectedMonth */
+    var v48sel=document.getElementById("v48RapBulanSel");
+    var globalSel=document.getElementById("monthlyDocMonth");
+    var month=(v48sel&&v48sel.value)||
+              (globalSel&&globalSel.value)||
+              (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+              "Januari 2026";
+
+    /* Sync ke semua sumber agar konsisten */
+    try{
+      if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month;
+      if(globalSel) globalSel.value=month;
+      if(v48sel&&v48sel.value!==month) v48sel.value=month;
+    }catch(e){}
+
+    /* Ambil baris dari getMonthlyRapRows (sederhana, tidak perlu breakdown) */
+    var rows=[];
+    try{ rows=getMonthlyRapRows(month); }catch(e){}
+    var total=rows.reduce(function(s,r){return s+Number(r.jumlahBulanan||r.jumlah||0);},0);
+
+    var m=(window.data&&window.data.master)||{};
+    var p=(window.data&&window.data.pengajuan)||{};
+
+    var rowsHtml=rows.length
+      ? rows.map(function(r,i){
+          var kat=esc(r.kategori||"");
+          var sub=r.subKategori?(' &bull; '+esc(r.subKategori)):"";
+          var tipe=r.tipe?(' | Tipe: '+esc(r.tipe)):"";
+          return '<tr>'+
+            '<td>'+(i+1)+'</td>'+
+            '<td>'+esc(r.uraian||"")+'<br><small>'+kat+sub+tipe+'</small></td>'+
+            '<td>'+esc(r.volume||"")+'</td>'+
+            '<td class="money-cell-v37">'+rupiah(r.jumlahBulanan||r.jumlah||0)+'</td>'+
+            '<td>'+esc(r.keterangan||"")+'</td>'+
+          '</tr>';
+        }).join("")
+      : '<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">'+
+          'Belum ada rencana kegiatan untuk bulan '+esc(month)+'.'+
+          '</td></tr>';
+
+    var body=
+      '<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>'+
+      'BANTUAN OPERASIONAL RT<br>'+
+      'BULAN '+esc(month).toUpperCase()+'</div>'+
+      '<table><thead><tr>'+
+        '<th>No</th>'+
+        '<th>Kegiatan / Tipe Operasional</th>'+
+        '<th>Satuan/Volume Bulanan</th>'+
+        '<th>Rencana Anggaran</th>'+
+        '<th>Keterangan</th>'+
+      '</tr></thead><tbody>'+
+        rowsHtml+
+        '<tr>'+
+          '<td colspan="3"><b>Jumlah RAP Bulanan</b></td>'+
+          '<td class="money-cell-v37"><b>'+rupiah(total)+'</b></td>'+
+          '<td></td>'+
+        '</tr>'+
+      '</tbody></table>'+
+      '<p style="text-align:right;margin-top:20px">Semarang, '+esc(month)+'</p>'+
+      '<div class="ttd-4">'+
+        '<div>Ketua RT '+(m.rt||"005")+'<div class="signature-space"></div>'+(m.ketua||"Nama Jelas")+'</div>'+
+        '<div>Bendahara RT '+(m.rt||"005")+'<div class="signature-space"></div>'+(m.bendahara||"Nama Jelas")+'</div>'+
+        '<div>Lurah '+(m.kelurahan||"Tegalsari")+'<div class="signature-space"></div>'+(p.namaLurah||"Nama Jelas")+'</div>'+
+        '<div>Ketua RW '+(m.rw||"012")+'<div class="signature-space"></div>'+(p.namaKetuaRw||"Nama Jelas")+'</div>'+
+      '</div>';
+
+    if(typeof official==="function") return official(body);
+    return '<div class="official">'+body+'</div>';
+  };
+
+  /* ── Helper: sync bulan dari v48RapBulanSel ke semua target ── */
+  function syncRapBulan(){
+    var v48sel=document.getElementById("v48RapBulanSel");
+    var globalSel=document.getElementById("monthlyDocMonth");
+    if(!v48sel) return;
+    var month=v48sel.value;
+    try{
+      if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month;
+      if(globalSel) globalSel.value=month;
+    }catch(e){}
+  }
+
+  /* ── 3. Re-wire dsDocSelectV43 & dsDocGenBtnV43 ── */
+  function rewireDocControls(){
+    var origSel=document.getElementById("dsDocSelectV43");
+    if(!origSel) return;
+
+    /* Clone select untuk hapus semua listener lama */
+    var newSel=origSel.cloneNode(true);
+    origSel.parentNode.replaceChild(newSel, origSel);
+
+    /* Toggle v48RapBulanWrap + sync month + preview on change */
+    newSel.addEventListener("change", function(){
+      var type=newSel.value;
+      var wrap=document.getElementById("v48RapBulanWrap");
+      if(wrap) wrap.style.display=(type==="rapbulanan")?"flex":"none";
+      if(type==="rapbulanan") syncRapBulan();
+      if(typeof previewDoc==="function") previewDoc(type);
+    });
+
+    /* Clone Generate button untuk hapus semua listener lama */
+    var origBtn=document.getElementById("dsDocGenBtnV43");
+    if(!origBtn) return;
+    var newBtn=origBtn.cloneNode(true);
+    origBtn.parentNode.replaceChild(newBtn, origBtn);
+
+    newBtn.addEventListener("click", function(){
+      var type=newSel.value;
+      if(!type) return;
+      if(type==="rapbulanan") syncRapBulan();
+      if(typeof previewDoc==="function") previewDoc(type);
+    });
+
+    /* Juga wire v48RapBulanSel change → sync + auto-preview */
+    var v48sel=document.getElementById("v48RapBulanSel");
+    if(v48sel){
+      v48sel.addEventListener("change", function(){
+        syncRapBulan();
+        if(newSel.value==="rapbulanan"){
+          if(typeof previewDoc==="function") previewDoc("rapbulanan");
+        }
+      });
+    }
+  }
+
+  function init48b(){
+    injectCss48b();
+    rewireDocControls();
+    console.log("[BOP v1.48b] Fix RAP Bulanan selector + docRapBulanan aktif.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(init48b,2200);});
+  else
+    setTimeout(init48b,2200);
+})();

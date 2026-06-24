@@ -310,16 +310,7 @@ function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw|
 
 function kopHTML(){
   const k=data.kop;
-  return `<div class="kop" style="display:block!important;position:relative!important;width:100%!important;min-height:78px!important;text-align:center!important;border-bottom:3px double #000!important;padding:4px 0 8px 0!important;margin:0 0 10px 0!important;box-sizing:border-box!important;">
-    <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" style="position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;width:58px!important;max-width:58px!important;max-height:70px!important;height:auto!important;object-fit:contain!important;display:block!important;" alt="Logo Kota Semarang">
-    <div class="kop-text" style="display:block!important;width:100%!important;box-sizing:border-box!important;text-align:center!important;padding:0 76px!important;line-height:1.15!important;">
-      <h1 style="margin:0!important;padding:0!important;text-align:center!important;font-size:16pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris1}</h1>
-      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris2}</h2>
-      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris3}</h2>
-      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris4}</h2>
-      <p style="margin:4px 0 0 0!important;padding:0!important;text-align:center!important;font-size:9.5pt!important;line-height:1.05!important;">${k.alamat||data.master.alamat||""}</p>
-    </div>
-  </div>`;
+  return `<div class="kop"><div class="kop-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang"></div><div class="kop-text"><div class="kop-b1">${k.baris1}</div><div class="kop-b2">${k.baris2}</div><div class="kop-b2">${k.baris3}</div><div class="kop-b2">${k.baris4}</div><div class="kop-addr">${k.alamat||data.master.alamat||""}</div></div><div class="kop-logo-spacer"></div></div>`;
 }
 
 function official(body){ return `<div class="official">${kopHTML()}${body}</div>`; }
@@ -4826,12 +4817,14 @@ async function goPage(page){
     body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.24}
     .print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}
     .official,.official-v37{font-family:"Times New Roman",serif;color:#000;font-size:11.5pt;line-height:1.24;width:100%;box-sizing:border-box;text-align:justify}
-    .kop{position:relative;text-align:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;min-height:72px;display:flex;align-items:center;justify-content:center}
-    .kop-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);width:58px;max-height:70px;object-fit:contain;display:block}
-    .kop-text{text-align:center;width:100%}
-    .kop h1,.kop-text h1{margin:0;font-size:16px;text-transform:uppercase;text-align:center}
-    .kop h2,.kop-text h2{margin:2px 0;font-size:15px;text-transform:uppercase;text-align:center}
-    .kop p,.kop-text p{margin:2px 0;font-size:11px;text-align:center}
+    .kop{display:flex;align-items:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;width:100%;box-sizing:border-box;page-break-inside:avoid;break-inside:avoid}
+    .kop-logo-wrap{width:56px;min-width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+    .kop-logo{width:52px;height:auto;max-height:64px;object-fit:contain;display:block}
+    .kop-logo-spacer{width:56px;min-width:56px;flex-shrink:0}
+    .kop-text{flex:1;text-align:center;padding:0 4px}
+    .kop-b1{font-family:"Times New Roman",serif;font-size:15pt;font-weight:bold;text-transform:uppercase;text-align:center;white-space:nowrap;line-height:1.1;margin:0;padding:0}
+    .kop-b2{font-family:"Times New Roman",serif;font-size:12.5pt;font-weight:bold;text-transform:uppercase;text-align:center;white-space:nowrap;line-height:1.1;margin:1px 0;padding:0}
+    .kop-addr{font-family:"Times New Roman",serif;font-size:9pt;font-weight:normal;text-align:center;margin-top:3px;line-height:1.2;white-space:normal}
     .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt;line-height:1.2}
     .official p{margin:7px 0;text-align:justify}.center-v37{text-align:center!important}.date-right-v37{text-align:right!important}.ket-v37{font-size:10pt}.mengetahui-v37{margin-top:14px!important}
     .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
@@ -5586,73 +5579,83 @@ function printCssV22(){
   }
 
   .official .kop,.kop{
-    display:block!important;
-    position:relative!important;
+    display:flex!important;
+    align-items:center!important;
     width:100%!important;
-    min-height:0!important;
+    box-sizing:border-box!important;
     border-bottom:3px double #000!important;
-    padding:0 0 6px 0!important;
-    margin:0 0 8px 0!important;
-    text-align:center!important;
+    padding:4px 0 8px 0!important;
+    margin:0 0 10px 0!important;
+    position:static!important;
     break-after:avoid!important;
     page-break-after:avoid!important;
   }
 
-  .official .kop table,.kop table{
-    width:100%!important;
-    max-width:100%!important;
-    table-layout:auto!important;
-    border-collapse:collapse!important;
-    border:0!important;
-    margin:0!important;
-    padding:0!important;
-  }
-
-  .official .kop td,.official .kop th,.kop td,.kop th{
-    border:0!important;
-    padding:0!important;
-    vertical-align:middle!important;
+  .kop-logo-wrap{
+    width:54px!important;
+    min-width:54px!important;
+    flex-shrink:0!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
   }
 
   .official .kop-logo,.kop-logo{
     width:50px!important;
     max-width:50px!important;
-    max-height:60px!important;
+    height:auto!important;
+    max-height:62px!important;
     object-fit:contain!important;
     display:block!important;
+    position:static!important;
+    transform:none!important;
+  }
+
+  .kop-logo-spacer{
+    width:54px!important;
+    min-width:54px!important;
+    flex-shrink:0!important;
   }
 
   .official .kop-text,.kop-text{
-    width:100%!important;
+    flex:1!important;
     text-align:center!important;
+    padding:0 4px!important;
+    width:auto!important;
   }
 
-  .official .kop h1,.official .kop-text h1{
+  .kop-b1{
+    font-family:"Times New Roman",serif!important;
     font-size:15pt!important;
-    line-height:1.05!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
     margin:0!important;
     padding:0!important;
-    white-space:nowrap!important;
-    text-align:center!important;
-    text-transform:uppercase!important;
   }
 
-  .official .kop h2,.official .kop-text h2{
-    font-size:12.8pt!important;
-    line-height:1.05!important;
+  .kop-b2{
+    font-family:"Times New Roman",serif!important;
+    font-size:12.5pt!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
     margin:1px 0!important;
     padding:0!important;
-    white-space:nowrap!important;
-    text-align:center!important;
-    text-transform:uppercase!important;
   }
 
-  .official .kop p,.official .kop-text p{
+  .kop-addr{
+    font-family:"Times New Roman",serif!important;
     font-size:8.8pt!important;
-    line-height:1.05!important;
-    margin:1px 0!important;
-    padding:0!important;
+    font-weight:normal!important;
     text-align:center!important;
+    margin-top:3px!important;
+    line-height:1.2!important;
+    white-space:normal!important;
   }
 
   .official .title{
@@ -5760,46 +5763,79 @@ function printCssV22(){
 }
 
 
-/* PATCH 011 - Force KOP center on print/preview */
-(function kopCenterPatch011(){
+/* PATCH 011 - KOP Surat Flex Layout (v2) */
+(function kopFlexPatch011(){
   const css = `
-  .official .kop,
   .kop{
-    display:block!important;
-    position:relative!important;
+    display:flex!important;
+    align-items:center!important;
+    border-bottom:3px double #000!important;
+    padding:4px 0 8px 0!important;
+    margin-bottom:14px!important;
     width:100%!important;
-    min-height:78px!important;
-    text-align:center!important;
     box-sizing:border-box!important;
+    position:static!important;
+    min-height:0!important;
   }
-  .official .kop-logo,
+  .kop-logo-wrap{
+    width:60px!important;
+    min-width:60px!important;
+    flex-shrink:0!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+  }
   .kop-logo{
-    position:absolute!important;
-    left:0!important;
-    top:50%!important;
-    transform:translateY(-50%)!important;
-    width:58px!important;
-    max-width:58px!important;
-    max-height:70px!important;
+    width:54px!important;
+    max-width:54px!important;
     height:auto!important;
+    max-height:66px!important;
     object-fit:contain!important;
-  }
-  .official .kop-text,
-  .kop-text{
     display:block!important;
-    width:100%!important;
-    box-sizing:border-box!important;
-    padding-left:76px!important;
-    padding-right:76px!important;
-    text-align:center!important;
+    position:static!important;
+    transform:none!important;
   }
-  .official .kop h1,
-  .official .kop h2,
-  .official .kop p,
-  .kop h1,
-  .kop h2,
-  .kop p{
+  .kop-logo-spacer{
+    width:60px!important;
+    min-width:60px!important;
+    flex-shrink:0!important;
+  }
+  .kop-text{
+    flex:1!important;
     text-align:center!important;
+    padding:0 4px!important;
+    width:auto!important;
+  }
+  .kop-b1{
+    font-family:"Times New Roman",serif!important;
+    font-size:17px!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
+    margin:0!important;
+    padding:0!important;
+  }
+  .kop-b2{
+    font-family:"Times New Roman",serif!important;
+    font-size:15px!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
+    margin:1px 0!important;
+    padding:0!important;
+  }
+  .kop-addr{
+    font-family:"Times New Roman",serif!important;
+    font-size:12px!important;
+    font-weight:normal!important;
+    text-align:center!important;
+    margin-top:3px!important;
+    line-height:1.2!important;
+    white-space:normal!important;
   }`;
   const style=document.createElement("style");
   style.id="kop-center-patch-011";

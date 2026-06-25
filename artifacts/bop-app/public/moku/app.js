@@ -1580,24 +1580,24 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       if (open && !e.target.closest("button")) { openLightbox(open.dataset.openPhoto); return; }
     });
 
-    $("floatingCameraBtn").addEventListener("click", openCamera);
-    $("cameraMainBtn").addEventListener("click", openCamera);
-    $("captureBtn").addEventListener("click", capturePhoto);
-    $("closeCameraBtn").addEventListener("click", closeCamera);
-    $("switchCameraBtn").addEventListener("click", switchCamera);
+    const _fcBtn = $("floatingCameraBtn"); if(_fcBtn) _fcBtn.addEventListener("click", openCamera);
+    const _cmBtn = $("cameraMainBtn"); if(_cmBtn) _cmBtn.addEventListener("click", openCamera);
+    const _capBtn = $("captureBtn"); if(_capBtn) _capBtn.addEventListener("click", capturePhoto);
+    const _ccBtn = $("closeCameraBtn"); if(_ccBtn) _ccBtn.addEventListener("click", closeCamera);
+    const _scBtn = $("switchCameraBtn"); if(_scBtn) _scBtn.addEventListener("click", switchCamera);
 
-    $("lockGpsBtn").addEventListener("click", () => lockGps({ silent:false }));
-    $("gpsStatusBtn").addEventListener("click", showGpsSheet);
-    $("retryGpsBtn").addEventListener("click", () => { $("gpsSheet").hidden = true; lockGps({ silent:false }); });
-    $("closeGpsSheetBtn").addEventListener("click", () => $("gpsSheet").hidden = true);
-    $("gpsSheet").addEventListener("click", e => { if (e.target === $("gpsSheet")) $("gpsSheet").hidden = true; });
+    const _lgBtn = $("lockGpsBtn"); if(_lgBtn) _lgBtn.addEventListener("click", () => lockGps({ silent:false }));
+    const _gsBtn = $("gpsStatusBtn"); if(_gsBtn) _gsBtn.addEventListener("click", showGpsSheet);
+    const _rgBtn = $("retryGpsBtn"); if(_rgBtn) _rgBtn.addEventListener("click", () => { const _gs = $("gpsSheet"); if(_gs) _gs.hidden = true; lockGps({ silent:false }); });
+    const _cgsBtn = $("closeGpsSheetBtn"); if(_cgsBtn) _cgsBtn.addEventListener("click", () => { const _gs = $("gpsSheet"); if(_gs) _gs.hidden = true; });
+    const _gSheet = $("gpsSheet"); if(_gSheet) _gSheet.addEventListener("click", e => { if (e.target === _gSheet) _gSheet.hidden = true; });
 
     // Activity modal (tombol manual sudah dihapus dari UI, jaga jika DOM masih ada)
     const addManualEl = $("addManualBtn");
     if (addManualEl) addManualEl.addEventListener("click", openAddModal);
-    $("saveActivityBtn").addEventListener("click", saveNewActivity);
-    $("cancelActivityBtn").addEventListener("click", () => $("activityModal").hidden = true);
-    $("activityModal").addEventListener("click", e => { if (e.target === $("activityModal")) $("activityModal").hidden = true; });
+    const _savBtn = $("saveActivityBtn"); if(_savBtn) _savBtn.addEventListener("click", saveNewActivity);
+    const _canBtn = $("cancelActivityBtn"); if(_canBtn) _canBtn.addEventListener("click", () => { const _am = $("activityModal"); if(_am) _am.hidden = true; });
+    const _aModal = $("activityModal"); if(_aModal) _aModal.addEventListener("click", e => { if (e.target === _aModal) _aModal.hidden = true; });
 
     // Enter to save modal
     document.addEventListener("keydown", e => {
@@ -1693,9 +1693,9 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     }
 
     // Lightbox
-    $("closeLightbox").addEventListener("click", () => $("lightbox").hidden = true);
-    $("lightbox").addEventListener("click", e => { if (e.target === $("lightbox")) $("lightbox").hidden = true; });
-    $("lightboxDownload").addEventListener("click", () => {
+    const _clBtn = $("closeLightbox"); if(_clBtn) _clBtn.addEventListener("click", () => { const _lb = $("lightbox"); if(_lb) _lb.hidden = true; });
+    const _lbox = $("lightbox"); if(_lbox) _lbox.addEventListener("click", e => { if (e.target === _lbox) _lbox.hidden = true; });
+    const _lbDl = $("lightboxDownload"); if(_lbDl) _lbDl.addEventListener("click", () => {
       if (!lightboxPhoto) return;
       const a = document.createElement("a");
       a.href = lightboxPhoto.dataUrl;
@@ -1720,7 +1720,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       installPrompt = e;
       $("installBtn").hidden = false;
     });
-    $("installBtn").addEventListener("click", async () => {
+    const _instBtn = $("installBtn"); if(_instBtn) _instBtn.addEventListener("click", async () => {
       if (!installPrompt) return;
       installPrompt.prompt();
       installPrompt = null;

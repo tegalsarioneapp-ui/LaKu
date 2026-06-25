@@ -589,9 +589,13 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
   .ttd-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 70px; text-align: center; margin-top: 22px; }
   .ttd-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 20px; text-align: center; margin-top: 22px; }
   .ttd-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 35px; text-align: center; margin-top: 22px; }
-  .kop { display: grid; grid-template-columns: 70px 1fr; gap: 12px; align-items: center; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 12px; }
+    .kop { display: grid; grid-template-columns: 70px 1fr; gap: 12px; align-items: center; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 12px; }
   .kop-logo img, .kop img { width: 64px !important; max-width: 64px !important; height: auto; }
-  .kop-text { line-height: 1.3; }
+  .kop-text { line-height: 1.3; text-align: center; }
+  .kop h1, .kop-b1 { font-family: "Times New Roman", serif; font-size: 17px; font-weight: bold; text-transform: uppercase; text-align: center; margin: 0; padding: 0; }
+  .kop h2, .kop-b2 { font-family: "Times New Roman", serif; font-size: 16px; font-weight: bold; text-transform: uppercase; text-align: center; margin: 2px 0; padding: 0; }
+  .kop p, .kop-addr { font-family: "Times New Roman", serif; font-size: 12px; text-align: center; margin: 2px 0; padding: 0; }
+  .kop-text * { text-align: center !important; white-space: normal !important; word-break: normal !important; }
   p { margin: 8px 0; }
   ol { margin: 8px 0; padding-left: 24px; }
   li { margin-bottom: 6px; }
@@ -813,12 +817,13 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
      HOOK INTO DOC GENERATION
      Observe #docOutput for changes and sync to editor.
   ════════════════════════════════════════════════════════════════ */
+  let _dsDebounce = null;
   function hookDocOutput() {
     const docOutput = document.getElementById("docOutput");
     if (!docOutput) return;
 
     let lastContent = "";
-    const observer  = new MutationObserver(() => {
+    const observer  = new MutationObserver(() => { clearTimeout(_dsDebounce); _dsDebounce = setTimeout(() => {
       const html = docOutput.innerHTML.trim();
       if (html && html !== lastContent) {
         lastContent = html;
@@ -833,6 +838,7 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
           setTimeout(() => wrap.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
         }
       }
+      }, 80);
     });
     observer.observe(docOutput, { childList: true, subtree: true, characterData: true });
   }

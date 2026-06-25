@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LaKu Warga — Laporan &amp; Dokumentasi Online Warga</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="document-studio/document-studio.css" />
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<!-- PATCH 012 - Runtime API config for Vercel + Railway -->
+<script>
+  /* API base: diisi saat deploy (Vercel env), kosong = relative /api */
+  (function(){
+    var b = typeof __BOP_API_BASE__ !== "undefined" ? __BOP_API_BASE__ : "";
+    window.BOP_API_BASE = String(b || "").replace(/\/+$/, "");
+  })();
+</script>
+
+</head>
+<body>
+  <div class="app-shell access-lock-v30" id="appShell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Kota Semarang" class="brand-logo">
+        <div>
+          <h1 class="brand-name-laku">LaKu Warga</h1>
+          <p class="brand-tagline-laku">Laporan &amp; Dokumentasi Online Warga</p>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button data-page="akses" class="active">Pilih Akses</button>
+        <button data-page="dashboard">BOP Dashboard</button>
+        <button data-page="pengajuan">Pengajuan Dana Operasional</button>
+        <button data-page="persiapan">Persiapan Kegiatan Operasional</button>
+        <button data-page="lpj">Laporan Pertanggungjawaban</button>
+        <button data-page="moku">MoKu Mobile</button>
+        <button data-page="monitoring">Monitoring Administrasi</button>
+        <button data-page="setting">Setting</button>
+      </nav>
+
+      <div class="side-note">
+        <b>Offline</b><br>
+        Data tersimpan di perangkat ini.
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn" id="hamburger" title="Tampilkan/sembunyikan menu">☰</button>
+        <img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Kota Semarang" class="top-logo">
+        <div class="top-id">
+          <strong id="topTitle">RT 005 RW 012</strong>
+          <span id="topSubtitle">Tegalsari, Candisari, Kota Semarang</span>
+        </div>
+        <div class="clock" id="clockBox">--:--:--</div>
+        <div class="status" id="topbarStatus"><span class="dot" id="topbarDot"></span> <span id="topbarStatusText">Memeriksa...</span></div>
+      </header>
+
+      <section class="page active" id="page-akses">
+        <div class="access-hero-v29">
+          <div class="access-badge-v29">Satu Aplikasi Terintegrasi</div>
+          <h2>LaKu Warga</h2>
+          <p>Silakan pilih aplikasi kerja terlebih dahulu. Setelah memilih, menu BOP dan MoKu akan terbuka sesuai kebutuhan.</p>
+          <div class="access-choice-grid-v29">
+            <button class="access-choice-card-v29 bop" data-go="dashboard" type="button">
+              <span class="access-choice-icon-v29">📑</span>
+              <strong>Masuk BOP Administrasi</strong>
+              <small>Pengajuan, RAP, LPJ/SPJ, monitoring, dokumen, dan riwayat.</small>
+            </button>
+            <button class="access-choice-card-v29 moku" data-go="moku" type="button">
+              <span class="access-choice-icon-v29">📷</span>
+              <strong>Masuk MoKu Mobile</strong>
+              <small>Dokumentasi kegiatan lapangan dengan kamera langsung, timestamp premium, lokasi otomatis jika tersedia, dan bukti SPJ.</small>
+            </button>
+          </div>
+          <div class="biometric-row-v43" id="biometricRowV43">
+            <button class="biometric-btn-v43" id="biometricBtnV43" type="button" title="Masuk dengan Biometrik (Sidik Jari / Wajah)">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12C2 6.48 6.48 2 12 2s10 4.48 10 10-4.48 10-10 10S2 17.52 2 12z"/><path d="M8 12a4 4 0 0 1 8 0"/><path d="M10 14.5a2.5 2.5 0 0 0 4 0"/><path d="M12 8v1"/></svg>
+              <span id="biometricBtnLabel">Masuk dengan Biometrik</span>
+            </button>
+            <p class="biometric-hint-v43" id="biometricHintV43"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-dashboard">
+
+        <!-- Hero Banner -->
+        <div class="dbx-hero">
+          <div class="dbx-hero-left">
+            <span class="dbx-hero-eyebrow">RT 005 · RW 012 · Tegalsari, Semarang</span>
+            <h2 class="dbx-hero-title">BOP Dashboard</h2>
+            <p class="dbx-hero-sub">Bantuan Operasional RT — Tahun Anggaran 2026</p>
+          </div>
+          <div class="dbx-hero-actions">
+            <button class="dbx-btn-primary" data-go="pengajuan">＋ Pengajuan</button>
+            <button class="dbx-btn-secondary" data-go="lpj">＋ LPJ</button>
+          </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="dbx-kpi-row">
+          <div class="dbx-kpi-card" style="--kpi-accent:#3b82f6">
+            <div class="dbx-kpi-icon" style="background:rgba(59,130,246,.15);color:#3b82f6">💰</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Total Anggaran BOP</span>
+              <strong class="dbx-kpi-val" id="dashTotal">Rp25.000.000</strong>
+              <small class="dbx-kpi-sub">Tahun 2026</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#10b981">
+            <div class="dbx-kpi-icon" style="background:rgba(16,185,129,.15);color:#10b981">📊</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Teralokasi RAP</span>
+              <strong class="dbx-kpi-val" id="dashAllocated">Rp0</strong>
+              <small class="dbx-kpi-sub" id="dashPercent">0% dari total</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#f59e0b">
+            <div class="dbx-kpi-icon" style="background:rgba(245,158,11,.15);color:#f59e0b">📋</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Sisa Anggaran</span>
+              <strong class="dbx-kpi-val" id="dashSisa">Rp25.000.000</strong>
+              <small class="dbx-kpi-sub">Validasi otomatis</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#8b5cf6">
+            <div class="dbx-kpi-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🗂</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Riwayat Dokumen</span>
+              <strong class="dbx-kpi-val" id="dashHistory">0</strong>
+              <small class="dbx-kpi-sub">Pengajuan & LPJ</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Content Grid -->
+        <div class="dbx-grid">
+          <div class="dbx-panel">
+            <div class="dbx-panel-head">
+              <div>
+                <h3 class="dbx-panel-title">Checklist 7 Syarat Pengajuan</h3>
+                <p class="dbx-panel-sub">Kelengkapan dokumen pengajuan dana BOP</p>
+              </div>
+              <span id="checkProgress" class="dbx-badge">0 / 7</span>
+            </div>
+            <div class="checklist" id="dashboardChecklist"></div>
+          </div>
+
+          <div class="dbx-panel">
+            <div class="dbx-panel-head">
+              <div>
+                <h3 class="dbx-panel-title">Aktivitas Terbaru</h3>
+                <p class="dbx-panel-sub">Dokumen yang terakhir dibuat atau diperbarui</p>
+              </div>
+              <button class="dbx-btn-ghost" id="clearDashboardFilter">Lihat Semua</button>
+            </div>
+            <div id="recentHistory" class="history-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-pengajuan">
+        <div class="section-title">
+          <div>
+            <h2>Pengajuan Dana Operasional</h2>
+            <p>Semua 7 syarat pengajuan dibuat dan dikelola dalam satu menu.</p>
+          </div>
+          <button class="primary" id="savePengajuan">Simpan Pengajuan</button>
+        </div>
+
+        <div class="subnav">
+          <button class="subtab active" data-tab="data-pengajuan">Data Pengajuan</button>
+          <button class="subtab" data-tab="rap">RAP 1 Tahun</button>
+          <button class="subtab" data-tab="rap-bulanan">RAP Bulanan Otomatis</button>
+          <button class="subtab" data-tab="rapat">BA & Daftar Hadir RAP</button>
+          <button class="subtab" data-tab="undangan-notulen">Undangan & Notulen RAP</button>
+          <button class="subtab" data-tab="dokumen">Generate 7 Dokumen</button>
+          <button class="subtab" data-tab="riwayat-pengajuan">Riwayat</button>
+        </div>
+
+        <div class="module-guide-v20">
+          <div class="guide-card-v20">
+            <b>1. Data Pengajuan</b>
+            <span>Surat permohonan, rekening, Lurah, Ketua RW.</span>
+          </div>
+          <div class="guide-card-v20">
+            <b>2. RAP & RAP Bulanan</b>
+            <span>RAP 1 tahun, jadwal internal, breakdown bulanan.</span>
+          </div>
+          <div class="guide-card-v20">
+            <b>3. BA & Daftar Hadir RAP</b>
+            <span>Berita acara, daftar hadir, peserta rapat RAP.</span>
+          </div>
+          <div class="guide-card-v20">
+            <b>4. Undangan & Notulen RAP</b>
+            <span>Setting undangan dan notulen khusus pengajuan dana.</span>
+          </div>
+        </div>
+
+        <div class="tab-content active" id="tab-data-pengajuan">
+          <div class="pq-split-wrap">
+            <!-- ── Kolom Kiri: Form ── -->
+            <div class="pq-left">
+              <div class="panel">
+                <h3>Data Surat Permohonan & Rekening</h3>
+                <div class="form-grid">
+                  <label>Nomor Surat <input id="nomorSurat" placeholder=".../RT005/VII/2026"></label>
+                  <label>Tanggal Surat <input id="tanggalSurat" value="Semarang, 01 Juli 2026"></label>
+                  <label>Sifat <input id="sifatSurat" value="Segera"></label>
+                  <label>Lampiran <input id="lampiranSurat" value="1 (satu) berkas"></label>
+                  <label>Nama Rekening Bank Jateng <input id="namaRekening" placeholder="Nama rekening RT"></label>
+                  <label>Nama Lurah <input id="namaLurah" placeholder="Nama Lurah Tegalsari"></label>
+                  <label>Nama Ketua RW <input id="namaKetuaRw" placeholder="Nama Ketua RW 012"></label>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h3>Checklist 7 Syarat</h3>
+                <div class="doc-check-grid" id="syaratChecklist"></div>
+              </div>
+            </div>
+
+            <!-- ── Kolom Kanan: Pratinjau Langsung ── -->
+            <div class="pq-right">
+              <div class="pq-preview-panel">
+                <div class="pq-preview-header">
+                  <span>📄 Pratinjau Langsung</span>
+                  <select id="pqPreviewDocType" title="Pilih dokumen untuk pratinjau">
+                    <option value="permohonan">Surat Permohonan</option>
+                    <option value="rap">RAP</option>
+                    <option value="ba">Berita Acara</option>
+                    <option value="hadir">Daftar Hadir</option>
+                    <option value="sptjm">SPTJM</option>
+                    <option value="rbb">RBB</option>
+                    <option value="checklist">Checklist</option>
+                  </select>
+                  <button class="pq-refresh-btn" id="pqRefreshBtn" title="Refresh pratinjau">↺</button>
+                </div>
+                <div class="pq-preview-viewport" id="pqPreviewViewport">
+                  <div class="pq-preview-content" id="pqPreviewContent">
+                    <div class="pq-placeholder">Memuat pratinjau…</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-rap">
+          <div class="section-title mini">
+            <h3>Rencana Anggaran Penggunaan BOP RT</h3>
+            <button class="primary" id="addRap">+ Tambah Kegiatan</button>
+          </div>
+          <div class="table-wrap">
+            <table id="rapTable">
+              <thead><tr><th>No</th><th>Kategori Operasional</th><th>Sub Kategori</th><th>Uraian Kegiatan</th><th>Bulan Mulai</th><th>s.d Bulan</th><th>Total Satuan/Volume</th><th>Rencana Anggaran</th><th>Nilai/Volume</th><th>Ter-breakdown</th><th>Sisa Anggaran</th><th>Keterangan</th><th>Aksi</th></tr></thead>
+              <tbody></tbody>
+              <tfoot><tr><td colspan="7">Jumlah RAP 1 Tahun</td><td id="rapTotalCell">Rp0</td><td colspan="5"></td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-rap-bulanan">
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <h3>RAP Bulanan Otomatis</h3>
+                <p class="hint">Pilih bulan preview. Data RAP Bulanan otomatis membaca rentang Bulan Mulai s.d Bulan dari RAP 1 Tahun. Pilihan bulan tersedia lengkap Januari s.d Desember 2026.</p>
+              </div>
+              <div class="month-control">
+                <label>Bulan Preview/Generate
+                  <select id="monthlyDocMonth">
+                    <option>Januari 2026</option>
+                    <option>Februari 2026</option>
+                    <option>Maret 2026</option>
+                    <option>April 2026</option>
+                    <option>Mei 2026</option>
+                    <option>Juni 2026</option>
+                    <option>Juli 2026</option>
+                    <option>Agustus 2026</option>
+                    <option>September 2026</option>
+                    <option>Oktober 2026</option>
+                    <option>November 2026</option>
+                    <option>Desember 2026</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div id="monthlyRapSummary" class="monthly-rap-grid"></div>
+          <div class="panel monthly-print-panel">
+            <div class="section-head compact">
+              <div>
+                <h3>Preview / Cetak RAP Bulanan</h3>
+                <p>Dokumen RAP Bulanan dan RBB dapat langsung dipreview dan dicetak dari menu ini.</p>
+              </div>
+            </div>
+            <div class="action-row wrap">
+              <button class="secondary" id="previewMonthlyRapDoc">Preview RAP Bulanan</button>
+              <button class="primary" id="printMonthlyRapDoc">Cetak RAP Bulanan</button>
+              <button class="secondary" id="previewMonthlyRbbDoc">Preview RBB</button>
+              <button class="primary" id="printMonthlyRbbDoc">Cetak RBB</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-rapat">
+          <div class="section-note-v20">
+            <b>Menu ini khusus RAP Pengajuan Dana Operasional.</b>
+            Isi Berita Acara RAP, Daftar Hadir RAP, dan Peserta/Warga rapat RAP di sini. Undangan dan Notulen RAP ada pada tab terpisah.
+          </div>
+          <div class="grid-2">
+            <div class="panel">
+              <h3>Data Berita Acara RAP</h3>
+              <div class="form-grid one">
+                <label>Nomor Berita Acara <input id="baNomor" placeholder=".................."></label>
+                <label>Hari <input id="baHari" value="Minggu"></label>
+                <label>Tanggal <input id="baTanggal" value="21"></label>
+                <label>Bulan <input id="baBulan" value="Juni"></label>
+                <label>Tahun <input id="baTahun" value="2026"></label>
+                <label>Tempat <input id="baTempat" value="Burjo depan cuci motor Anugrah"></label>
+                <label>Pukul <input id="baPukul" value="19.30 WIB"></label>
+                <label>Dipimpin Oleh <input id="baPimpinan" placeholder="Nama pimpinan rapat"></label>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>Data Daftar Hadir</h3>
+              <div class="form-grid one">
+                <label>Nama Kegiatan <input id="hadirKegiatan" value="Rapat Pembahasan RAP BOP RT 005 RW 012"></label>
+                <label>Hari/Tanggal <input id="hadirTanggal" value="Minggu, 21 Juni 2026"></label>
+                <label>Waktu <input id="hadirWaktu" value="19.30 WIB"></label>
+                <label>Tempat <input id="hadirTempat" value="Burjo depan cuci motor Anugrah"></label>
+                <label>Agenda <input id="hadirAgenda" value="Pembahasan Rencana Anggaran Penggunaan Bantuan Operasional RT Tahun 2026"></label>
+                <label>Jumlah Baris Kosong <input id="hadirRows" type="number" min="5" max="150" value="50"></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title mini">
+            <h3>Peserta / Warga</h3>
+            <button class="primary" id="addPeserta">+ Tambah Peserta</button>
+          </div>
+          <div class="table-wrap">
+            <table id="pesertaTable">
+              <thead><tr><th>No</th><th>Nama</th><th>Jabatan/Status</th><th>Alamat/RT</th><th>Aksi</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-undangan-notulen">
+          <div class="section-note-v20 blue">
+            <b>Setting Undangan & Notulen Pengajuan Dana Operasional.</b>
+            Gunakan menu ini hanya untuk undangan/notulen rapat RAP atau rapat pengajuan BOP. Kegiatan operasional/SPJ harian tetap berada di menu Persiapan Kegiatan Operasional.
+          </div>
+          <div class="grid-2">
+            <div class="panel">
+              <h3>Data Undangan Rapat/Kegiatan</h3>
+              <div class="form-grid one">
+                <label>Nomor Undangan <input id="undNomor" placeholder=".../RT005/.../2026"></label>
+                <label>Tanggal Surat Undangan <input id="undTanggalSurat" value="Semarang, 01 Juli 2026"></label>
+                <label>Kepada/Yth. <input id="undKepada" value="Warga RT 005 RW 012"></label>
+                <label>Perihal <input id="undPerihal" value="Undangan Rapat/Kegiatan Warga"></label>
+                <label>Nama Kegiatan/Rapat <input id="rapatJudul" value="Rapat Pembahasan Rencana Anggaran Penggunaan BOP RT 005 RW 012"></label>
+                <label>Hari/Tanggal <input id="rapatHariTanggal" value="Minggu, 21 Juni 2026"></label>
+                <label>Waktu Mulai <input id="rapatMulai" value="19.30 WIB"></label>
+                <label>Waktu Selesai <input id="rapatSelesai" value="Selesai"></label>
+                <label>Tempat/Lokasi <input id="rapatTempat" value="Burjo depan cuci motor Anugrah"></label>
+                <label>Agenda Utama <textarea id="rapatAgenda" rows="3">Pembahasan Rencana Anggaran Penggunaan Bantuan Operasional RT Tahun 2026</textarea></label>
+              </div>
+            </div>
+
+            <div class="panel">
+              <h3>Data Notulen Resmi</h3>
+              <div class="form-grid one">
+                <label>Pimpinan Rapat <input id="notPimpinan" placeholder="Nama dan jabatan pimpinan rapat"></label>
+                <label>Notulis <input id="notNotulis" placeholder="Nama notulis"></label>
+                <label>Jumlah Hadir <input id="notHadir" type="number" value="0"></label>
+                <label>Jumlah Tidak Hadir <input id="notTidakHadir" type="number" value="0"></label>
+                <label>Pembahasan/Diskusi <textarea id="notPembahasan" rows="5">Rapat membahas agenda kegiatan, kebutuhan anggaran, pelaksanaan kegiatan, pembagian tugas, serta kelengkapan dokumen administrasi.</textarea></label>
+                <label>Hasil Keputusan <textarea id="notKeputusan" rows="4">Hasil rapat disepakati bersama dan akan dituangkan dalam dokumen resmi RT untuk kebutuhan administrasi dan pelaksanaan kegiatan.</textarea></label>
+                <label>Jadwal Rapat Berikutnya <input id="notRapatBerikutnya" placeholder="Opsional"></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title mini">
+            <h3>Rencana Tindak Lanjut / Action Plan</h3>
+            <button class="primary" id="addActionPlan">+ Tambah Tindak Lanjut</button>
+          </div>
+          <div class="table-wrap">
+            <table id="actionTable">
+              <thead><tr><th>No</th><th>Task/Tugas</th><th>Target Waktu</th><th>PIC/Penanggung Jawab</th><th>Aksi</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="panel">
+            <h3>Generate Undangan & Notulen</h3>
+            <div class="action-row">
+              <button class="doc-btn" data-doc="undangan">Undangan Resmi</button>
+              <button class="doc-btn" data-doc="notulen">Notulen Resmi</button>
+              <button class="primary" id="saveMeetingHistory">Simpan ke Riwayat</button>
+              <button class="secondary" id="printMeetingDoc">Cetak / Simpan PDF</button>
+            </div>
+            <p class="hint">Dokumen ini menggunakan KOP resmi, logo, tanda tangan pimpinan rapat/notulis, serta format unsur notulen formal.</p>
+          </div>
+        </div>
+
+
+        <div class="tab-content" id="tab-dokumen">
+
+          <!-- ═══════ DOCUMENT STUDIO ═══════════════════════════════ -->
+          <div class="ds-wrap" id="docStudioWrap">
+
+            <!-- Toggle bar -->
+            <div class="ds-toggle-bar">
+              <button class="ds-toggle-btn" id="dsToggleGenPanel" title="Sembunyikan/tampilkan daftar dokumen">▼ Panel Dokumen</button>
+              <button class="ds-toggle-btn" id="dsToggleSidebar" title="Sembunyikan/tampilkan sidebar kiri">▼ Sidebar</button>
+              <button class="ds-toggle-btn" id="dsFocusMode" title="Mode fokus — hanya editor yang tampil">⛶ Mode Fokus</button>
+              <span class="ds-doc-name" id="dsDocName">Pilih dokumen untuk mulai mengedit</span>
+              <span class="ds-template-badge" id="dsTemplateBadge" style="display:none">⭐ Format Baku Aktif</span>
+            </div>
+
+            <!-- Gen panel (collapsible) -->
+            <div class="ds-gen-panel" id="dsGenPanel">
+              <div class="ds-gen-inner">
+                <div class="ds-gen-left">
+                  <div class="ds-gen-label">Generate Dokumen</div>
+                  <div class="ds-doc-select-wrap-v43">
+                    <div class="ds-doc-select-group-v43">
+                      <select id="dsDocSelectV43" class="ds-doc-select-v43">
+                        <optgroup label="— Pengajuan Dana Operasional —">
+                          <option value="permohonan">1. Surat Permohonan</option>
+                          <option value="rap">2. RAP 1 Tahun</option>
+                          <option value="rapbulanan">2A. RAP Bulanan</option>
+                          <option value="ba">3. Berita Acara RAP</option>
+                          <option value="hadir">4. Daftar Hadir RAP</option>
+                          <option value="sptjm">5. SPTJM</option>
+                          <option value="sk">6. SK Lurah</option>
+                          <option value="rekening">7. Buku Rekening BPD</option>
+                        </optgroup>
+                        <optgroup label="— LPJ / Persiapan Kegiatan —">
+                          <option value="undangan">Undangan Kegiatan</option>
+                          <option value="notulen">Notulen Resmi</option>
+                        </optgroup>
+                      </select>
+                      <button class="ds-doc-gen-btn-v43" id="dsDocGenBtnV43" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        Generate
+                      </button>
+                    </div>
+                    <div class="ds-doc-hidden-btns" style="display:none">
+                      <button class="doc-btn" data-doc="permohonan">permohonan</button>
+                      <button class="doc-btn" data-doc="rap">rap</button>
+                      <button class="doc-btn" data-doc="rapbulanan">rapbulanan</button>
+                      <button class="doc-btn" data-doc="ba">ba</button>
+                      <button class="doc-btn" data-doc="hadir">hadir</button>
+                      <button class="doc-btn" data-doc="sptjm">sptjm</button>
+                      <button class="doc-btn" data-doc="sk">sk</button>
+                      <button class="doc-btn" data-doc="rekening">rekening</button>
+                      <button class="doc-btn" data-doc="undangan">undangan</button>
+                      <button class="doc-btn" data-doc="notulen">notulen</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="ds-gen-right">
+                  <div class="ds-gen-label">Simpan &amp; Backup</div>
+                  <div class="ds-gen-actions">
+                    <button class="ds-gen-btn ds-gen-btn-secondary" id="saveToHistory">📋 Riwayat</button>
+                    <button class="ds-gen-btn ds-gen-btn-secondary" id="dsReloadFresh" title="Hapus format baku & generate ulang dari data terkini">🔄 Ulang</button>
+                    <button class="ds-gen-btn ds-gen-btn-gold" id="dsBackupTemplates" title="Download semua format baku sebagai file JSON">💾 Backup</button>
+                    <label class="ds-gen-btn ds-gen-btn-secondary" style="cursor:pointer" title="Import format baku dari file JSON">
+                      📂 Import
+                      <input id="dsImportTemplates" type="file" accept=".json" style="display:none">
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="ds-toolbar" id="dsToolbar">
+
+              <!-- Font -->
+              <div class="ds-tb-group">
+                <select id="dsFontFamily" title="Font">
+                  <option value="Arial" selected>Arial</option>
+                  <option value="Times New Roman">Times New Roman</option>
+                  <option value="Calibri">Calibri</option>
+                  <option value="Georgia">Georgia</option>
+                </select>
+                <select id="dsFontSize" title="Ukuran Font (pt)">
+                  <option value="9">9pt</option>
+                  <option value="10">10pt</option>
+                  <option value="11">11pt</option>
+                  <option value="12" selected>12pt</option>
+                  <option value="14">14pt</option>
+                  <option value="16">16pt</option>
+                  <option value="18">18pt</option>
+                  <option value="20">20pt</option>
+                </select>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Text formatting -->
+              <div class="ds-tb-group">
+                <button data-ds-cmd="bold"          title="Bold (Ctrl+B)"><b>B</b></button>
+                <button data-ds-cmd="italic"        title="Italic (Ctrl+I)" style="font-style:italic"><i>I</i></button>
+                <button data-ds-cmd="underline"     title="Underline (Ctrl+U)"><u>U</u></button>
+                <button data-ds-cmd="strikeThrough" title="Coret"><s>S</s></button>
+                <button data-ds-cmd="removeFormat"  title="Hapus Pemformatan">✕</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Alignment -->
+              <div class="ds-tb-group">
+                <button data-ds-cmd="justifyLeft"   title="Rata Kiri">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
+                </button>
+                <button data-ds-cmd="justifyCenter" title="Rata Tengah">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                </button>
+                <button data-ds-cmd="justifyRight"  title="Rata Kanan">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>
+                </button>
+                <button data-ds-cmd="justifyFull"   title="Justify">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </button>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Indent & spacing -->
+              <div class="ds-tb-group">
+                <button data-ds-cmd="outdent" title="Kurangi Indent">⇤</button>
+                <button data-ds-cmd="indent"  title="Tambah Indent">⇥</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+              <div class="ds-tb-group">
+                <select id="dsLineSpacing" title="Spasi Baris">
+                  <option value="1">×1</option>
+                  <option value="1.15" selected>×1.15</option>
+                  <option value="1.5">×1.5</option>
+                  <option value="2">×2</option>
+                </select>
+                <select id="dsParaSpacingTop" title="Jarak Atas Paragraf">
+                  <option value="0pt">↑ 0pt</option>
+                  <option value="4pt">↑ 4pt</option>
+                  <option value="8pt" selected>↑ 8pt</option>
+                  <option value="12pt">↑ 12pt</option>
+                  <option value="16pt">↑ 16pt</option>
+                </select>
+                <select id="dsParaSpacingBottom" title="Jarak Bawah Paragraf">
+                  <option value="0pt">↓ 0pt</option>
+                  <option value="4pt">↓ 4pt</option>
+                  <option value="8pt" selected>↓ 8pt</option>
+                  <option value="12pt">↓ 12pt</option>
+                  <option value="16pt">↓ 16pt</option>
+                </select>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Layout tools -->
+              <div class="ds-tb-group">
+                <button id="dsMoveParaUp"   title="Pindah Paragraf Naik">↑ Para</button>
+                <button id="dsMoveParaDown" title="Pindah Paragraf Turun">↓ Para</button>
+                <button id="dsAddEmptyLine" title="Tambah Baris Kosong">↵ Baris</button>
+                <button id="dsAddPageBreak" title="Tambah Ganti Halaman">‖ Break</button>
+                <select id="dsZoom" title="Zoom Editor">
+                  <option value="0.75">75%</option>
+                  <option value="0.9">90%</option>
+                  <option value="1" selected>100%</option>
+                  <option value="1.25">125%</option>
+                </select>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Table ops -->
+              <div class="ds-tb-group">
+                <button data-ds-table="addRowAbove"  title="Tambah Baris di Atas (klik sel dulu)">⬆ Baris</button>
+                <button data-ds-table="addRowBelow"  title="Tambah Baris di Bawah">⬇ Baris</button>
+                <button data-ds-table="deleteRow"    title="Hapus Baris">✕ Baris</button>
+                <span class="ds-tb-sep"></span>
+                <button data-ds-table="addColLeft"   title="Tambah Kolom Kiri">⬅ Kol</button>
+                <button data-ds-table="addColRight"  title="Tambah Kolom Kanan">➡ Kol</button>
+                <button data-ds-table="deleteCol"    title="Hapus Kolom">✕ Kol</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+
+              <!-- Save / template / export / print -->
+              <div class="ds-tb-group">
+                <button id="dsSaveEdit"       class="ds-btn-save"     title="Simpan editan (Ctrl+S)">💾 Simpan</button>
+                <button id="dsSaveAsTemplate" class="ds-btn-template" title="Simpan sebagai format baku dokumen ini">⭐ Format Baku</button>
+                <button id="dsResetTemplate"  class="ds-btn-reset"    title="Hapus format baku — kembali ke template bawaan">↺ Reset</button>
+              </div>
+              <div class="ds-tb-sep"></div>
+              <div class="ds-tb-group">
+                <button id="dsExportHtml" title="Export HTML" style="font-size:11px">⬇ HTML</button>
+                <button id="dsExportJson" title="Export JSON Template" style="font-size:11px">⬇ JSON</button>
+              </div>
+
+            </div><!-- /.ds-toolbar -->
+
+            <!-- A4 canvas -->
+            <div class="ds-canvas" id="dsCanvas" data-zoom="1">
+              <div class="ds-page" id="dsPage" contenteditable="true" spellcheck="false">
+                <div class="ds-page-placeholder">
+                  <div class="ds-ph-icon">📄</div>
+                  <div>Klik salah satu tombol dokumen di panel atas untuk mulai mengedit</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Status bar -->
+            <div class="ds-status-bar">
+              <span id="dsStatusText" class="ds-status-saved">Siap</span>
+              <span style="flex:1"></span>
+              <span class="ds-status-hint">Ctrl+S simpan · Tab navigasi tabel · Esc keluar fokus</span>
+            </div>
+
+          </div><!-- /.ds-wrap -->
+
+          <!-- Hidden compat elements (app.js binds to these IDs) -->
+          <div class="doc-paper" id="docOutput" style="display:none;position:absolute;left:-9999px;top:-9999px;visibility:hidden"></div>
+          <button id="printDoc"   style="display:none" aria-hidden="true"></button>
+          <button id="exportHtml" style="display:none" aria-hidden="true"></button>
+
+        </div><!-- /#tab-dokumen -->
+
+        <div class="tab-content" id="tab-riwayat-pengajuan">
+          <div class="panel">
+            <h3>Riwayat Pengajuan & Surat</h3>
+            <div id="historyPengajuan" class="history-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-lpj">
+        <div class="section-title">
+          <div>
+            <h2>Laporan Pertanggungjawaban</h2>
+            <p>Input laporan penggunaan dana operasional, mengikuti bentuk laporan dari Ruang Warga.</p>
+          </div>
+          <button class="primary" id="saveLpj">Simpan LPJ</button>
+        </div>
+
+        <div class="subnav">
+          <button class="subtab active" data-tab="lpj-data">Data Laporan</button>
+          <button class="subtab" data-tab="lpj-pengeluaran">Pengeluaran</button>
+          <button class="subtab" data-tab="lpj-preview">Preview Laporan</button>
+          <button class="subtab" data-tab="lpj-riwayat">Riwayat LPJ</button>
+        </div>
+
+        <div class="tab-content active" id="tab-lpj-data">
+          <div class="panel">
+            <h3>Identitas Laporan</h3>
+            <div class="form-grid">
+              <label>Tanggal Cetak <input id="lpjTanggalCetak" placeholder="Otomatis jika kosong"></label>
+              <label>Dicetak Oleh <input id="lpjDicetakOleh" value="Kelurahan Tegalsari RW 12 RT 5"></label>
+              <label>Periode Bulan/Tahun <input id="lpjPeriode" value="08 / 2026"></label>
+              <label>Saldo Awal <input id="lpjSaldoAwal" type="number" value="25000000"></label>
+              <label>Saldo Bulan Lalu <input id="lpjSaldoBulanLalu" type="number" value="0"></label>
+              <label>Ketua RT <input id="lpjKetua" placeholder="Nama Ketua RT"></label>
+              <label>Bendahara RT <input id="lpjBendahara" placeholder="Nama Bendahara RT"></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-lpj-pengeluaran">
+          <div class="section-title mini">
+            <h3>Rincian Pengeluaran</h3>
+            <button class="primary" id="addExpense">+ Tambah Pengeluaran</button>
+          </div>
+          <div class="table-wrap">
+            <table id="expenseTable">
+              <thead><tr><th>No</th><th>Tanggal</th><th>Kegiatan/Pengeluaran</th><th>Jumlah</th><th>Keterangan</th><th>Aksi</th></tr></thead>
+              <tbody></tbody>
+              <tfoot><tr><td colspan="3">Jumlah Pengeluaran</td><td id="expenseTotalCell">Rp0</td><td colspan="2"></td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-lpj-preview">
+          <div class="action-row">
+            <button class="primary" id="saveLpjHistory">Simpan LPJ ke Riwayat</button>
+            <button class="secondary" id="printLpj">Cetak / Simpan PDF</button>
+            <button class="primary" id="exportPdfLpjV38">⬇ Export PDF LPJ</button>
+          </div>
+          <div class="doc-paper" id="lpjOutput"></div>
+          <div id="lpjFotoSheets"></div>
+        </div>
+
+        <div class="tab-content" id="tab-lpj-riwayat">
+          <div class="panel">
+            <h3>Riwayat Laporan Pertanggungjawaban</h3>
+            <div id="historyLpj" class="history-list"></div>
+          </div>
+
+          <div class="panel" style="margin-top:16px">
+            <h3>Dokumentasi Kegiatan SPJ</h3>
+            <p class="hint">Data foto dokumentasi dari aplikasi MoKu akan otomatis muncul di sini setelah di-import dari hasil sinkronisasi MoKu.</p>
+            <div id="lpjDokumentasiList" class="history-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="page-persiapan">
+        <div class="section-title">
+          <div>
+            <h2>Persiapan Kegiatan Operasional</h2>
+            <p>Menu untuk menyiapkan bukti kelengkapan SPJ: undangan kegiatan, daftar hadir, notulen, tanda terima/kuitansi resmi, dan sinkronisasi dokumentasi MoKu.</p>
+          </div>
+          <div class="action-row"><button class="primary" id="savePersiapan">Simpan Persiapan</button></div>
+          <!-- MoKu buttons removed — MoKu otomatis kirim foto ke Pelaporan -->
+          <!-- Hidden elements kept for JS compatibility -->
+          <span style="display:none"><button id="sendToMobile"></button><button id="exportActivities"></button><label><input type="file" id="importMobileResult" accept=".json" hidden></label><a id="openMokuMobile" href="moku/index.html"></a></span>
+        </div>
+
+        <div class="subnav">
+          <button class="subtab active" data-tab="pk-data">Data Kegiatan</button>
+          <button class="subtab" data-tab="pk-daftar-hadir">Daftar Hadir</button>
+          <button class="subtab" data-tab="pk-notulen">Notulen</button>
+          <button class="subtab" data-tab="pk-kuitansi">Tanda Terima / Kuitansi</button>
+          <button class="subtab" data-tab="pk-generate">Generate Bukti SPJ</button>
+          <button class="subtab" data-tab="pk-riwayat">Riwayat</button>
+        </div>
+
+        <div class="module-guide-v20">
+          <div class="guide-card-v20">
+            <b>1. Data Kegiatan</b>
+            <span>Jenis, nama, tanggal, waktu, tempat, agenda.</span>
+          </div>
+          <div class="guide-card-v20">
+            <b>2. Daftar Hadir</b>
+            <span>Jumlah baris dan peserta kegiatan.</span>
+          </div>
+          <div class="guide-card-v20">
+            <b>3. Notulen</b>
+            <span>Pimpinan, notulis, pembahasan, keputusan.</span>
+          </div>
+          <div class="guide-card-v20">
+            <b>4. Kuitansi</b>
+            <span>Nominal, penerima, keperluan, pajak.</span>
+          </div>
+        </div>
+
+        <div class="tab-content active" id="tab-pk-data">
+          <div class="panel">
+            <h3>Data Dasar Kegiatan Operasional</h3>
+            <p class="hint">Bagian ini hanya untuk identitas kegiatan. Data daftar hadir, notulen, dan kuitansi dipindahkan ke tab masing-masing agar tidak tercampur.</p>
+            <div class="form-grid">
+              <label>Jenis Kegiatan / Mata Belanja
+                <select id="pkJenis">
+                  <option>Konsumsi Rapat / Pertemuan Warga</option>
+                  <option>Kerja Bakti / Gotong Royong</option>
+                  <option>HUT RI / Kegiatan Sosial Budaya</option>
+                  <option>Pengelolaan Sampah / Kebersihan Lingkungan</option>
+                  <option>Jasa Tukang / Pemeliharaan Sarpras</option>
+                  <option>Belanja Barang / Material</option>
+                  <option>Sewa Peralatan / Tempat</option>
+                  <option>Lainnya</option>
+                </select>
+              </label>
+              <label>Nama Kegiatan <input id="pkNama" value="Kegiatan Operasional RT 005 RW 012"></label>
+              <label>Hari/Tanggal <input id="pkHariTanggal" value="Minggu, 21 Juni 2026"></label>
+              <label>Waktu <input id="pkWaktu" value="19.30 WIB s.d. selesai"></label>
+              <label>Tempat <input id="pkTempat" value="Sekretariat / Lingkungan RT 005 RW 012"></label>
+              <label>Agenda <textarea id="pkAgenda" rows="3">Pelaksanaan kegiatan operasional RT dan kelengkapan administrasi pertanggungjawaban.</textarea></label>
+              <label>Pimpinan Kegiatan/Rapat <input id="pkPimpinan" placeholder="Nama Ketua/Pimpinan Kegiatan"></label>
+              <label>Notulis <input id="pkNotulis" placeholder="Nama notulis"></label>
+              <label>Jumlah Baris Daftar Hadir <input id="pkRows" type="number" value="30" min="5" max="150"></label>
+              <label>Nominal Tanda Terima/Kuitansi <input id="pkNominal" type="number" value="0"></label>
+              <label>Penerima Uang/Barang/Jasa <input id="pkPenerima" placeholder="Nama penerima"></label>
+              <label>Jabatan/Status Penerima <input id="pkJabatanPenerima" placeholder="Contoh: Petugas sampah / Tukang / Penyedia konsumsi"></label>
+              <label>Keperluan Pembayaran <textarea id="pkKeperluan" rows="3">Pembayaran kegiatan operasional RT sesuai mata belanja yang tercantum dalam RAP/SPJ.</textarea></label>
+              <label>Tanggal Tanda Terima <input id="pkTanggalTerima" value="Semarang, ................. 2026"></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-pk-daftar-hadir">
+          <div class="panel field-section-v20">
+            <h3>Setting Daftar Hadir</h3>
+            <p class="hint">Atur jumlah baris kosong daftar hadir di sini. Data peserta diisi pada tabel di bawah.</p>
+            <div class="form-grid one" id="pkDaftarHadirSettingV20"></div>
+          </div>
+          <div class="section-title mini">
+            <h3>Peserta Daftar Hadir Kegiatan</h3>
+            <button class="primary" id="addPkPeserta">+ Tambah Peserta</button>
+          </div>
+          <div class="table-wrap">
+            <table id="pkPesertaTable">
+              <thead><tr><th>No</th><th>Nama</th><th>Jabatan/Status</th><th>Alamat/RT</th><th>Aksi</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-pk-notulen">
+          <div class="panel field-section-v20">
+            <h3>Identitas Notulen</h3>
+            <p class="hint">Pimpinan kegiatan/rapat dan notulis diisi di sini agar tidak tercampur dengan data dasar kegiatan.</p>
+            <div class="form-grid" id="pkNotulenIdentityV20"></div>
+          </div>
+          <div class="grid-2">
+            <div class="panel">
+              <h3>Pembahasan & Keputusan</h3>
+              <div class="form-grid one">
+                <label>Jumlah Hadir <input id="pkHadir" type="number" value="0"></label>
+                <label>Jumlah Tidak Hadir <input id="pkTidakHadir" type="number" value="0"></label>
+                <label>Pembahasan/Diskusi <textarea id="pkPembahasan" rows="6">Kegiatan dibahas sesuai kebutuhan warga, ketersediaan anggaran, teknis pelaksanaan, dan kelengkapan dokumen SPJ.</textarea></label>
+                <label>Hasil Keputusan <textarea id="pkKeputusan" rows="5">Kegiatan disepakati untuk dilaksanakan dan didukung dengan bukti administrasi berupa daftar hadir, notulen, dokumentasi, dan tanda terima/kuitansi.</textarea></label>
+                <label>Jadwal Kegiatan/Rapat Berikutnya <input id="pkRapatBerikutnya" placeholder="Opsional"></label>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>Rencana Tindak Lanjut / Action Plan</h3>
+              <button class="primary" id="addPkAction">+ Tambah Tindak Lanjut</button>
+              <div class="table-wrap" style="margin-top:12px">
+                <table id="pkActionTable">
+                  <thead><tr><th>No</th><th>Task/Tugas</th><th>Target Waktu</th><th>PIC</th><th>Aksi</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-pk-kuitansi">
+          <div class="panel">
+            <h3>Tanda Terima / Kuitansi Resmi</h3>
+            <p class="hint">Semua data pembayaran/kuitansi dipusatkan di tab ini agar tidak tercampur dengan data kegiatan.</p>
+            <div class="form-grid" id="pkKuitansiDataV20"></div>
+            <div class="form-grid">
+              <label>Nomor Kuitansi / Tanda Terima <input id="pkNomorKuitansi" placeholder=".../TT/RT005/.../2026"></label>
+              <label>Metode Pembayaran <select id="pkMetode"><option>Tunai</option><option>Transfer</option><option>QRIS</option></select></label>
+              <label>NPWP/NIK Penerima <input id="pkNikPenerima" placeholder="Opsional"></label>
+              <label>Keterangan Pajak <input id="pkPajak" placeholder="Opsional: PPh/PPN jika ada"></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-pk-generate">
+          <div class="generate-layout">
+            <div class="panel">
+              <h3>Generate Bukti Kelengkapan SPJ</h3>
+              <div class="doc-buttons">
+                <button class="doc-btn pk-doc-btn" data-pkdoc="pk-undangan">Undangan Kegiatan</button>
+                <button class="doc-btn pk-doc-btn" data-pkdoc="pk-hadir">Daftar Hadir Kegiatan</button>
+                <button class="doc-btn pk-doc-btn" data-pkdoc="pk-notulen">Notulen Kegiatan</button>
+                <button class="doc-btn pk-doc-btn" data-pkdoc="pk-kuitansi">Tanda Terima / Kuitansi</button>
+              </div>
+              <div class="action-row">
+                <button class="primary" id="savePkHistory">Simpan ke Riwayat SPJ</button>
+                <button class="secondary" id="printPkDoc">Cetak / Simpan PDF</button>
+              </div>
+            </div>
+            <div class="doc-paper" id="pkDocOutput"></div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-pk-riwayat">
+          <div class="panel">
+            <h3>Riwayat Persiapan Kegiatan Operasional</h3>
+            <div id="historyPersiapan" class="history-list"></div>
+          </div>
+        </div>
+      </section>
+
+
+      
+      <section class="page" id="page-moku">
+        <div class="section-title">
+          <div>
+            <h2>MoKu Mobile</h2>
+            <p>Dokumentasi kegiatan lapangan dalam satu aplikasi dengan BOP. Gunakan tampilan ini untuk membuka MoKu tanpa keluar dari aplikasi utama.</p>
+          </div>
+          <div class="action-row">
+            <a class="primary" href="moku/index.html" target="_blank" rel="noopener">Buka Layar Penuh</a>
+            <button class="secondary" type="button" data-go="persiapan">Kembali ke Persiapan</button>
+          </div>
+        </div>
+        <div class="moku-shell-v29">
+          <div class="moku-frame-bar-v29">
+            <b>MoKu Dokumentasi Kegiatan</b>
+            <span>Data kegiatan tetap tersinkron melalui menu Persiapan Kegiatan Operasional.</span>
+          </div>
+          <iframe id="mokuFrameV29" class="moku-iframe-v29" src="moku/index.html?v=2.0" title="MoKu Mobile Dokumentasi"></iframe>
+        </div>
+      </section>
+
+      <section class="page" id="page-monitoring">
+        <div class="section-title">
+          <div>
+            <h2>Monitoring Administrasi Bulanan</h2>
+            <p>Kontrol kesiapan dokumen pengajuan dan LPJ/SPJ per bulan agar tidak ada administrasi yang terlewat.</p>
+          </div>
+          <div class="action-row">
+            <button class="primary" id="saveMonitoring">Simpan Monitoring</button>
+            <button class="secondary" id="printMonitoring">Cetak Lembar Kontrol</button>
+          </div>
+        </div>
+
+        <div class="monitor-hero-v24">
+          <div>
+            <label>Bulan Monitoring
+              <select id="monitorMonth">
+                <option>Januari 2026</option>
+                <option>Februari 2026</option>
+                <option>Maret 2026</option>
+                <option>April 2026</option>
+                <option>Mei 2026</option>
+                <option>Juni 2026</option>
+                <option>Juli 2026</option>
+                <option>Agustus 2026</option>
+                <option>September 2026</option>
+                <option>Oktober 2026</option>
+                <option>November 2026</option>
+                <option>Desember 2026</option>
+              </select>
+            </label>
+          </div>
+          <div class="monitor-summary-v24" id="monitorSummary"></div>
+        </div>
+
+        <div class="grid-2 monitor-grid-v24">
+          <div class="panel">
+            <div class="monitor-title-row-v24">
+              <div>
+                <h3>Pengajuan Dana Operasional</h3>
+                <p class="hint">Mengacu 7 dokumen wajib pengajuan bulanan.</p>
+              </div>
+              <span class="monitor-badge-v24" id="pengajuanProgressBadge">0/7</span>
+            </div>
+            <div id="monitorPengajuanList" class="monitor-list-v24"></div>
+          </div>
+
+          <div class="panel">
+            <div class="monitor-title-row-v24">
+              <div>
+                <h3>LPJ / SPJ Bulanan</h3>
+                <p class="hint">Kontrol kelengkapan laporan pertanggungjawaban bulan terpilih.</p>
+              </div>
+              <span class="monitor-badge-v24" id="lpjProgressBadge">0/8</span>
+            </div>
+            <div id="monitorLpjList" class="monitor-list-v24"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>Catatan Bulanan</h3>
+          <textarea id="monitorNotes" rows="4" placeholder="Catatan kekurangan dokumen, revisi, bukti yang harus dilengkapi, atau keterangan upload Ruang Warga."></textarea>
+        </div>
+
+        <div class="doc-paper monitoring-print-preview-v24" id="monitoringPrintOutput"></div>
+      </section>
+
+      <section class="page" id="page-setting">
+        <div class="section-title">
+          <div>
+            <h2>Setting</h2>
+            <p>Semua pengaturan database, master data, KOP surat, backup, restore, dan reset data.</p>
+          </div>
+          <button class="primary" id="saveSetting">Simpan Setting</button>
+        </div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Master Data RT</h3>
+            <div class="form-grid one">
+              <label>RT <input id="masterRt" value="005"></label>
+              <label>RW <input id="masterRw" value="012"></label>
+              <label>Kelurahan <input id="masterKelurahan" value="Tegalsari"></label>
+              <label>Kecamatan <input id="masterKecamatan" value="Candisari"></label>
+              <label>Kota <input id="masterKota" value="Semarang"></label>
+              <label>Ketua RT <input id="masterKetua" placeholder="Nama Ketua RT"></label>
+              <label>Sekretaris RT <input id="masterSekretaris" placeholder="Nama Sekretaris RT"></label>
+              <label>Bendahara RT <input id="masterBendahara" placeholder="Nama Bendahara RT"></label>
+              <label>No. KTP Ketua RT <input id="masterNoKtpKetua" placeholder="Nomor KTP Ketua RT (16 digit)"></label>
+              <label>Alamat Sekretariat <input id="masterAlamat" value="Jl. Tegalsari Raya, Tegalsari, Kota Semarang"></label>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h3>KOP Surat Resmi</h3>
+            <div class="form-grid one">
+              <label>Baris 1 <input id="kop1" value="PEMERINTAH KOTA SEMARANG"></label>
+              <label>Baris 2 <input id="kop2" value="KECAMATAN CANDISARI"></label>
+              <label>Baris 3 <input id="kop3" value="KELURAHAN TEGALSARI"></label>
+              <label>Baris 4 <input id="kop4" value="RW 012 RT 005"></label>
+              <label>Alamat KOP <input id="kopAlamat" value="Sekretariat: Jl. Tegalsari Raya, Tegalsari, Kota Semarang"></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top:16px">
+          <div class="panel">
+            <h3>📄 Data SK Lurah</h3>
+            <p style="margin-bottom:12px">Digunakan untuk dokumen <b>SK Lurah</b> pada syarat pengajuan BOP.</p>
+            <div class="form-grid one">
+              <label>Nomor SK <input id="nomorSK" placeholder="Contoh: 474/012/2026"></label>
+              <label>Tanggal SK <input id="tanggalSK" placeholder="Contoh: 15 Januari 2026"></label>
+              <label>Masa Berlaku SK <input id="masaBerlakuSK" placeholder="Contoh: 2 Tahun (2026–2028)"></label>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>🏦 Data Rekening BPD</h3>
+            <p style="margin-bottom:12px">Digunakan untuk dokumen <b>Buku Rekening BPD</b> pada syarat pengajuan BOP.</p>
+            <div class="form-grid one">
+              <label>Nama Bank <input id="namaBank" placeholder="Bank Pembangunan Daerah (BPD) Jateng"></label>
+              <label>Nomor Rekening <input id="nomorRekening" placeholder="Contoh: 3-007-00123-4"></label>
+              <label>Nama Pemilik Rekening <input id="namaPemilikRekening" placeholder="(kosongkan = nama Ketua RT)"></label>
+              <label>Cabang Bank <input id="cabangBank" placeholder="Contoh: Cabang Semarang Kota"></label>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Database Lokal</h3>
+            <p>Data aplikasi tersimpan di browser/perangkat ini. Gunakan backup sebelum reset atau pindah perangkat.</p>
+            <div class="action-row">
+              <button class="secondary" id="backupData">Backup JSON</button>
+              <label class="import-label">Restore JSON <input type="file" id="restoreData" accept="application/json"></label>
+              <a class="secondary" href="/api/download-app" download="bop-rt005-offline-app.zip" style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:10px;padding:10px 15px;background:#fff;color:var(--navy2);text-decoration:none;">&#11015; Download App (ZIP)</a>
+            </div>
+          </div>
+          <div class="panel danger-panel">
+            <h3>Reset Data</h3>
+            <p>Menghapus semua data lokal aplikasi dan mengembalikan ke data awal.</p>
+            <div class="action-row">
+              <button class="secondary" id="backupBeforeReset">Backup Sebelum Reset</button>
+              <button class="danger-button" id="resetAllData">Reset Semua Data</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-head">
+            <h3>☁️ Sinkronisasi Antar Device</h3>
+            <span id="syncBadgeV39" style="font-size:12px;font-weight:600;color:#64748b;">Mengecek...</span>
+          </div>
+          <p style="margin-bottom:12px">Data tersinkron otomatis setiap 8 detik antar device. Gunakan tombol di bawah untuk sinkronisasi manual atau setup database.</p>
+          <div class="action-row" style="flex-wrap:wrap;gap:8px">
+            <button class="primary"   id="syncPushV39">☁️ Simpan ke Server</button>
+            <button class="secondary" id="syncPullV39">⬇ Ambil dari Server</button>
+            <button class="primary" id="syncAutoSetupBtn" title="Cek server, ping, dan init database — semua otomatis tanpa konfigurasi" style="background:#16a34a;border-color:#16a34a">🚀 Setup Otomatis</button>
+          </div>
+          <p class="hint" id="syncStatusV39" style="margin-top:8px;">Memeriksa status sinkronisasi...</p>
+          <div id="syncServerInfo" style="margin-top:10px;padding:10px 14px;background:#f1f5f9;border-radius:10px;font-size:12px;color:#475569;display:none;line-height:1.7"></div>
+        </div>
+
+        <div class="doc-paper" id="kopPreview"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js?v=20260622j"></script>
+  <script src="document-studio/document-studio.js"></script>
+</body>
+</html>
+

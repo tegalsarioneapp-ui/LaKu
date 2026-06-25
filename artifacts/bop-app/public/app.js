@@ -8918,3 +8918,130 @@ ${KOP_PDF_CSS}
 })();
 /* END PATCH v1.55 */
 
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.56 - Fix definitif RAP Bulanan bulan sync
+   Masalah 1: getElementById("v48RapBulanSel") bisa ambil elemen
+              yg bukan yang visible (ada duplikat dari v1.48+v1.54)
+   Masalah 2: renderMonthlyRapSummary() reset monthlyDocMonth ke
+              "Agustus 2026" (default normalizeRapV17)
+   Fix: event delegation + querySelectorAll cari elemen visible
+        + override previewDoc sync month dulu sebelum render
+═══════════════════════════════════════════════════════════════ */
+(function bopFixV156(){
+  if(window.__bopFixV156) return;
+  window.__bopFixV156 = true;
+
+  var MO = ["Januari 2026","Februari 2026","Maret 2026","April 2026",
+            "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+            "September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  /* Cari elemen v48RapBulanSel yang VISIBLE (offsetParent !== null) */
+  function getVisibleRapBulanSel(){
+    var all = document.querySelectorAll('[id="v48RapBulanSel"]');
+    var found = null;
+    all.forEach(function(el){
+      if(!found && el.offsetParent !== null) found = el;
+    });
+    if(!found && all.length > 0) found = all[all.length - 1];
+    return found;
+  }
+
+  /* Baca bulan dari sumber yang paling akurat */
+  function getActiveMonth(){
+    var vis = getVisibleRapBulanSel();
+    if(vis && vis.value && MO.indexOf(vis.value) >= 0) return vis.value;
+    var sel = document.getElementById("monthlyDocMonth");
+    if(sel && sel.value && MO.indexOf(sel.value) >= 0) return sel.value;
+    try{ var m = window.data.pengajuan.selectedMonth; if(MO.indexOf(m)>=0) return m; }catch(e){}
+    return "Januari 2026";
+  }
+
+  /* Sync semua selector bulan ke nilai yang sama */
+  function syncAllTo(month){
+    if(!month || MO.indexOf(month) < 0) return;
+    document.querySelectorAll('[id="v48RapBulanSel"]').forEach(function(el){ el.value = month; });
+    var sel = document.getElementById("monthlyDocMonth");
+    if(sel) sel.value = month;
+    try{
+      if(window.data && window.data.pengajuan) window.data.pengajuan.selectedMonth = month;
+    }catch(e){}
+  }
+
+  /* ── Event delegation: tangkap perubahan SEMUA selector bulan ── */
+  document.addEventListener("change", function(e){
+    var id = e.target && e.target.id;
+    if(id === "v48RapBulanSel" || id === "monthlyDocMonth"){
+      var month = e.target.value;
+      if(MO.indexOf(month) < 0) return;
+      syncAllTo(month);
+      /* Auto-preview di DS jika rapbulanan aktif */
+      var docSel = document.getElementById("dsDocSelectV43");
+      if(docSel && docSel.value === "rapbulanan"){
+        if(typeof window.previewDoc === "function") window.previewDoc("rapbulanan");
+      }
+    }
+  }, true); /* capture phase — runs sebelum listener lain */
+
+  /* ── Override docRapBulanan: selalu sync bulan dulu ── */
+  var _origDocRapBulanan = window.docRapBulanan;
+  window.docRapBulanan = function(){
+    var month = getActiveMonth();
+    syncAllTo(month);
+    /* Pastikan fungsi asal juga pakai bulan yang benar */
+    if(typeof _origDocRapBulanan === "function"){
+      return _origDocRapBulanan();
+    }
+    return "<p>docRapBulanan tidak ditemukan</p>";
+  };
+
+  /* ── Override previewDoc: sync bulan sebelum render rapbulanan ── */
+  var _prevPD = window.previewDoc;
+  window.previewDoc = function(type){
+    if(type === "rapbulanan"){
+      var month = getActiveMonth();
+      syncAllTo(month);
+    }
+    if(typeof _prevPD === "function") return _prevPD(type);
+  };
+
+  /* ── Patch docMapV37 agar pakai window.docRapBulanan terbaru ── */
+  if(typeof window.docMapV37 === "function"){
+    var _om = window.docMapV37;
+    window.docMapV37 = function(){
+      var b = _om();
+      b.rapbulanan = window.docRapBulanan;
+      return b;
+    };
+  }
+
+  /* ── Init: hapus elemen v48RapBulanSel duplikat jika ada ── */
+  function dedupeRapBulanSel(){
+    var all = document.querySelectorAll('[id="v48RapBulanSel"]');
+    if(all.length <= 1) return;
+    /* Pertahankan yang visible, hapus sisanya */
+    var keep = null;
+    all.forEach(function(el){ if(!keep && el.offsetParent !== null) keep = el; });
+    if(!keep) keep = all[all.length - 1];
+    all.forEach(function(el){
+      if(el !== keep && el.parentElement){
+        /* Sembunyikan parent wrap jika jadi kosong */
+        el.parentElement.removeChild(el);
+      }
+    });
+  }
+
+  function initV56(){
+    dedupeRapBulanSel();
+    /* Sync initial state dari data tersimpan */
+    var month = getActiveMonth();
+    syncAllTo(month);
+    console.log("[BOP v1.56] Fix RAP Bulanan sync aktif - bulan: " + month);
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initV56, 4000); });
+  else
+    setTimeout(initV56, 4000);
+})();
+/* END PATCH v1.56 */

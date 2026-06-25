@@ -1451,3 +1451,26 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
   line-height:1.5;
 }
 .pk-form-hint-v49:empty{ display:none; }
+
+/* ══ Subnav v30: Tab-underline, compact & clean ════════════════════ */
+.subnav-wrapper-v30{display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--line);margin-bottom:20px}
+.subnav-wrapper-v30 .subnav{flex:1;border-bottom:none;margin-bottom:0;gap:0;overflow:auto;scrollbar-width:none;padding-bottom:0}
+.subnav-wrapper-v30 .subnav::-webkit-scrollbar{display:none}
+.subnav-wrapper-v30 .subtab{border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;background:transparent;padding:9px 16px;border-radius:0;color:#64748b;font-weight:500;font-size:13.5px;transition:color .15s,background .15s}
+.subnav-wrapper-v30 .subtab:hover:not(.active){color:var(--navy2);background:#f1f5f9}
+.subnav-wrapper-v30 .subtab.active{background:transparent;color:var(--navy2);border-bottom-color:var(--navy2);font-weight:600}
+
+/* Guide toggle button (small, unobtrusive) */
+.guide-toggle-v30{font-size:11.5px;color:#94a3b8;background:transparent;border:1px solid #e2e8f0;border-radius:999px;padding:4px 12px;white-space:nowrap;cursor:pointer;flex-shrink:0;margin-bottom:2px;transition:all .15s;line-height:1.5}
+.guide-toggle-v30:hover{background:#f1f5f9;color:var(--navy2);border-color:#cbd5e1}
+.guide-toggle-v30.active{background:var(--navy2);color:#fff;border-color:var(--navy2)}
+
+/* Guide wrapper: hidden by default, toggleable */
+.guide-wrapper-v30{max-height:0;overflow:hidden;margin-bottom:0;transition:max-height .35s ease,margin .3s ease,opacity .25s ease;opacity:0;pointer-events:none}
+.guide-wrapper-v30.guide-open-v30{max-height:300px;margin-bottom:4px;opacity:1;pointer-events:auto}
+
+/* Section notes: more compact */
+.section-note-v20{padding:10px 14px;margin-bottom:12px;font-size:13px}
+.section-note-v20 b{font-size:13px}
+
+@media print{.guide-wrapper-v30,.guide-toggle-v30,.subnav-wrapper-v30{display:none!important}}

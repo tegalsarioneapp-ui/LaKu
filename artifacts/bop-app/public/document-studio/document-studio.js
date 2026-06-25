@@ -6,7 +6,9 @@
   "use strict";
 
   /* ── Constants ──────────────────────────────────────────────────── */
-  const TEMPLATE_PREFIX = "bop_rt005_ds_template_";
+  const TEMPLATE_PREFIX  = "bop_rt005_ds_template_"; /* lama — tetap ada untuk kompatibilitas */
+  const SAVED_PREFIX     = "bop_rt005_ds_saved_";    /* simpanan permanen (Ctrl+S) */
+  const DRAFT_PREFIX_NEW = "bop_rt005_ds_draft_";    /* auto-save sementara */
   const DOC_NAMES = {
     permohonan : "Surat Permohonan",
     rap        : "RAP BOP RT 1 Tahun",
@@ -65,7 +67,7 @@
   function tplGetAll() {
     const out = {};
     Object.keys(localStorage)
-      .filter(k => k.startsWith(TEMPLATE_PREFIX))
+      .filter(k => k.startsWith(TEMPLATE_PREFIX) || k.startsWith(SAVED_PREFIX))
       .forEach(k => {
         try { out[k] = JSON.parse(localStorage.getItem(k)); } catch (_) {}
       });
@@ -73,15 +75,77 @@
   }
 
   /* ════════════════════════════════════════════════════════════════
+     SAVED — simpanan permanen (hasil Ctrl+S / tombol Simpan)
+     Disimpan sebagai JSON: { html, savedAt }
+  ════════════════════════════════════════════════════════════════ */
+  function savedGet(type) {
+    /* Cek key baru dulu */
+    try {
+      const raw = localStorage.getItem(SAVED_PREFIX + type);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    /* Fallback ke key template lama */
+    try {
+      const old = tplGet(type);
+      if (old?.html) return { html: old.html, savedAt: old.savedAt || null };
+    } catch (_) {}
+    return null;
+  }
+
+  function savedSet(type, html) {
+    const savedAt = new Date().toISOString();
+    const obj     = { html, savedAt, docType: type, docName: DOC_NAMES[type] || type };
+    try { localStorage.setItem(SAVED_PREFIX + type, JSON.stringify(obj)); } catch (_e) {}
+    /* Tulis juga ke key lama agar backup/export tetap jalan */
+    tplSave(type, html);
+    return savedAt;
+  }
+
+  function savedDelete(type) {
+    localStorage.removeItem(SAVED_PREFIX + type);
+    tplDelete(type);
+  }
+
+  /* ════════════════════════════════════════════════════════════════
+     DRAFT — auto-save sementara (sebelum Ctrl+S)
+     Disimpan sebagai JSON: { html, savedAt }
+  ════════════════════════════════════════════════════════════════ */
+  function draftGet(type) {
+    /* Cek key baru */
+    try {
+      const raw = localStorage.getItem(DRAFT_PREFIX_NEW + type);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    /* Fallback ke key draft lama (string mentah) */
+    try {
+      const oldRaw = localStorage.getItem(TEMPLATE_PREFIX + "draft_" + type);
+      if (oldRaw) return { html: oldRaw, savedAt: null }; /* savedAt null = lebih tua dari saved */
+    } catch (_) {}
+    return null;
+  }
+
+  function draftSet(type, html) {
+    const savedAt = new Date().toISOString();
+    try {
+      localStorage.setItem(DRAFT_PREFIX_NEW + type, JSON.stringify({ html, savedAt }));
+    } catch (_e) {}
+  }
+
+  function draftDelete(type) {
+    localStorage.removeItem(DRAFT_PREFIX_NEW + type);
+    localStorage.removeItem(TEMPLATE_PREFIX + "draft_" + type);
+  }
+
+  /* ════════════════════════════════════════════════════════════════
      LOAD DOC INTO EDITOR
   ════════════════════════════════════════════════════════════════ */
   function loadDoc(type, freshHtml) {
-    /* Auto-save current edits as draft before switching to a new doc type */
+    /* ── Auto-simpan sesi saat ini sebagai draft sebelum pindah ── */
     if (currentDocType && currentDocType !== type) {
       clearTimeout(_draftTimer);
       const curPage = getPage();
       if (curPage && curPage.innerHTML.trim()) {
-        try { localStorage.setItem(TEMPLATE_PREFIX + "draft_" + currentDocType, curPage.innerHTML); } catch(_e) {}
+        draftSet(currentDocType, curPage.innerHTML);
       }
     }
 
@@ -91,27 +155,48 @@
     const page = getPage();
     if (!page) return;
 
-    const useFresh = bypassTemplate;
-    bypassTemplate = false; /* reset flag after use */
-
-    const tpl = useFresh ? null : tplGet(type);
-    if (tpl && tpl.html) {
-      page.innerHTML = tpl.html;
-      setStatus(`Format baku dimuat — disimpan ${fmtDate(tpl.savedAt)}`, "saved");
-      setBadge(true);
+    if (bypassTemplate) {
+      /* User klik "Generate Ulang" → paksa muat freshHtml */
+      bypassTemplate = false;
+      page.innerHTML = freshHtml || "<p>Dokumen kosong.</p>";
+      setStatus("Dokumen di-generate ulang dari data terkini", "saved");
+      setBadge(!!savedGet(type));
     } else {
-      /* Cek draft editan sebelumnya (hanya jika tidak bypass) */
-      let draft = null;
-      if (!useFresh) {
-        try { draft = localStorage.getItem(TEMPLATE_PREFIX + "draft_" + type); } catch(_e) {}
-      }
-      if (draft && draft.trim()) {
-        page.innerHTML = draft;
-        setStatus("Draft editan terakhir dipulihkan — Ctrl+S untuk simpan baku", "saved");
-        setBadge(false);
+      /* ── Muat simpanan paling baru: bandingkan saved vs draft ── */
+      const saved = savedGet(type);
+      const draft = draftGet(type);
+
+      const savedTime = saved?.savedAt ? new Date(saved.savedAt).getTime() : 0;
+      const draftTime = draft?.savedAt ? new Date(draft.savedAt).getTime() : 0;
+
+      if (saved?.html || draft?.html) {
+        if (draftTime > savedTime && draft?.html) {
+          /* Draft lebih baru dari simpanan → ada editan belum tersimpan */
+          page.innerHTML = draft.html;
+          if (saved?.html) {
+            isModified = true;
+            setStatus("Sesi terakhir dipulihkan — tekan Ctrl+S untuk simpan", "unsaved");
+          } else {
+            isModified = true;
+            setStatus("Sesi terakhir dipulihkan — tekan Ctrl+S untuk simpan permanen", "unsaved");
+          }
+          setBadge(!!saved?.html);
+        } else if (saved?.html) {
+          /* Simpanan permanen adalah yang paling baru */
+          page.innerHTML = saved.html;
+          setStatus(`Tersimpan${saved.savedAt ? " " + fmtDate(saved.savedAt) : ""}`, "saved");
+          setBadge(true);
+        } else if (draft?.html) {
+          /* Hanya ada draft (belum pernah Ctrl+S) */
+          page.innerHTML = draft.html;
+          isModified = true;
+          setStatus("Sesi terakhir dipulihkan — tekan Ctrl+S untuk simpan", "unsaved");
+          setBadge(false);
+        }
       } else {
+        /* Belum ada simpanan → muat freshHtml dari generator */
         page.innerHTML = freshHtml || "<p>Dokumen kosong.</p>";
-        setStatus(useFresh ? "Dokumen di-generate ulang dari data terkini" : "Dokumen digenerate dari data terkini", "saved");
+        setStatus("Dokumen digenerate dari data terkini — Ctrl+S untuk simpan", "saved");
         setBadge(false);
       }
     }
@@ -119,11 +204,8 @@
     setDocName(DOC_NAMES[type] || type);
     attachResizeHandles();
 
-    /* scroll canvas to top */
     const canvas = getCanvas();
     if (canvas) canvas.scrollTop = 0;
-
-    /* focus editor */
     setTimeout(() => page.focus(), 80);
   }
 

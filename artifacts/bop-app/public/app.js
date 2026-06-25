@@ -7552,10 +7552,8 @@ ${KOP_PDF_CSS}
     var v48sel=document.getElementById("v48RapBulanSel");
     if(v48sel){
       v48sel.addEventListener("change", function(){
-        syncRapBulan();
-        if(newSel.value==="rapbulanan"){
-          if(typeof previewDoc==="function") previewDoc("rapbulanan");
-        }
+        try{syncRapBulan();}catch(e){}
+        if(typeof previewDoc==="function") previewDoc("rapbulanan");
       });
     }
   }
@@ -8306,9 +8304,7 @@ ${KOP_PDF_CSS}
     var msel = document.getElementById("v48RapBulanSel");
     if(msel){
       msel.addEventListener("change", function(){
-        if(newSel.value==="rapbulanan"){
-          if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
-        }
+        if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
       });
     }
   }

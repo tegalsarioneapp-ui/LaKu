@@ -47,3 +47,18 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+# Backup files
+*.bak
+*.bak-*
+*.bak-v*
+
+# Temp & audit scripts
+struktur.txt
+chunk*.py
+audit_*.py
+fix_*.py
+_chunk_*.txt
+_*.js
+_*.py
+cek_*.py
+cek_*.js

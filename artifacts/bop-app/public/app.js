@@ -8432,8 +8432,13 @@ ${KOP_PDF_CSS}
   function _terbilang(n){ return typeof terbilang==="function"?terbilang(n):String(n); }
   function _official(body){
     if(typeof officialWrap46==="function") return officialWrap46(body);
-    if(typeof official==="function") return official(body);
-    return body;
+    /* Bangun manual seperti officialV37 */
+    var kop="";
+    try{ kop=kopHTML(); }catch(e){
+      kop="<div class='kop'><div class='kop-text'><h1 class='kop-b1'>PEMERINTAH KOTA SEMARANG</h1></div></div>";
+    }
+    return "<div class='official official-v36 official-v37'>"+kop+
+           "<div class='kop-rule'></div>"+body+"</div>";
   }
 
   window.docRapBulanan = function(){
@@ -8879,7 +8884,11 @@ ${KOP_PDF_CSS}
   function of(b){try{if(typeof officialWrap46==="function")return officialWrap46(b);}catch(e){}return b;}
   function tb(n){try{if(typeof terbilang==="function")return String(terbilang(Number(n||0))).replace(/\s+/g," ").trim();}catch(e){}return String(n||0);}
   window.docRapBulanan=function(){
-    var month=getM();
+    /* Selalu baca fresh dari DOM saat generate */
+    var _v48=document.getElementById("v48RapBulanSel");
+    var _sel=document.getElementById("monthlyDocMonth");
+    var month=(_v48&&_v48.value&&MO.indexOf(_v48.value)>=0)?_v48.value:
+              (_sel&&_sel.value&&MO.indexOf(_sel.value)>=0)?_sel.value:"Januari 2026";
     try{window.data.pengajuan.selectedMonth=month;}catch(e){}
     var rows=getR(month),total=rows.reduce(function(s,r){return s+r.jumlahBulanan;},0);
     var m={},p={};try{m=window.data.master||{};}catch(e){}try{p=window.data.pengajuan||{};}catch(e){}

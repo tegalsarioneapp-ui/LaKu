@@ -8558,3 +8558,69 @@ ${KOP_PDF_CSS}
     setTimeout(initV52,3000);
 })();
 /* END PATCH v1.52 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.53 - Fix docMapV37: hadir/sk/rekening pakai window.*
+   docHadirV46/docSKV46/docRekeningV46 sudah di-set ke window.*
+   tapi docMapV37() dipanggil sebelum override selesai.
+   Solusi: override docMapV37 agar selalu baca window.docHadir dll
+═══════════════════════════════════════════════════════════════ */
+(function bopFixDocMapV53(){
+  if(window.__bopFixDocMapV53) return;
+  window.__bopFixDocMapV53 = true;
+
+  var _origDocMapV37 = window.docMapV37;
+
+  window.docMapV37 = function(){
+    var base = (typeof _origDocMapV37 === "function") ? _origDocMapV37() : {};
+    /* Override dengan window.* yang sudah di-patch V46 */
+    if(typeof window.docHadir    === "function") base.hadir    = window.docHadir;
+    if(typeof window.docSK       === "function") base.sk       = window.docSK;
+    if(typeof window.docRekening === "function") base.rekening = window.docRekening;
+    if(typeof window.docRapBulanan === "function") base.rapbulanan = window.docRapBulanan;
+    if(typeof window.docRbb      === "function") base.rbb      = window.docRbb;
+    if(typeof window.docUndangan === "function") base.undangan = window.docUndangan;
+    if(typeof window.docNotulen  === "function") base.notulen  = window.docNotulen;
+    return base;
+  };
+
+  /* Patch juga previewDocV37 agar pakai docMapV37 terbaru */
+  var _origPreview = window.previewDoc;
+  window.previewDoc = function(type){
+    /* collectAll dulu */
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+
+    var nextType = type || window.currentDoc || "permohonan";
+    window.currentDoc = nextType;
+    try{ currentDoc = nextType; }catch(e){}
+
+    /* Update active button */
+    document.querySelectorAll(".doc-btn").forEach(function(b){
+      b.classList.toggle("active", b.dataset.doc === nextType);
+    });
+
+    /* Pakai docMapV37 yang sudah di-patch */
+    var map = window.docMapV37();
+    var fn  = map[nextType];
+    if(typeof fn !== "function"){
+      /* Fallback ke original preview */
+      if(typeof _origPreview === "function"){
+        _origPreview(type); return;
+      }
+      fn = map["permohonan"];
+    }
+
+    var out = document.getElementById("docOutput");
+    if(out){
+      try{ out.innerHTML = fn(); }
+      catch(e){
+        console.error("[BOP v1.53] Error render", nextType, e);
+        out.innerHTML = "<p style='color:red'>Error: "+e.message+"</p>";
+      }
+    }
+  };
+
+  console.log("[BOP v1.53] docMapV37 fix aktif - hadir/sk/rekening pakai window.*");
+})();
+/* END PATCH v1.53 */

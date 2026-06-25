@@ -823,6 +823,14 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
     if (!docOutput) return;
 
     let lastContent = "";
+
+    /* Reset lastContent saat dropdown bulan berubah agar Observer selalu sync */
+    document.addEventListener("change", e => {
+      if (e.target?.id === "v48RapBulanSel" || e.target?.id === "monthlyDocMonth") {
+        lastContent = ""; /* force Observer trigger pada update berikutnya */
+      }
+    });
+
     const observer  = new MutationObserver(() => { clearTimeout(_dsDebounce); _dsDebounce = setTimeout(() => {
       const html = docOutput.innerHTML.trim();
       if (html && html !== lastContent) {

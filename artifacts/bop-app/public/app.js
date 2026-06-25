@@ -8624,3 +8624,191 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.53] docMapV37 fix aktif - hadir/sk/rekening pakai window.*");
 })();
 /* END PATCH v1.53 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.54 - Fix konflik dropdown bulan RAP Bulanan
+   Masalah: v1.48 + v1.48b + v1.52 saling clone & override
+   Fix: 1 IIFE definitif, tidak clone dsDocSelectV43, 
+        re-inject v48RapBulanWrap jika hilang dari DOM
+═══════════════════════════════════════════════════════════════ */
+(function bopFixRapBulanDropdownV54(){
+  if(window.__bopFixRapBulanDropdownV54) return;
+  window.__bopFixRapBulanDropdownV54 = true;
+
+  var MONTHS_V54 = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+
+  /* ── Helper ── */
+  function getStoredMonth(){
+    try{
+      if(window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth){
+        var m=window.data.pengajuan.selectedMonth;
+        if(MONTHS_V54.indexOf(m)>=0) return m;
+      }
+    }catch(e){}
+    var sel=document.getElementById("monthlyDocMonth");
+    if(sel&&MONTHS_V54.indexOf(sel.value)>=0) return sel.value;
+    return "Januari 2026";
+  }
+
+  function saveMonth(month){
+    try{
+      if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month;
+      var globalSel=document.getElementById("monthlyDocMonth");
+      if(globalSel) globalSel.value=month;
+      var STORE_KEY="bop_rt005_data_v1_25";
+      if(typeof STORE!=="undefined") STORE_KEY=STORE;
+      localStorage.setItem(STORE_KEY,JSON.stringify(window.data));
+    }catch(e){}
+  }
+
+  /* ── Inject atau re-inject v48RapBulanWrap ── */
+  function ensureWrap(){
+    /* Cek apakah wrap sudah ada dan masih di DOM */
+    var existing=document.getElementById("v48RapBulanWrap");
+    if(existing && existing.isConnected) return existing;
+
+    /* Buat wrapper baru */
+    var wrap=document.createElement("div");
+    wrap.id="v48RapBulanWrap";
+    wrap.style.cssText="display:none;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;padding:4px 0;";
+
+    var lbl=document.createElement("label");
+    lbl.style.cssText="font-size:0.82rem;font-weight:600;color:#64748b;white-space:nowrap;";
+    lbl.textContent="Bulan RAP:";
+
+    var msel=document.createElement("select");
+    msel.id="v48RapBulanSel";
+    msel.className="ds-doc-select-v43";
+    msel.style.cssText="min-width:150px;";
+    MONTHS_V54.forEach(function(m){
+      var opt=document.createElement("option");
+      opt.value=m; opt.textContent=m;
+      msel.appendChild(opt);
+    });
+    msel.value=getStoredMonth();
+
+    wrap.appendChild(lbl);
+    wrap.appendChild(msel);
+
+    /* Inject setelah .ds-doc-select-group-v43 atau .ds-gen-left */
+    var grp=document.querySelector(".ds-doc-select-group-v43");
+    var left=document.querySelector(".ds-gen-left");
+    if(grp) grp.insertAdjacentElement("afterend",wrap);
+    else if(left) left.appendChild(wrap);
+    else return null;
+
+    return wrap;
+  }
+
+  /* ── Main init ── */
+  function initV54(){
+    var wrap=ensureWrap();
+    if(!wrap){ setTimeout(initV54,500); return; }
+
+    var msel=document.getElementById("v48RapBulanSel");
+    var docSel=document.getElementById("dsDocSelectV43");
+    if(!msel||!docSel){ setTimeout(initV54,500); return; }
+
+    /* Tampilkan/sembunyikan wrap sesuai pilihan dokumen */
+    function toggleWrap(){
+      wrap.style.display=(docSel.value==="rapbulanan")?"flex":"none";
+    }
+
+    /* Pasang listener ke docSel — cek dulu jangan double */
+    if(!docSel.__v54change){
+      docSel.__v54change=true;
+      docSel.addEventListener("change",function(){
+        toggleWrap();
+        if(docSel.value==="rapbulanan"){
+          saveMonth(msel.value);
+          if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+        } else {
+          if(typeof window.previewDoc==="function") window.previewDoc(docSel.value);
+        }
+      });
+    }
+
+    /* Pasang listener ke msel bulan */
+    if(!msel.__v54change){
+      msel.__v54change=true;
+      msel.addEventListener("change",function(){
+        saveMonth(msel.value);
+        if(docSel.value==="rapbulanan"){
+          if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+        }
+      });
+    }
+
+    /* Override tombol Generate — clone sekali */
+    var genBtn=document.getElementById("dsDocGenBtnV43");
+    if(genBtn && !genBtn.__v54){
+      genBtn.__v54=true;
+      var newBtn=genBtn.cloneNode(true);
+      genBtn.parentNode.replaceChild(newBtn,genBtn);
+      newBtn.__v54=true;
+      newBtn.addEventListener("click",function(){
+        var type=docSel.value;
+        if(!type) return;
+        if(type==="rapbulanan") saveMonth(msel.value);
+        if(typeof window.previewDoc==="function") window.previewDoc(type);
+      });
+    }
+
+    /* Override syncRapBulan global agar selalu ambil dari v48RapBulanSel */
+    window.syncRapBulan=function(){
+      var v48=document.getElementById("v48RapBulanSel");
+      if(!v48) return;
+      saveMonth(v48.value);
+    };
+
+    /* Set initial state */
+    toggleWrap();
+    msel.value=getStoredMonth();
+
+    /* MutationObserver: jika wrap hilang dari DOM (karena clone), re-inject */
+    if(!window.__v54Observer){
+      window.__v54Observer=true;
+      var observer=new MutationObserver(function(){
+        var w=document.getElementById("v48RapBulanWrap");
+        if(!w || !w.isConnected){
+          var newWrap=ensureWrap();
+          if(newWrap){
+            var ds=document.getElementById("dsDocSelectV43");
+            if(ds) newWrap.style.display=(ds.value==="rapbulanan")?"flex":"none";
+            var ms=document.getElementById("v48RapBulanSel");
+            if(ms){
+              ms.value=getStoredMonth();
+              if(!ms.__v54change){
+                ms.__v54change=true;
+                ms.addEventListener("change",function(){
+                  saveMonth(ms.value);
+                  var dSel=document.getElementById("dsDocSelectV43");
+                  if(dSel&&dSel.value==="rapbulanan"){
+                    if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+                  }
+                });
+              }
+            }
+          }
+        }
+      });
+      var genPanel=document.getElementById("dsGenPanel")||document.querySelector(".ds-gen-left");
+      if(genPanel) observer.observe(genPanel,{childList:true,subtree:true});
+    }
+
+    console.log("[BOP v1.54] Dropdown bulan RAP Bulanan fix aktif");
+  }
+
+  /* Init dengan delay lebih panjang dari semua patch sebelumnya (v1.52=3000ms) */
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(initV54,3500); });
+  else
+    setTimeout(initV54,3500);
+
+})();
+/* END PATCH v1.54 */

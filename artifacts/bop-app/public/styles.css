@@ -1474,3 +1474,14 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 .section-note-v20 b{font-size:13px}
 
 @media print{.guide-wrapper-v30,.guide-toggle-v30,.subnav-wrapper-v30{display:none!important}}
+
+/* ── PATCH v1.58: breakdown notice bar + mini inputs KAK ── */
+.bd58-notice{padding:6px 12px;border-radius:8px;font-size:13px;font-weight:600;margin-left:12px}
+.bd58-notice.ok{background:#d1fae5;color:#065f46}
+.bd58-notice.bad{background:#fee2e2;color:#991b1b}
+.bd-header{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.bd-footer{display:flex;gap:8px;margin-top:8px}
+.mini-inp{padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:120px}
+.mini-inp-sm{padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:80px}
+.mini-inp-xs{padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:60px}
+.breakdown-panel.is-open{display:block}

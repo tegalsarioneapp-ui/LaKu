@@ -9367,3 +9367,376 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.57] Format KAK Breakdown aktif");
 })();
 /* END PATCH v1.57 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.58 - Fix komprehensif: breakdown panel + RAP bulanan + UI cleanup
+   Root causes yang diperbaiki:
+   1. v1.55 getMonthlyRapRows tidak include annualIndex → panel tidak bisa buka
+   2. v1.57 pakai monthlyBreakdowns (plural) ≠ monthlyBreakdown (original)
+   3. v1.57 updateBreakdownFromInputs overwrite total, tidak backward-compat
+   4. LPJ: gabung 2 tombol → 1 dropdown
+   5. DS: HTML+JSON disembunyikan di balik ⋯
+═══════════════════════════════════════════════════════════════ */
+(function bopFixV58(){
+  if(window.__bopFixV58) return;
+  window.__bopFixV58 = true;
+
+  /* ── shared helpers ── */
+  function rp(n){try{return rupiah(Number(n||0));}catch(e){return "Rp"+Number(n||0).toLocaleString("id-ID");}}
+  function es(s){try{return esc(String(s==null?"":s));}catch(e){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}}
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 1: getMonthlyRapRows — selalu sertakan annualIndex
+     (v1.55 menghilangkan field ini → semua breakdown rusak)
+  ════════════════════════════════════════════════════════════ */
+  var MO58=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+  function getActiveMon58(){
+    var sels=["v48RapBulanSel","monthlyDocMonth"];
+    for(var i=0;i<sels.length;i++){var el=document.getElementById(sels[i]);if(el&&el.offsetParent!==null&&el.value&&MO58.indexOf(el.value)>=0)return el.value;}
+    for(var j=0;j<sels.length;j++){var el2=document.getElementById(sels[j]);if(el2&&el2.value&&MO58.indexOf(el2.value)>=0)return el2.value;}
+    try{var m=window.data.pengajuan.selectedMonth;if(MO58.indexOf(m)>=0)return m;}catch(e){}
+    return MO58[0];
+  }
+  function getR58(month){
+    if(!month||MO58.indexOf(month)<0) month=getActiveMon58();
+    var ci=MO58.indexOf(month),rap=[],rows=[];
+    try{rap=window.data.pengajuan.rap||[];}catch(e){return[];}
+    if(!Array.isArray(rap)){try{rap=Object.values(rap);}catch(e){return[];}}
+    rap.forEach(function(r,idx){
+      if(Array.isArray(r)) r={uraian:r[0]||"",volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||"",bulan:r[4]||"",kategori:r[5]||"Operasional",subKategori:"",bulanMulai:"",bulanSelesai:""};
+      if(!r||!r.uraian) return;
+      var jb=0,sb="",bl=r.bulan||"";
+      var bM=r.bulanMulai||"",bS=r.bulanSelesai||"";
+      if(!bM||!bS){var m2=bl.match(/^(.+?)\s+s\.d\.?\s+(.+)$/i);if(m2){bM=m2[1].trim();bS=m2[2].trim();}}
+      if(bM&&bS){var s=MO58.indexOf(bM),e=MO58.indexOf(bS);if(s>=0&&e>=s&&ci>=s&&ci<=e){jb=Math.round(Number(r.jumlah||0)/(e-s+1));sb="Range "+bM+" s.d "+bS;}}
+      if(!jb&&bl===month){jb=Number(r.jumlah||0);sb="Langsung";}
+      var RA=(typeof RAP_MONTH_ALL!=="undefined")?RAP_MONTH_ALL:"Januari-Desember 2026";
+      if(!jb&&(bl===RA||bl==="Semua Bulan"||bl==="ALL")){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata 12 bln";}
+      if(!jb&&bl===""){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata";}
+      if(jb>0) rows.push({
+        uraian:r.uraian||"",kategori:r.kategori||"Operasional",subKategori:r.subKategori||"",
+        tipe:r.tipe||"",volume:r.volume||r.volumeBulanan||"1 Paket",
+        volumeBulanan:r.volumeBulanan||r.volume||"1 Paket",
+        jumlah:Number(r.jumlah||0),jumlahBulanan:jb,keterangan:r.keterangan||"",
+        bulan:bl,sumber:sb,bulanMulai:r.bulanMulai||"",bulanSelesai:r.bulanSelesai||"",
+        rentangBulan:r.rentangBulan||(bM&&bS?bM+" s.d "+bS:""),
+        annualIndex:idx  /* ← FIX UTAMA: annualIndex selalu ada */
+      });
+    });
+    return rows;
+  }
+  window.getMonthlyRapRows = getR58;
+  window.monthlyTotal = function(m){return getR58(m).reduce(function(s,r){return s+Number(r.jumlahBulanan||0);},0);};
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 2: Breakdown storage — pakai monthlyBreakdown (singular)
+     kompatibel dengan data lama + original getBreakdownRows
+  ════════════════════════════════════════════════════════════ */
+  function ensureBD(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};}
+  function bdKey(month,idx){return encodeURIComponent(month)+"__"+idx;}
+  function getBD(month,idx){
+    ensureBD();
+    var k=bdKey(month,idx),d=window.data;
+    if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
+    return d.pengajuan.monthlyBreakdown[k];
+  }
+  function saveBD(){
+    try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(window.data));}catch(e){}
+  }
+  function migrateRow(r){
+    if(r.qty1!==undefined) return r;
+    return Object.assign({},r,{
+      qty1:1,sat1:"Paket",qty2:1,sat2:"Keg",qty3:"",sat3:"",satTotal:"Paket",
+      hargaSatuan:Number(r.jumlah||0),jumlah:Number(r.jumlah||0)
+    });
+  }
+  function calcJml(r){
+    var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;
+    return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 3: updateBreakdownFromInputs — baca data-bd58
+  ════════════════════════════════════════════════════════════ */
+  window.__bd58save = function(){
+    ensureBD();
+    document.querySelectorAll("[data-bd58]").forEach(function(inp){
+      var p=inp.dataset.bd58.split("|");
+      if(p.length<4) return;
+      var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
+      var rows=getBD(month,idx);
+      if(!rows[ri]) return;
+      rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
+      if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
+        rows[ri].jumlah=calcJml(rows[ri]);
+        var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
+        if(cell) cell.textContent=rp(rows[ri].jumlah);
+        /* Update notice bar */
+        var panel=document.getElementById("bd58Panel");
+        if(panel){
+          var notice=panel.querySelector(".bd58-notice");
+          if(notice){
+            var t=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+            var tgt=0;
+            try{var ri2=getR58(month);var it=ri2.find(function(r){return r.annualIndex===idx;});tgt=it?Number(it.jumlahBulanan||0):0;}catch(e){}
+            var diff=tgt-t,ok=diff===0&&t>0;
+            notice.className="bd58-notice "+(ok?"ok":"bad");
+            notice.textContent=ok?"✔ Sesuai anggaran":"Sisa: "+rp(diff)+" | Total: "+rp(t)+" / Target: "+rp(tgt);
+          }
+        }
+      }
+    });
+    saveBD();
+  };
+  window.updateBreakdownFromInputs = window.__bd58save;
+
+  /* addBreakdownRow & deleteBreakdownRow */
+  window.addBreakdownRow = function(month,annualIndex){
+    window.__bd58save();
+    var rows=getBD(month,annualIndex);
+    rows.push({uraian:"",qty1:1,sat1:"Pkt",qty2:1,sat2:"Keg",qty3:"",sat3:"",satTotal:"Pkt",hargaSatuan:0,jumlah:0,keterangan:""});
+    saveBD();
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+  window.__bd58add = function(annualIndex){window.addBreakdownRow(getActiveMon58(),annualIndex);};
+
+  window.__bd58del = function(annualIndex,ri){
+    window.__bd58save();
+    var month=getActiveMon58();
+    var rows=getBD(month,annualIndex);
+    rows.splice(ri,1);
+    saveBD();
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+  window.deleteBreakdownRow = function(month,annualIndex,rowIndex){
+    window.__bd58save();
+    var rows=getBD(month,annualIndex);
+    rows.splice(rowIndex,1);
+    saveBD();
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 4: renderBreakdownPanel — KAK format, no inline escaping issues
+  ════════════════════════════════════════════════════════════ */
+  var SATUAN58=["Pkt","Paket","Keg","Kegiatan","Bln","Bulan","Org","Orang","OK","OB","TPS","PPK","Unit","Lembar","Buah","Set","Rim","Hari","Jam","Kali","RT","RW"];
+  function satSel(enc,idx,ri,field,val){
+    var opts=SATUAN58.map(function(s){return "<option value=\""+s+"\""+(s===val?" selected":"")+">"+s+"</option>";}).join("");
+    if(val&&SATUAN58.indexOf(val)<0) opts+="<option value=\""+es(val)+"\" selected>"+es(val)+"</option>";
+    return "<select class=\"mini-inp-sm\" data-bd58=\""+enc+"|"+idx+"|"+ri+"|"+field+"\" onchange=\"window.__bd58save&&window.__bd58save()\">"+opts+"</select>";
+  }
+  window.renderBreakdownPanel = function(month,item){
+    ensureBD();
+    var enc=encodeURIComponent(month);
+    var rawRows=getBD(month,item.annualIndex);
+    var rows=rawRows.map(migrateRow);
+    window.data.pengajuan.monthlyBreakdown[bdKey(month,item.annualIndex)]=rows;
+    var target=Number(item.jumlahBulanan||0);
+    var total=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+    var diff=target-total,ok=diff===0&&total>0;
+    var notice="<div class=\"bd58-notice "+(ok?"ok":"bad")+"\">"+(ok?"✔ Sesuai anggaran":"Sisa: "+rp(diff)+" | Total: "+rp(total)+" / Target: "+rp(target))+"</div>";
+    var tbody=rows.length?rows.map(function(r,ri){
+      return "<tr>"
+        +"<td style=\"text-align:center;color:#888\">"+(ri+1)+"</td>"
+        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.uraian||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|uraian\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty1||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty1\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"sat1",r.sat1||"Pkt")+"</td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty2||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty2\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"sat2",r.sat2||"Keg")+"</td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+(r.qty3||"")+"\" placeholder=\"opt\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty3\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"sat3",r.sat3||"")+"</td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"satTotal",r.satTotal||"Pkt")+"</td>"
+        +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td class=\"bd58-jml\" style=\"text-align:right;white-space:nowrap\">"+rp(r.jumlah||0)+"</td>"
+        +"<td style=\"text-align:center\"><button type=\"button\" class=\"delete\" onclick=\"window.__bd58del&&window.__bd58del("+item.annualIndex+","+ri+")\">✕</button></td>"
+        +"</tr>";
+    }).join(""):"<tr><td colspan=\"12\" style=\"text-align:center;color:#888;padding:16px\">Belum ada rincian. Klik + Tambah.</td></tr>";
+
+    return "<div class=\"breakdown-panel is-open\" id=\"bd58Panel\">"
+      +"<div class=\"bd-header\"><strong>Breakdown KAK: "+es(item.uraian)+"</strong>"+notice+"</div>"
+      +"<div class=\"bd-table-wrap\" style=\"overflow-x:auto;margin:8px 0\">"
+      +"<table class=\"bd-table\" style=\"font-size:12px;min-width:900px\">"
+      +"<thead><tr>"
+      +"<th style=\"width:32px\">No</th>"
+      +"<th>Uraian Rincian</th>"
+      +"<th>Qty1</th><th>Sat1</th>"
+      +"<th>Qty2</th><th>Sat2</th>"
+      +"<th>Qty3</th><th>Sat3</th>"
+      +"<th>Sat Total</th>"
+      +"<th>Harga Satuan (Rp)</th>"
+      +"<th>Jumlah</th><th></th>"
+      +"</tr></thead>"
+      +"<tbody>"+tbody+"</tbody>"
+      +"</table></div>"
+      +"<div class=\"bd-footer\" style=\"display:flex;gap:8px;margin-top:8px\">"
+      +"<button type=\"button\" class=\"primary\" onclick=\"window.__bd58add&&window.__bd58add("+item.annualIndex+")\">+ Tambah Rincian</button>"
+      +"<button type=\"button\" class=\"secondary\" onclick=\"closeMonthlyBreakdown()\">✕ Tutup</button>"
+      +"</div>"
+      +"</div>";
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 5: docRapBulanan — format KAK tabel 8 kolom
+  ════════════════════════════════════════════════════════════ */
+  window.docRapBulanan = function(){
+    try{
+      var month=getActiveMon58();
+      var d=window.data;
+      d.pengajuan.selectedMonth=month;
+      var rapRows=getR58(month);
+      var allRows=[];
+      rapRows.forEach(function(item){
+        var bdRows=getBD(month,item.annualIndex);
+        if(bdRows.length){
+          bdRows.forEach(function(r){
+            var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;
+            var volStr=q1+" "+(r.sat1||"Pkt")+" × "+q2+" "+(r.sat2||"Keg");
+            if(r.qty3&&r.sat3) volStr+=" × "+q3+" "+r.sat3;
+            allRows.push({
+              no:allRows.length+1,
+              kegiatan:item.uraian,sub:item.kategori+(item.subKategori?" - "+item.subKategori:""),
+              uraian:r.uraian||"-",
+              volStr:volStr,
+              volTotal:(q1*q2*q3)+" "+(r.satTotal||"Pkt"),
+              harga:Number(r.hargaSatuan||0),
+              jumlah:Number(r.jumlah||0),
+              ket:r.keterangan||item.keterangan||""
+            });
+          });
+        } else {
+          allRows.push({
+            no:allRows.length+1,
+            kegiatan:item.uraian,sub:item.kategori+(item.subKategori?" - "+item.subKategori:""),
+            uraian:"—",
+            volStr:item.volumeBulanan||"1 Paket",
+            volTotal:item.volumeBulanan||"1 Paket",
+            harga:item.jumlahBulanan,jumlah:item.jumlahBulanan,
+            ket:item.keterangan||""
+          });
+        }
+      });
+      var total=allRows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+      var tbody=allRows.length
+        ?allRows.map(function(r){return "<tr><td>"+r.no+"</td><td>"+es(r.kegiatan)+"<br><small>"+es(r.sub)+"</small></td><td>"+es(r.uraian)+"</td><td>"+es(r.volStr)+"</td><td>"+es(r.volTotal)+"</td><td style=\"text-align:right\">"+rp(r.harga)+"</td><td style=\"text-align:right\">"+rp(r.jumlah)+"</td><td>"+es(r.ket)+"</td></tr>";}).join("")
+        :"<tr><td colspan=\"8\" style=\"text-align:center\">Belum ada rencana kegiatan untuk bulan "+es(month)+".</td></tr>";
+      var body="<div class=\"title\">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN "+es(month).toUpperCase()+"</div>"
+        +"<table><thead><tr><th>No</th><th>Kegiatan</th><th>Uraian Rincian</th><th>Komponen Volume</th><th>Vol Total</th><th>Harga Satuan</th><th>Jumlah</th><th>Keterangan</th></tr></thead>"
+        +"<tbody>"+tbody
+        +"<tr><td colspan=\"6\"><b>Total RAP Bulan "+es(month)+"</b></td><td style=\"text-align:right\"><b>"+rp(total)+"</b></td><td></td></tr>"
+        +"</tbody></table>"
+        +"<p style=\"text-align:right;margin-top:20px\">"+(typeof todaySemarangV18==="function"?todaySemarangV18():"Semarang, "+new Date().toLocaleDateString("id-ID"))+"</p>"
+        +"<div class=\"ttd-4\">"
+        +"<div>Ketua RT "+d.master.rt+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.master.ketua):d.master.ketua||"")+"</div>"
+        +"<div>Bendahara RT "+d.master.rt+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.master.bendahara):d.master.bendahara||"")+"</div>"
+        +"<div>Lurah "+d.master.kelurahan+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.pengajuan.namaLurah):d.pengajuan.namaLurah||"")+"</div>"
+        +"<div>Ketua RW "+d.master.rw+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.pengajuan.namaKetuaRw):d.pengajuan.namaKetuaRw||"")+"</div>"
+        +"</div>";
+      try{if(typeof officialWrap46==="function") return officialWrap46(body);}catch(e){}
+      try{if(typeof official==="function") return official(body);}catch(e){}
+      return "<div class=\"official official-v36 official-v37\">"+body+"</div>";
+    }catch(err){
+      return "<p style=\"color:red;padding:20px\">Error generate RAP Bulanan v1.58: "+err.message+"</p>";
+    }
+  };
+
+  /* Patch docMapV37 agar pakai docRapBulanan terbaru */
+  if(typeof window.docMapV37==="function"){
+    var _om=window.docMapV37;
+    window.docMapV37=function(){var b=_om();b.rapbulanan=window.docRapBulanan;return b;};
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 6: UI Cleanup — LPJ dropdown + DS ⋯ menu
+  ════════════════════════════════════════════════════════════ */
+  function uiCleanup58(){
+    /* --- LPJ: gabung printLpj + exportPdfLpjV38 → 1 split button --- */
+    var btnPrint=document.getElementById("printLpj");
+    var btnExp=document.getElementById("exportPdfLpjV38");
+    if(btnPrint&&btnExp&&!document.getElementById("__lpjSplit58")){
+      var wrap=document.createElement("div");
+      wrap.id="__lpjSplit58";
+      wrap.style.cssText="position:relative;display:inline-flex;gap:0";
+
+      var main=document.createElement("button");
+      main.className="primary";
+      main.textContent="⬇ Cetak / Export PDF";
+      main.style.cssText="border-radius:6px 0 0 6px;margin:0";
+      main.onclick=function(){window.exportPdfLpjV38&&window.exportPdfLpjV38();};
+
+      var tog=document.createElement("button");
+      tog.className="primary";
+      tog.innerHTML="▾";
+      tog.style.cssText="border-radius:0 6px 6px 0;border-left:1px solid rgba(255,255,255,0.3);padding:0 10px;min-width:0;margin:0";
+
+      var menu=document.createElement("div");
+      menu.style.cssText="display:none;position:absolute;top:100%;left:0;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:210px;margin-top:2px;overflow:hidden";
+      menu.innerHTML="<div style=\"padding:8px 0\">"
+        +"<div style=\"padding:4px 14px 8px;font-size:11px;color:#888;border-bottom:1px solid #eee\">Pilih format output</div>"
+        +"<button id=\"__lpjOptPdf\" style=\"display:block;width:100%;text-align:left;padding:10px 16px;border:none;background:none;cursor:pointer;font-size:13px\">⬇ Export PDF (otomatis)</button>"
+        +"<button id=\"__lpjOptPrint\" style=\"display:block;width:100%;text-align:left;padding:10px 16px;border:none;background:none;cursor:pointer;font-size:13px\">🖨 Cetak (Print Dialog)</button>"
+        +"</div>";
+
+      tog.onclick=function(e){e.stopPropagation();menu.style.display=menu.style.display==="none"?"block":"none";};
+      document.addEventListener("click",function(){menu.style.display="none";});
+
+      wrap.appendChild(main); wrap.appendChild(tog); wrap.appendChild(menu);
+      btnPrint.parentNode.insertBefore(wrap,btnPrint);
+      btnPrint.style.display="none";
+      btnExp.style.display="none";
+
+      setTimeout(function(){
+        var optPdf=document.getElementById("__lpjOptPdf");
+        var optPrint=document.getElementById("__lpjOptPrint");
+        if(optPdf) optPdf.onclick=function(){menu.style.display="none";window.exportPdfLpjV38&&window.exportPdfLpjV38();};
+        if(optPrint) optPrint.onclick=function(){menu.style.display="none";if(typeof cleanPrint==="function")cleanPrint("lpj");};
+      },100);
+    }
+
+    /* --- Document Studio: sembunyikan ⬇ HTML + ⬇ JSON di balik ⋯ --- */
+    var dsHtml=document.getElementById("dsExportHtml");
+    var dsJson=document.getElementById("dsExportJson");
+    if(dsHtml&&dsJson&&!document.getElementById("__dsMore58")){
+      var mWrap=document.createElement("div");
+      mWrap.id="__dsMore58";
+      mWrap.style.cssText="position:relative;display:inline-block;vertical-align:middle";
+
+      var mBtn=document.createElement("button");
+      mBtn.title="Export lainnya (HTML / JSON)";
+      mBtn.textContent="⋯";
+      mBtn.style.cssText="font-size:15px;padding:3px 10px;line-height:1.2";
+
+      var mMenu=document.createElement("div");
+      mMenu.style.cssText="display:none;position:absolute;top:100%;right:0;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:160px;margin-top:2px;overflow:hidden";
+      mMenu.innerHTML="<div style=\"padding:8px 0\">"
+        +"<div style=\"padding:4px 12px 8px;font-size:11px;color:#888;border-bottom:1px solid #eee\">Export lainnya</div>"
+        +"<button id=\"__dsHtmlMenu\" style=\"display:block;width:100%;text-align:left;padding:9px 14px;border:none;background:none;cursor:pointer;font-size:13px\">⬇ Export HTML</button>"
+        +"<button id=\"__dsJsonMenu\" style=\"display:block;width:100%;text-align:left;padding:9px 14px;border:none;background:none;cursor:pointer;font-size:13px\">⬇ Export JSON Template</button>"
+        +"</div>";
+
+      mBtn.onclick=function(e){e.stopPropagation();mMenu.style.display=mMenu.style.display==="none"?"block":"none";};
+      document.addEventListener("click",function(){mMenu.style.display="none";});
+      mWrap.appendChild(mBtn); mWrap.appendChild(mMenu);
+
+      /* Sisipkan sebelum ⬇ HTML, sembunyikan asli */
+      dsHtml.parentNode.insertBefore(mWrap,dsHtml);
+      dsHtml.style.display="none"; dsJson.style.display="none";
+
+      /* Wire menu ke klik asli setelah DS siap */
+      setTimeout(function(){
+        var hm=document.getElementById("__dsHtmlMenu");
+        var jm=document.getElementById("__dsJsonMenu");
+        if(hm) hm.onclick=function(){mMenu.style.display="none";dsHtml.click();};
+        if(jm) jm.onclick=function(){mMenu.style.display="none";dsJson.click();};
+      },2500);
+    }
+  }
+
+  /* Jalankan setelah DOM ready */
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(uiCleanup58,600);});
+  } else {
+    setTimeout(uiCleanup58,600);
+  }
+
+})();
+/* END PATCH v1.58 */

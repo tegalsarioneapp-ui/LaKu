@@ -8838,11 +8838,36 @@ ${KOP_PDF_CSS}
       if(Array.isArray(r)) r={uraian:r[0]||"",volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||"",bulan:r[4]||"",kategori:r[5]||"Operasional",subKategori:"",tipe:"",bulanMulai:"",bulanSelesai:""};
       if(!r||!r.uraian) return;
       var jb=0,sb="",bl=r.bulan||"";
-      if(r.bulanMulai&&r.bulanSelesai){var s=MO.indexOf(r.bulanMulai),e=MO.indexOf(r.bulanSelesai);if(s>=0&&e>=s&&ci>=s&&ci<=e){jb=Math.round(Number(r.jumlah||0)/(e-s+1));sb="Range";}}
+
+      /* Parse "Juli 2026 s.d Desember 2026" → bulanMulai + bulanSelesai */
+      var bMulai=r.bulanMulai||"", bSelesai=r.bulanSelesai||"";
+      if(!bMulai||!bSelesai){
+        var sdMatch=bl.match(/^(.+?)\s+s\.d\.?\s+(.+)$/i);
+        if(sdMatch){
+          bMulai=sdMatch[1].trim();
+          bSelesai=sdMatch[2].trim();
+        }
+      }
+
+      /* Cek range bulanMulai - bulanSelesai */
+      if(bMulai&&bSelesai){
+        var s=MO.indexOf(bMulai),e=MO.indexOf(bSelesai);
+        if(s>=0&&e>=s&&ci>=s&&ci<=e){
+          jb=Math.round(Number(r.jumlah||0)/(e-s+1));
+          sb="Range "+bMulai+" s.d "+bSelesai;
+        }
+      }
+
+      /* Bulan spesifik langsung */
       if(!jb&&bl===month){jb=Number(r.jumlah||0);sb="Langsung";}
+
+      /* RAP_MONTH_ALL */
       var RA=(typeof RAP_MONTH_ALL!=="undefined")?RAP_MONTH_ALL:"Januari-Desember 2026";
-      if(!jb&&(bl===RA||bl==="Semua Bulan"||bl==="ALL")){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata";}
+      if(!jb&&(bl===RA||bl==="Semua Bulan"||bl==="ALL")){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata 12 bln";}
+
+      /* Bulan kosong → bagi rata */
       if(!jb&&bl===""){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata";}
+
       if(jb>0) rows.push({uraian:r.uraian||"",kategori:r.kategori||"Operasional",volume:r.volume||"1 Paket",jumlah:Number(r.jumlah||0),jumlahBulanan:jb,keterangan:r.keterangan||"",bulan:bl,sumber:sb});
     });
     return rows;

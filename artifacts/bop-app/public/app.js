@@ -8343,3 +8343,218 @@ ${KOP_PDF_CSS}
   else
     setTimeout(initV50,2600);
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.52 - Fix RAP Bulanan: getMonthlyRapRows definitif
+═══════════════════════════════════════════════════════════════ */
+(function bopFixRapBulananV52(){
+  if(window.__bopFixRapBulananV52) return;
+  window.__bopFixRapBulananV52 = true;
+
+  var MONTHS = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+
+  function getData(){ return (typeof window.data!=="undefined"&&window.data)||{}; }
+  function getRap(){
+    var d=getData();
+    return (d.pengajuan&&Array.isArray(d.pengajuan.rap))?d.pengajuan.rap:[];
+  }
+  function getMonth(){
+    var sel=document.getElementById("monthlyDocMonth");
+    if(sel&&sel.value&&MONTHS.indexOf(sel.value)>=0) return sel.value;
+    var v48=document.getElementById("v48RapBulanSel");
+    if(v48&&v48.value&&MONTHS.indexOf(v48.value)>=0) return v48.value;
+    var d=getData();
+    if(d.pengajuan&&d.pengajuan.selectedMonth&&MONTHS.indexOf(d.pengajuan.selectedMonth)>=0)
+      return d.pengajuan.selectedMonth;
+    return "Januari 2026";
+  }
+
+  function getMonthlyRapRowsFinal(month){
+    if(!month||MONTHS.indexOf(month)<0) month=getMonth();
+    var curIdx=MONTHS.indexOf(month);
+    var rows=[];
+    getRap().forEach(function(r,origIdx){
+      if(!r||!r.uraian) return;
+      var jumlahBulanan=0;
+      var vol=r.volumeBulanan||r.volume||"1 Paket";
+      var sumber="";
+
+      if(r.bulanMulai&&r.bulanSelesai){
+        var s=MONTHS.indexOf(r.bulanMulai);
+        var e=MONTHS.indexOf(r.bulanSelesai);
+        if(s>=0&&e>=s&&curIdx>=s&&curIdx<=e){
+          var cnt=e-s+1;
+          jumlahBulanan=Math.round(Number(r.jumlah||0)/cnt);
+          sumber="Range "+r.bulanMulai+"-"+r.bulanSelesai;
+        }
+      }
+      if(!jumlahBulanan&&r.bulan&&r.bulan===month){
+        jumlahBulanan=Number(r.jumlah||0);
+        sumber="Langsung";
+      }
+      if(!jumlahBulanan&&(!r.bulan||r.bulan===""||r.bulan==="Semua Bulan"||r.bulan==="ALL")){
+        jumlahBulanan=Math.round(Number(r.jumlah||0)/12);
+        sumber="Bagi rata 12 bln";
+      }
+      if(!jumlahBulanan&&typeof RAP_MONTH_ALL!=="undefined"&&r.bulan===RAP_MONTH_ALL){
+        jumlahBulanan=Math.round(Number(r.jumlah||0)/MONTHS.length);
+        sumber="Bagi rata";
+      }
+      if(jumlahBulanan>0){
+        rows.push({
+          uraian:r.uraian||"",kategori:r.kategori||"Operasional",
+          subKategori:r.subKategori||"",tipe:r.tipe||"",
+          volume:vol,volumeBulanan:vol,
+          jumlah:Number(r.jumlah||0),jumlahBulanan:jumlahBulanan,
+          keterangan:r.keterangan||"",bulan:r.bulan||"",
+          bulanMulai:r.bulanMulai||"",bulanSelesai:r.bulanSelesai||"",
+          sumber:sumber,annualIndex:origIdx
+        });
+      }
+    });
+    return rows;
+  }
+
+  window.getMonthlyRapRows = getMonthlyRapRowsFinal;
+  window.monthlyTotal = function(month){
+    return getMonthlyRapRowsFinal(month).reduce(function(s,r){
+      return s+Number(r.jumlahBulanan||0);
+    },0);
+  };
+
+  function _rp(n){ return typeof rupiah==="function"?rupiah(n):"Rp"+Number(n||0).toLocaleString("id-ID"); }
+  function _esc(s){ return typeof esc==="function"?esc(s):String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function _terbilang(n){ return typeof terbilang==="function"?terbilang(n):String(n); }
+  function _official(body){
+    if(typeof officialWrap46==="function") return officialWrap46(body);
+    if(typeof official==="function") return official(body);
+    return body;
+  }
+
+  window.docRapBulanan = function(){
+    var month=getMonth();
+    var d=getData();
+    if(d.pengajuan) d.pengajuan.selectedMonth=month;
+    try{ localStorage.removeItem("bop_rt005_ds_template_rapbulanan"); }catch(e){}
+
+    var rows=getMonthlyRapRowsFinal(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+    var m=d.master||{};
+
+    var tbody="";
+    if(rows.length){
+      rows.forEach(function(r,i){
+        tbody+="<tr><td>"+(i+1)+"</td><td>"+_esc(r.uraian)+
+          "<br><small>"+_esc(r.kategori)+" - "+_esc(r.subKategori)+
+          "<br>Tipe: "+_esc(r.tipe)+" | Sumber: "+_esc(r.sumber)+"</small></td>"+
+          "<td>"+_esc(r.volume)+"</td><td>"+_rp(r.jumlahBulanan)+"</td>"+
+          "<td>"+_esc(r.keterangan)+"</td></tr>";
+      });
+    } else {
+      tbody="<tr><td colspan='5' style='text-align:center;color:#888'>"+
+            "Belum ada rencana kegiatan untuk bulan "+_esc(month)+".</td></tr>";
+    }
+
+    var tgl=d.pengajuan&&d.pengajuan.tanggalSurat
+      ? d.pengajuan.tanggalSurat
+      : "Semarang, _______________";
+
+    return _official(
+      "<div class='title'>RENCANA ANGGARAN PENGGUNAAN BULANAN<br>"+
+      "BANTUAN OPERASIONAL RT<br>BULAN "+_esc(month).toUpperCase()+"</div>"+
+      "<table><thead><tr><th>No</th><th>Uraian Kegiatan</th>"+
+      "<th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead>"+
+      "<tbody>"+tbody+
+      "<tr><td colspan='3'><b>Jumlah</b></td><td><b>"+_rp(total)+"</b></td><td></td></tr>"+
+      "</tbody></table>"+
+      "<p style='text-align:right;margin-top:20px'>"+_esc(tgl)+"</p>"+
+      "<div class='ttd-4'>"+
+      "<div>Ketua RT "+_esc(m.rt||"")+"<div class='signature-space'></div>"+_esc(m.ketua||"Nama Jelas")+"</div>"+
+      "<div>Bendahara RT "+_esc(m.rt||"")+"<div class='signature-space'></div>"+_esc(m.bendahara||"Nama Jelas")+"</div>"+
+      "<div>Lurah "+_esc(m.kelurahan||"")+"<div class='signature-space'></div>"+
+        _esc((d.pengajuan&&d.pengajuan.namaLurah)||"Nama Jelas")+"</div>"+
+      "<div>Ketua RW "+_esc(m.rw||"")+"<div class='signature-space'></div>"+
+        _esc((d.pengajuan&&d.pengajuan.namaKetuaRw)||"Nama Jelas")+"</div>"+
+      "</div>"
+    );
+  };
+
+  window.docRbb = function(){
+    var month=getMonth();
+    var d=getData();
+    if(d.pengajuan) d.pengajuan.selectedMonth=month;
+    var rows=getMonthlyRapRowsFinal(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+    var m=d.master||{};
+    var tbody="";
+    if(rows.length){
+      rows.forEach(function(r,i){
+        tbody+="<tr><td>"+(i+1)+"</td><td>"+_esc(r.uraian)+"</td>"+
+          "<td>"+_esc(r.volume)+"</td><td>"+_rp(r.jumlahBulanan)+"</td>"+
+          "<td>"+_esc(r.keterangan)+"</td></tr>";
+      });
+    } else {
+      tbody="<tr><td colspan='5' style='text-align:center;color:#888'>Belum ada kegiatan bulan ini.</td></tr>";
+    }
+    return _official(
+      "<div class='title'>Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div>"+
+      "<table class='no-border'>"+
+      "<tr><td style='width:160px'>Nama Lembaga</td><td>: RT "+_esc(m.rt||"")+" RW "+_esc(m.rw||"")+"</td></tr>"+
+      "<tr><td>Kelurahan</td><td>: "+_esc(m.kelurahan||"")+"</td></tr>"+
+      "<tr><td>Kecamatan</td><td>: "+_esc(m.kecamatan||"")+"</td></tr>"+
+      "<tr><td>Untuk Kegiatan Bulan</td><td>: "+_esc(month)+"</td></tr>"+
+      "</table><br>"+
+      "<table><thead><tr><th>No.</th><th>Uraian Kegiatan</th>"+
+      "<th>Satuan/Volume</th><th>Anggaran</th><th>Keterangan</th></tr></thead>"+
+      "<tbody>"+tbody+
+      "<tr><td colspan='3'><b>Jumlah</b></td><td><b>"+_rp(total)+"</b></td><td></td></tr>"+
+      "</tbody></table>"+
+      "<p>Terbilang: <i>"+_terbilang(total)+" Rupiah</i></p>"+
+      "<div class='ttd-3'>"+
+      "<div>Yang Mengambil<br>Ketua RT "+_esc(m.rt||"")+" RW "+_esc(m.rw||"")+
+        "<div class='signature-space'></div>"+_esc(m.ketua||"Nama Jelas")+"</div>"+
+      "<div>Bendahara<div class='signature-space'></div>"+_esc(m.bendahara||"Nama Jelas")+"</div>"+
+      "<div>Mengetahui<br>Lurah "+_esc(m.kelurahan||"")+
+        "<div class='signature-space'></div>"+
+        _esc((d.pengajuan&&d.pengajuan.namaLurah)||"Nama Jelas")+"</div>"+
+      "</div>"
+    );
+  };
+
+  function initV52(){
+    var sel=document.getElementById("monthlyDocMonth");
+    var v48=document.getElementById("v48RapBulanSel");
+    var d=getData();
+    var cur=(d.pengajuan&&d.pengajuan.selectedMonth)||"Januari 2026";
+    if(sel&&!sel.value) sel.value=cur;
+    if(v48&&!v48.value) v48.value=cur;
+    if(sel&&!sel.__v52){
+      sel.__v52=true;
+      sel.addEventListener("change",function(){
+        if(v48) v48.value=sel.value;
+        var d2=getData(); if(d2.pengajuan) d2.pengajuan.selectedMonth=sel.value;
+        if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+      });
+    }
+    if(v48&&!v48.__v52){
+      v48.__v52=true;
+      v48.addEventListener("change",function(){
+        if(sel) sel.value=v48.value;
+        var d2=getData(); if(d2.pengajuan) d2.pengajuan.selectedMonth=v48.value;
+        if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+      });
+    }
+    console.log("[BOP v1.52] RAP Bulanan fix aktif");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(initV52,3000); });
+  else
+    setTimeout(initV52,3000);
+})();
+/* END PATCH v1.52 */

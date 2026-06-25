@@ -9256,8 +9256,7 @@ ${KOP_PDF_CSS}
       var vm=null; vis.forEach(function(el){if(!vm&&el.offsetParent!==null)vm=el;});
       if(!vm&&vis.length>0)vm=vis[vis.length-1];
       if(vm&&vm.value)month=vm.value;
-      else{var ms=document.getElementById("monthlyDocMonth");if(ms&&ms.value)month=ms.value;}
-      else{var sm=(getData57().pengajuan||{}).selectedMonth;if(sm)month=sm;}
+      else{var ms=document.getElementById("monthlyDocMonth");if(ms&&ms.value)month=ms.value;else{var sm=(getData57().pengajuan||{}).selectedMonth;if(sm)month=sm;}}
     }catch(e){}
     var MO=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
     if(MO.indexOf(month)<0) month=(getData57().pengajuan||{}).selectedMonth||"Januari 2026";

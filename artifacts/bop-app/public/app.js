@@ -8881,7 +8881,7 @@ ${KOP_PDF_CSS}
   window.monthlyTotal=function(m){return getR(m).reduce(function(s,r){return s+Number(r.jumlahBulanan||0);},0);};
   function rp(n){try{if(typeof rupiah==="function")return rupiah(Number(n||0));}catch(e){}return "Rp"+Number(n||0).toLocaleString("id-ID");}
   function es(s){try{if(typeof esc==="function")return esc(String(s==null?"":s));}catch(e){}return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
-  function of(b){try{if(typeof officialWrap46==="function")return officialWrap46(b);}catch(e){}return b;}
+  function of(b){try{if(typeof officialWrap46==="function")return officialWrap46(b);}catch(e){} var kop="";try{kop=kopHTML();}catch(e){kop="<div class='kop'><div class='kop-text'><h1 class='kop-b1'>PEMERINTAH KOTA SEMARANG</h1></div></div>";} return "<div class='official official-v36 official-v37'>"+kop+"<div class='kop-rule'></div>"+b+"</div>";}
   function tb(n){try{if(typeof terbilang==="function")return String(terbilang(Number(n||0))).replace(/\s+/g," ").trim();}catch(e){}return String(n||0);}
   window.docRapBulanan=function(){
     /* Selalu baca fresh dari DOM saat generate */

@@ -9045,3 +9045,326 @@ ${KOP_PDF_CSS}
     setTimeout(initV56, 4000);
 })();
 /* END PATCH v1.56 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.57 - RAP Bulanan Breakdown Format KAK
+   Format Excel RAB: No|Uraian|Qty×Sat×Qty×Sat|VolTotal|Hargasat|Jumlah
+   - Upgrade struktur breakdown row ke format KAK pemerintah
+   - UI input: qty1/sat1 x qty2/sat2 x qty3/sat3 = total × harga = jumlah
+   - Dokumen: tabel 6 kolom sesuai template RAB Excel
+   - Backward-compatible: row lama (hanya volume+jumlah) tetap terbaca
+═══════════════════════════════════════════════════════════════ */
+(function bopKakBreakdownV57(){
+  if(window.__bopKakBreakdownV57) return;
+  window.__bopKakBreakdownV57 = true;
+
+  /* ── Helper ── */
+  function rp(n){ try{ return rupiah(Number(n||0)); }catch(e){ return "Rp"+Number(n||0).toLocaleString("id-ID"); } }
+  function es(s){ try{ return esc(String(s==null?"":s)); }catch(e){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); } }
+  function ea(s){ return es(s).replace(/"/g,"&quot;"); }
+  function getData57(){ return (typeof data!=="undefined"?data:window.data)||{}; }
+  function ensureBD(){ var d=getData57(); if(!d.pengajuan) d.pengajuan={}; if(!d.pengajuan.monthlyBreakdowns) d.pengajuan.monthlyBreakdowns={}; }
+  function getBDRows(month, idx){ ensureBD(); var k=encodeURIComponent(month)+"__"+idx; var d=getData57(); if(!Array.isArray(d.pengajuan.monthlyBreakdowns[k])) d.pengajuan.monthlyBreakdowns[k]=[]; return d.pengajuan.monthlyBreakdowns[k]; }
+
+  /* Hitung jumlah dari komponen qty */
+  function calcJml(r){
+    var q1=Number(r.qty1||1), q2=Number(r.qty2||1), q3=r.qty3?Number(r.qty3):1;
+    var hs=Number(r.hargaSatuan||0);
+    return Math.round(q1*q2*q3*hs);
+  }
+
+  /* String volume rincian: "1 Pkt x 2 Bln x 16 PPK" */
+  function volStr(r){
+    var parts=[];
+    if(r.qty1||r.sat1) parts.push((r.qty1||1)+" "+(r.sat1||"Pkt"));
+    if(r.qty2||r.sat2) parts.push((r.qty2||1)+" "+(r.sat2||"Keg"));
+    if(r.qty3&&r.sat3)  parts.push(r.qty3+" "+r.sat3);
+    return parts.length?parts.join(" x "):String(r.volume||"1 Paket");
+  }
+
+  /* Total volume string: "32 OB" */
+  function volTotalStr(r){
+    if(r.satTotal){
+      var q1=Number(r.qty1||1), q2=Number(r.qty2||1), q3=r.qty3?Number(r.qty3):1;
+      return (q1*q2*q3)+" "+(r.satTotal||"Pkt");
+    }
+    return String(r.volume||r.volumeBulanan||"1 Paket");
+  }
+
+  /* Migrate lama → baru jika belum punya qty1 */
+  function migrateRow(r){
+    if(r.qty1!==undefined) return r;
+    var migrated=Object.assign({},r);
+    migrated.qty1=1; migrated.sat1=r.volume||"Paket";
+    migrated.qty2=""; migrated.sat2="";
+    migrated.qty3=""; migrated.sat3="";
+    migrated.qtyTotal="1"; migrated.satTotal=r.volume||"Paket";
+    migrated.hargaSatuan=Number(r.jumlah||0);
+    migrated.jumlah=Number(r.jumlah||0);
+    return migrated;
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE addBreakdownRow — buat row format KAK
+  ════════════════════════════════════════════════════════════ */
+  window.addBreakdownRow = function(month, annualIndex){
+    if(typeof updateBreakdownFromInputs==="function") updateBreakdownFromInputs();
+    var rows=getBDRows(month,annualIndex);
+    rows.push({uraian:"",qty1:1,sat1:"Pkt",qty2:1,sat2:"Keg",qty3:"",sat3:"",qtyTotal:"",satTotal:"Pkt",hargaSatuan:0,jumlah:0,keterangan:""});
+    var d=getData57(); try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(d));}catch(e){}
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE updateBreakdownFromInputs — baca field bd57
+  ════════════════════════════════════════════════════════════ */
+  window.updateBreakdownFromInputs = function(){
+    ensureBD();
+    document.querySelectorAll("[data-bd57]").forEach(function(inp){
+      var parts=inp.dataset.bd57.split("|");
+      if(parts.length<4) return;
+      var month=decodeURIComponent(parts[0]), idx=Number(parts[1]), rowIdx=Number(parts[2]), field=parts[3];
+      var rows=getBDRows(month,idx);
+      if(!rows[rowIdx]) return;
+      var v=inp.type==="number"?Number(inp.value||0):inp.value;
+      rows[rowIdx][field]=v;
+      /* Auto-calc jumlah ketika hargaSatuan atau qty berubah */
+      if(field==="hargaSatuan"||field==="qty1"||field==="qty2"||field==="qty3"){
+        rows[rowIdx].jumlah=calcJml(rows[rowIdx]);
+        /* Update display */
+        var jmlEl=document.querySelector('[data-bd57="'+parts[0]+"|"+idx+"|"+rowIdx+'|jumlah"]');
+        if(jmlEl) jmlEl.value=rows[rowIdx].jumlah;
+        var jmlTxt=document.querySelector('[data-bd57disp="'+parts[0]+"|"+idx+"|"+rowIdx+'|jumlah"]');
+        if(jmlTxt) jmlTxt.textContent=rp(rows[rowIdx].jumlah);
+      }
+      /* Auto-calc qtyTotal */
+      if(field==="qty1"||field==="qty2"||field==="qty3"){
+        var q1=Number(rows[rowIdx].qty1||1),q2=Number(rows[rowIdx].qty2||1),q3=rows[rowIdx].qty3?Number(rows[rowIdx].qty3):1;
+        var qt=q1*q2*q3;
+        rows[rowIdx].qtyTotal=qt;
+        var qtEl=document.querySelector('[data-bd57="'+parts[0]+"|"+idx+"|"+rowIdx+'|qtyTotal"]');
+        if(qtEl) qtEl.value=qt;
+      }
+    });
+    /* Also read legacy [data-breakdown] if old updateBreakdownFromInputs existed — skip to avoid double */
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE renderBreakdownPanel — UI format KAK
+  ════════════════════════════════════════════════════════════ */
+  window.renderBreakdownPanel = function(month, item){
+    var rawRows=getBDRows(month,item.annualIndex);
+    var rows=rawRows.map(migrateRow);
+    /* Write back migrated rows */
+    var d=getData57(); var k=encodeURIComponent(month)+"__"+item.annualIndex;
+    d.pengajuan.monthlyBreakdowns[k]=rows;
+
+    var enc=encodeURIComponent(month);
+    var total=rows.reduce(function(s,r){return s+Number(r.jumlah||calcJml(r));},0);
+    var target=Number(item.jumlahBulanan||0);
+    var diff=target-total; var ok=diff===0;
+
+    var SATUAN_LIST=["Pkt","Keg","Bln","Org","OK","OB","TPS","PPS","PPK","Unit","Lembar","Buah","Set","Rim","Hari","Jam","Kali","Keg","RT","RW"];
+    function satSel(enc57,idx,rowI,field,val){
+      return '<select class="mini-inp-sm" data-bd57="'+enc57+"|"+idx+"|"+rowI+"|"+field+'" onchange="updateBreakdownFromInputs()">'
+        +SATUAN_LIST.map(function(s){return '<option value="'+s+'"'+(s===val?" selected":"")+">"+s+"</option>";}).join("")
+        +'<option value="'+ea(val||"Pkt")+'" '+(SATUAN_LIST.indexOf(val)<0?"selected":"")+">"+ea(val||"Pkt")+"</option>"
+        +'</select>';
+    }
+
+    var rowsHtml=rows.length?rows.map(function(r,i){
+      var jml=r.jumlah||calcJml(r);
+      return '<tr>'
+        +'<td style="text-align:center;color:#64748b">'+(i+1)+'</td>'
+        +'<td><input class="mini-inp" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|uraian" value="'+ea(r.uraian||'')+'" placeholder="Contoh: Pembelian ATK" oninput="updateBreakdownFromInputs()"></td>'
+        /* Volume komponen 1 */
+        +'<td style="white-space:nowrap">'
+          +'<input class="mini-inp-xs" type="number" min="0" step="any" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qty1" value="'+Number(r.qty1||1)+'" oninput="updateBreakdownFromInputs()">'
+          +' '+satSel(enc,item.annualIndex,i,'sat1',r.sat1||'Pkt')
+          +' <span style="color:#94a3b8;font-weight:700">×</span> '
+          +'<input class="mini-inp-xs" type="number" min="0" step="any" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qty2" value="'+Number(r.qty2||1)+'" oninput="updateBreakdownFromInputs()">'
+          +' '+satSel(enc,item.annualIndex,i,'sat2',r.sat2||'Keg')
+        /* Komponen 3 optional */
+          +' <span style="color:#94a3b8;font-size:0.75rem">× (opt)</span> '
+          +'<input class="mini-inp-xs" type="number" min="0" step="any" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qty3" value="'+(r.qty3||'')+'" placeholder="—" oninput="updateBreakdownFromInputs()">'
+          +' '+satSel(enc,item.annualIndex,i,'sat3',r.sat3||'')
+        +'</td>'
+        /* Total volume */
+        +'<td style="white-space:nowrap">'
+          +'<input class="mini-inp-xs" type="number" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qtyTotal" value="'+(r.qtyTotal||(Number(r.qty1||1)*Number(r.qty2||1)*(r.qty3?Number(r.qty3):1)))+'" readonly style="background:#f1f5f9;color:#475569">'
+          +' '+satSel(enc,item.annualIndex,i,'satTotal',r.satTotal||'Pkt')
+        +'</td>'
+        /* Harga satuan */
+        +'<td><input class="mini-inp" type="number" min="0" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|hargaSatuan" value="'+Number(r.hargaSatuan||0)+'" placeholder="0" oninput="updateBreakdownFromInputs()" style="text-align:right"></td>'
+        /* Jumlah auto */
+        +'<td><input class="mini-inp" type="number" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|jumlah" value="'+Number(jml)+'" readonly style="background:#f0fdf4;font-weight:700;color:#166534;text-align:right"></td>'
+        +'<td><button type="button" class="delete" onclick="deleteBreakdownRow(\''+month+'\','+item.annualIndex+','+i+')">✕</button></td>'
+      +'</tr>';
+    }).join(""):'<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:16px">Belum ada rincian. Klik "+ Tambah Rincian".</td></tr>';
+
+    return '<div class="breakdown-panel">'
+      +'<div class="breakdown-head">'
+        +'<div>'
+          +'<h3 style="margin:0;font-size:1rem">📋 Rincian Anggaran (Format KAK)</h3>'
+          +'<div class="breakdown-subtitle"><b>'+es(item.uraian)+'</b> • '+es(month)+'<br>Target: <b>'+rp(target)+'</b></div>'
+        +'</div>'
+        +'<div class="action-row">'
+          +'<span id="breakdownLiveStatus" class="breakdown-status '+(ok?'ok':'bad')+'">'+(ok?'✓ SESUAI':'✗ BELUM SESUAI')+'</span>'
+          +'<button type="button" class="secondary" onclick="closeMonthlyBreakdown()">✕ Tutup</button>'
+        +'</div>'
+      +'</div>'
+      +'<div class="breakdown-toolbar">'
+        +'<div style="font-size:0.8rem;color:#64748b">Format KAK: <b>Qty×Sat×Qty×Sat</b> → <b>Vol Total</b> × <b>Harga Satuan</b> = <b>Jumlah</b> (otomatis)</div>'
+        +'<div class="action-row">'
+          +'<button type="button" class="primary" onclick="addBreakdownRow(\''+month+'\','+item.annualIndex+')">+ Tambah Rincian</button>'
+          +'<button type="button" class="secondary" onclick="updateBreakdownFromInputs();var d=typeof data!==\'undefined\'?data:window.data;localStorage.setItem((typeof STORE!==\'undefined\'?STORE:\'bop_rt005_data_v1_25\'),JSON.stringify(d));renderMonthlyRapSummary()">💾 Simpan</button>'
+        +'</div>'
+      +'</div>'
+      /* Tabel */
+      +'<div class="table-wrap" style="overflow-x:auto">'
+        +'<table class="breakdown-table" style="min-width:900px">'
+          +'<thead><tr>'
+            +'<th style="width:40px">No</th>'
+            +'<th>Uraian Rincian</th>'
+            +'<th style="min-width:340px">Rincian Volume (Qty × Sat × Qty × Sat × opt)</th>'
+            +'<th style="min-width:130px">Vol Total</th>'
+            +'<th style="min-width:120px">Harga Satuan (Rp)</th>'
+            +'<th style="min-width:110px">Jumlah (Rp)</th>'
+            +'<th style="width:50px"></th>'
+          +'</tr></thead>'
+          +'<tbody>'+rowsHtml+'</tbody>'
+        +'</table>'
+      +'</div>'
+      /* Summary cards */
+      +'<div class="breakdown-summary-cards">'
+        +'<div class="breakdown-summary-card primary"><div class="label">Target RAP Bulanan</div><div class="value">'+rp(target)+'</div></div>'
+        +'<div class="breakdown-summary-card danger"><div class="label">Total Rincian</div><div class="value" id="breakdownLiveTotal">'+rp(total)+'</div></div>'
+        +'<div class="breakdown-summary-card '+(diff===0?'success':'danger')+'"><div class="label">Selisih</div><div class="value" id="breakdownLiveDiff">'+rp(diff)+'</div></div>'
+      +'</div>'
+    +'</div>';
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE docRapBulanan — dokumen format KAK
+  ════════════════════════════════════════════════════════════ */
+  window.docRapBulanan = function(){
+    /* Sync & collect */
+    if(typeof updateBreakdownFromInputs==="function") try{updateBreakdownFromInputs();}catch(e){}
+    var month="Januari 2026";
+    try{
+      var vis=document.querySelectorAll('[id="v48RapBulanSel"]');
+      var vm=null; vis.forEach(function(el){if(!vm&&el.offsetParent!==null)vm=el;});
+      if(!vm&&vis.length>0)vm=vis[vis.length-1];
+      if(vm&&vm.value)month=vm.value;
+      else{var ms=document.getElementById("monthlyDocMonth");if(ms&&ms.value)month=ms.value;}
+      else{var sm=(getData57().pengajuan||{}).selectedMonth;if(sm)month=sm;}
+    }catch(e){}
+    var MO=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+    if(MO.indexOf(month)<0) month=(getData57().pengajuan||{}).selectedMonth||"Januari 2026";
+    try{if(getData57().pengajuan)getData57().pengajuan.selectedMonth=month;}catch(e){}
+
+    var rapRows=(typeof getMonthlyRapRows==="function")?getMonthlyRapRows(month):[];
+    var m={},p={};try{m=getData57().master||{};}catch(e){}try{p=getData57().pengajuan||{};}catch(e){}
+
+    /* Build table rows */
+    var tbHtml=""; var grandTotal=0; var noIdx=1;
+    if(rapRows.length===0){
+      tbHtml='<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Belum ada rencana kegiatan untuk bulan '+es(month)+'.</td></tr>';
+    } else {
+      rapRows.forEach(function(item){
+        var bdRows=getBDRows(month,item.annualIndex).map(migrateRow);
+        var hasBD=bdRows.length>0;
+        var itemTotal=hasBD?bdRows.reduce(function(s,r){return s+Number(r.jumlah||calcJml(r));},0):Number(item.jumlahBulanan||0);
+        grandTotal+=itemTotal;
+
+        /* Row parent */
+        tbHtml+='<tr style="background:#f8fafc">'
+          +'<td style="text-align:center;font-weight:700">'+noIdx+'</td>'
+          +'<td style="font-weight:700">'+es(item.uraian)+'<br><small style="font-weight:400;color:#64748b">'+es(item.kategori)+(item.sumber?" · "+es(item.sumber):"")+'</small></td>'
+          +'<td colspan="3" style="color:#64748b;font-style:italic">'+(hasBD?"Lihat rincian di bawah":""+es(item.volumeBulanan||item.volume||"1 Paket"))+'</td>'
+          +'<td style="text-align:right;font-weight:700">'+rp(itemTotal)+'</td>'
+        +'</tr>';
+        noIdx++;
+
+        /* Breakdown rows */
+        if(hasBD){
+          bdRows.forEach(function(r,bi){
+            var jml=Number(r.jumlah||calcJml(r));
+            var vs=volStr(r);
+            var vt=volTotalStr(r);
+            tbHtml+='<tr>'
+              +'<td style="text-align:center;color:#94a3b8">'+(bi+1)+')</td>'
+              +'<td style="padding-left:20px;color:#334155">'+es(r.uraian)+'</td>'
+              +'<td style="color:#475569;font-size:0.88em">'+es(vs)+'</td>'
+              +'<td style="color:#475569;font-size:0.88em;text-align:center">'+es(vt)+'</td>'
+              +'<td style="text-align:right;color:#475569;font-size:0.88em">'+rp(r.hargaSatuan)+'</td>'
+              +'<td style="text-align:right">'+rp(jml)+'</td>'
+            +'</tr>';
+          });
+        }
+      });
+      /* Grand total */
+      tbHtml+='<tr style="background:#1e3a5f;color:#fff">'
+        +'<td colspan="5" style="text-align:right;font-weight:700;padding:10px">JUMLAH</td>'
+        +'<td style="text-align:right;font-weight:700;font-size:1.05em">'+rp(grandTotal)+'</td>'
+      +'</tr>';
+    }
+
+    /* Build full document */
+    var kop="";try{kop=kopHTML();}catch(e){kop='<div class="kop"><div class="kop-text"><h1 class="kop-b1">PEMERINTAH KOTA SEMARANG</h1><h2 class="kop-b2">KELURAHAN '+es(m.kelurahan||"TEGALSARI")+'</h2></div></div>';}
+    var tglSurat=""; try{tglSurat=p.tanggalSurat||"";}catch(e){}
+
+    return '<div class="official official-v36 official-v37">'
+      +kop
+      +'<div class="kop-rule"></div>'
+      +'<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN '+es(month).toUpperCase()+'</div>'
+      +'<table style="margin-top:8px">'
+        +'<thead>'
+          +'<tr style="background:#1e3a5f;color:#fff">'
+            +'<th style="width:40px">No</th>'
+            +'<th style="text-align:left">Uraian Kegiatan / Rincian</th>'
+            +'<th>Rincian Volume</th>'
+            +'<th>Vol. Total</th>'
+            +'<th>Harga Satuan (Rp)</th>'
+            +'<th>Jumlah (Rp)</th>'
+          +'</tr>'
+        +'</thead>'
+        +'<tbody>'+tbHtml+'</tbody>'
+      +'</table>'
+      +'<p style="text-align:right;margin-top:20px">'+es(tglSurat||"Semarang, _______________")+'</p>'
+      +'<div class="ttd-4">'
+        +'<div>Ketua RT '+es(m.rt||"005")+'<div class="sign-space-v37"></div><b>'+es(m.ketua||"................")+'</b></div>'
+        +'<div>Bendahara<div class="sign-space-v37"></div><b>'+es(m.bendahara||"................")+'</b></div>'
+        +'<div>Lurah '+es(m.kelurahan||"")+'<div class="sign-space-v37"></div><b>'+es(p.namaLurah||"................")+'</b></div>'
+        +'<div>Ketua RW '+es(m.rw||"012")+'<div class="sign-space-v37"></div><b>'+es(p.namaKetuaRw||"................")+'</b></div>'
+      +'</div>'
+    +'</div>';
+  };
+
+  /* Patch docMapV37 agar pakai versi terbaru */
+  if(typeof window.docMapV37==="function"){
+    var _om=window.docMapV37;
+    window.docMapV37=function(){
+      var b=_om();
+      b.rapbulanan=window.docRapBulanan;
+      return b;
+    };
+  }
+
+  /* CSS tambahan untuk input KAK di breakdown panel */
+  if(!document.getElementById("bd57-css")){
+    var st=document.createElement("style");
+    st.id="bd57-css";
+    st.textContent=
+      ".mini-inp{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:0.82rem;font-family:inherit}"
+      +".mini-inp-xs{width:60px;padding:4px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:0.8rem;text-align:right}"
+      +".mini-inp-sm{padding:4px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:0.8rem;max-width:70px}"
+      +".mini-inp:focus,.mini-inp-xs:focus,.mini-inp-sm:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px #bfdbfe}"
+      +".breakdown-table td{vertical-align:middle;padding:6px 8px}"
+      +".breakdown-table thead th{padding:8px;font-size:0.82rem;font-weight:600}";
+    document.head.appendChild(st);
+  }
+
+  console.log("[BOP v1.57] Format KAK Breakdown aktif");
+})();
+/* END PATCH v1.57 */

@@ -1485,3 +1485,129 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 .mini-inp-sm{padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:80px}
 .mini-inp-xs{padding:5px 7px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;width:60px}
 .breakdown-panel.is-open{display:block}
+
+/* ══════════════════════════════════════════════════════════════
+   PATCH v1.59 — Mobile vs Desktop layout
+   Breakpoints: ≤768px = mobile ringkas, >768px = desktop penuh
+══════════════════════════════════════════════════════════════ */
+
+/* ── Mobile ≤768px ── */
+@media(max-width:768px){
+  /* Layout utama */
+  .app-shell{grid-template-columns:1fr}
+  .sidebar{position:fixed;left:0;top:0;height:100vh;transform:translateX(-110%);width:260px;z-index:200;overflow-y:auto}
+  .sidebar.open{transform:translateX(0)}
+  .app-shell.menu-hidden .sidebar{transform:translateX(-110%)}
+  .main{width:100%;min-width:0}
+  .page{padding:10px}
+  .topbar{padding:0 10px;gap:8px}
+  .clock{display:none}
+  .status{font-size:11px}
+
+  /* Brand sidebar kecil */
+  .brand-logo{width:36px}
+  .brand-name-laku{font-size:16px}
+  .brand-tagline-laku{font-size:10px}
+  .nav button{padding:10px 11px;font-size:13px}
+
+  /* Subnav: scroll horizontal, compact */
+  .subnav-wrapper-v30{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;gap:6px}
+  .subnav-wrapper-v30 .subnav{gap:0;padding-bottom:0}
+  .subnav-wrapper-v30 .subtab{padding:7px 11px;font-size:12px;white-space:nowrap}
+  .subnav{overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap}
+  .subnav::-webkit-scrollbar{display:none}
+  .subtab{padding:7px 10px;font-size:12px;white-space:nowrap}
+  .guide-toggle-v30{display:none}
+
+  /* Panel & cards */
+  .panel{padding:12px}
+  .cards{grid-template-columns:1fr}
+  .grid-2{grid-template-columns:1fr}
+  .form-grid{grid-template-columns:1fr}
+  .action-row{flex-wrap:wrap;gap:7px}
+  .action-row button{flex:1 1 140px;min-width:0}
+  .doc-check-grid{grid-template-columns:1fr}
+  .generate-layout{grid-template-columns:1fr}
+
+  /* Tabel: scroll horizontal */
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:580px}
+
+  /* Monthly RAP */
+  .monthly-cards-row{grid-template-columns:1fr}
+  .monthly-selected-card{display:block}
+  .monthly-card-action{display:flex;flex-direction:row;align-items:center;justify-content:space-between;margin-top:10px}
+  .month-control label{min-width:0;width:100%}
+
+  /* Breakdown panel: scrollable table */
+  .breakdown-panel{padding:12px;border-radius:12px}
+  .bd-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .bd-table-wrap table{min-width:700px}
+  .mini-inp{width:100px}
+  .mini-inp-sm{width:70px}
+  .mini-inp-xs{width:52px}
+
+  /* TTD */
+  .ttd-4,.ttd-3{grid-template-columns:1fr 1fr}
+  .doc-paper{padding:14px;font-size:10pt}
+
+  /* Dashboard hero */
+  .hero{flex-direction:column;align-items:flex-start;gap:10px}
+  .dashboard-summary-v29{grid-template-columns:1fr 1fr}
+
+  /* Pq split */
+  .pq-split-wrap{grid-template-columns:1fr!important}
+  .pq-right{display:none}
+
+  /* LPJ overlay tombol */
+  .__lpjSplit58{width:100%}
+  .__lpjSplit58>button:first-child{flex:1}
+
+  /* RAP wide table */
+  .rap-wide-table th,.rap-wide-table td{min-width:110px}
+
+  /* Section title kompak */
+  .section-title{flex-wrap:wrap;gap:8px}
+  .section-title h2{font-size:17px}
+  .section-title h3{font-size:15px}
+
+  /* Monthly print panel */
+  .monthly-print-panel .action-row{flex-wrap:wrap}
+  .monthly-print-panel .action-row button{flex:1 1 130px}
+}
+
+/* ── DS Mobile: preview only, sembunyikan editor ── */
+@media(max-width:768px){
+  .ds-toolbar{display:none!important}
+  .ds-toggle-bar{display:none!important}
+  .ds-gen-panel{display:none!important}
+  .ds-sidebar-panel{display:none!important}
+  .ds-canvas{pointer-events:none;user-select:none}
+  .ds-page{pointer-events:none;min-height:auto;border:none;box-shadow:none;padding:16px}
+  .ds-page[contenteditable]{outline:none}
+  .ds-status-bar{display:none}
+
+  /* Badge "Preview mode" untuk mobile DS */
+  .ds-wrap::before{
+    content:"👁 Mode Preview — buka di Desktop untuk mengedit";
+    display:block;
+    background:#fef3c7;color:#92400e;
+    border:1px solid #fde68a;border-radius:8px;
+    padding:8px 14px;font-size:12px;font-weight:600;
+    margin-bottom:10px;text-align:center
+  }
+}
+
+/* ── Ringkasan Anggaran (Breakdown Summary) ── */
+.bd-ringkasan{background:#f8faff;border:1px solid #dbeafe;border-radius:10px;padding:12px 14px;margin-top:12px}
+.bd-ringkasan-title{font-size:12px;font-weight:700;color:#1e40af;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+.bd-ringkasan-table{width:100%;font-size:12px;border-collapse:collapse}
+.bd-ringkasan-table td{padding:4px 6px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+.bd-ringkasan-table td:last-child{text-align:right;font-weight:600;white-space:nowrap}
+.bd-ringkasan-table tr:last-child td{border-bottom:none;font-weight:700;color:#1e40af;font-size:13px}
+.bd-progress-bar{height:10px;background:#e2e8f0;border-radius:999px;overflow:hidden;margin:8px 0 4px}
+.bd-progress-fill{height:100%;border-radius:999px;transition:width .3s ease}
+.bd-progress-fill.ok{background:#10b981}
+.bd-progress-fill.over{background:#ef4444}
+.bd-progress-fill.partial{background:#f59e0b}
+.bd-progress-label{font-size:11px;color:#64748b;display:flex;justify-content:space-between}

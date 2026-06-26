@@ -9740,3 +9740,263 @@ ${KOP_PDF_CSS}
 
 })();
 /* END PATCH v1.58 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.59 — Fix cursor jumping + Ringkasan Anggaran + docPengambilanBank
+   1. Debounce __bd58save → tidak re-render saat mengetik
+   2. renderBreakdownPanel + Ringkasan Anggaran real-time
+   3. docPengambilanBank multi-bulan (sesuai gambar BPD Jateng)
+   4. Wire tombol previewPengambilanBank + printPengambilanBank
+═══════════════════════════════════════════════════════════════ */
+(function bopFixV59(){
+  if(window.__bopFixV59) return;
+  window.__bopFixV59 = true;
+
+  /* ── helpers ── */
+  function rp(n){try{return rupiah(Number(n||0));}catch(e){return "Rp"+Number(n||0).toLocaleString("id-ID");}}
+  function es(s){try{return esc(String(s==null?"":s));}catch(e){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}}
+  var MO=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 1: Debounce __bd58save — tidak setItem tiap keystroke
+     Strategi:
+       - Saat input → update data in-memory langsung (tanpa localStorage)
+       - Debounce 600ms → baru localStorage.setItem
+       - TIDAK pernah call renderMonthlyRapSummary saat mengetik
+  ════════════════════════════════════════════════════════════ */
+  var _saveTimer=null;
+  var _origBd58Save=window.__bd58save;
+
+  window.__bd58save = function(){
+    /* 1. Update data in-memory dari semua input bd58 (tanpa re-render DOM) */
+    if(typeof _origBd58Save==="function"){
+      /* Patch: jalankan original tapi blok saveBD */
+      var _origSaveBD=window.__bd58saveBD;
+      /* Panggil langsung versi yang hanya update in-memory */
+    }
+
+    /* In-memory update manual yang aman (tidak ganti DOM) */
+    try{
+      var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
+      var bdKey=function(m,i){return encodeURIComponent(m)+"__"+i;};
+      var calcJml=function(r){var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));};
+      ensureBD();
+      var d=window.data;
+      document.querySelectorAll("[data-bd58]").forEach(function(inp){
+        var p=inp.dataset.bd58.split("|");
+        if(p.length<4) return;
+        var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
+        var k=bdKey(month,idx);
+        if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
+        var rows=d.pengajuan.monthlyBreakdown[k];
+        if(!rows[ri]) return;
+        rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
+        /* Auto-calc jumlah in-place */
+        if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
+          rows[ri].jumlah=calcJml(rows[ri]);
+          var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
+          if(cell) cell.textContent=rp(rows[ri].jumlah);
+          /* Update progress bar & notice without re-rendering panel */
+          updateBdRingkasan(month,idx);
+        }
+      });
+    }catch(e){console.warn("[v1.59] bd58save err:",e);}
+
+    /* 2. Debounce localStorage save */
+    clearTimeout(_saveTimer);
+    _saveTimer=setTimeout(function(){
+      try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(window.data));}catch(e){}
+    },600);
+  };
+  window.updateBreakdownFromInputs=window.__bd58save;
+
+  /* Update ringkasan panel in-place (tidak re-render) */
+  function updateBdRingkasan(month,idx){
+    var panel=document.getElementById("bd58Panel");
+    if(!panel) return;
+    var ringsEl=panel.querySelector(".bd-ringkasan");
+    if(!ringsEl) return;
+    try{
+      var rows=window.data.pengajuan.monthlyBreakdown[encodeURIComponent(month)+"__"+idx]||[];
+      var total=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+      var rapRows=typeof getMonthlyRapRows==="function"?getMonthlyRapRows(month):[];
+      var item=rapRows.find(function(r){return r.annualIndex===idx;})||{};
+      var target=Number(item.jumlahBulanan||0);
+      var pct=target>0?Math.min(Math.round(total/target*100),999):0;
+      var cls=pct===100?"ok":pct>100?"over":"partial";
+      /* Update notice bar */
+      var notice=panel.querySelector(".bd58-notice");
+      if(notice){
+        var diff=target-total,ok=diff===0&&total>0;
+        notice.className="bd58-notice "+(ok?"ok":"bad");
+        notice.textContent=ok?"✔ Sesuai anggaran":"Sisa: "+rp(diff)+" | "+rp(total)+" / "+rp(target);
+      }
+      /* Update ringkasan total */
+      var totalCell=ringsEl.querySelector(".bd-rings-total");
+      if(totalCell) totalCell.textContent=rp(total);
+      var pctLabel=ringsEl.querySelector(".bd-rings-pct");
+      if(pctLabel) pctLabel.textContent=pct+"%";
+      var fill=ringsEl.querySelector(".bd-progress-fill");
+      if(fill){fill.style.width=Math.min(pct,100)+"%";fill.className="bd-progress-fill "+cls;}
+      /* Update rows' jumlah */
+      rows.forEach(function(r,ri){
+        var rowEl=ringsEl.querySelector("[data-rings-ri='"+ri+"']");
+        if(rowEl) rowEl.textContent=rp(r.jumlah||0);
+      });
+    }catch(e){}
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 2: renderBreakdownPanel v1.59 — tambah Ringkasan Anggaran
+  ════════════════════════════════════════════════════════════ */
+  var _prevRBP=window.renderBreakdownPanel;
+  window.renderBreakdownPanel=function(month,item){
+    /* Panggil v1.58 untuk render panel utama */
+    var html=typeof _prevRBP==="function"?_prevRBP(month,item):"";
+    /* Inject Ringkasan Anggaran sebelum </div> penutup */
+    if(html && html.indexOf("</div>")>-1){
+      var rings=buildRingkasan(month,item);
+      html=html.replace(/<\/div>\s*$/,rings+"</div>");
+    }
+    return html;
+  };
+
+  function buildRingkasan(month,item){
+    try{
+      var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
+      ensureBD();
+      var k=encodeURIComponent(month)+"__"+item.annualIndex;
+      var rows=(window.data.pengajuan.monthlyBreakdown[k])||[];
+      var total=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+      var target=Number(item.jumlahBulanan||0);
+      var pct=target>0?Math.min(Math.round(total/target*100),999):0;
+      var cls=pct===100?"ok":pct>100?"over":"partial";
+      var rowsHtml=rows.length?rows.map(function(r,ri){
+        var vs=(Number(r.qty1||1))+"×"+(Number(r.qty2||1));
+        if(r.qty3) vs+="×"+Number(r.qty3);
+        return "<tr><td>"+(ri+1)+"</td><td>"+es(r.uraian||"—")+"</td><td>"+es(vs)+"</td><td data-rings-ri='"+ri+"'>"+rp(r.jumlah||0)+"</td></tr>";
+      }).join(""):"<tr><td colspan='4' style='text-align:center;color:#94a3b8'>Belum ada rincian</td></tr>";
+      return "<div class='bd-ringkasan'>"
+        +"<div class='bd-ringkasan-title'>📊 Ringkasan Anggaran</div>"
+        +"<table class='bd-ringkasan-table'>"
+        +"<thead><tr><th>No</th><th>Uraian</th><th>Qty</th><th>Jumlah</th></tr></thead>"
+        +"<tbody>"+rowsHtml+"</tbody>"
+        +"<tfoot><tr><td colspan='3'>Total Breakdown</td><td class='bd-rings-total'>"+rp(total)+"</td></tr></tfoot>"
+        +"</table>"
+        +"<div class='bd-progress-bar'><div class='bd-progress-fill "+cls+"' style='width:"+Math.min(pct,100)+"%'></div></div>"
+        +"<div class='bd-progress-label'><span>Anggaran Bulan: "+rp(target)+"</span><span class='bd-rings-pct'>"+pct+"%</span></div>"
+        +"</div>";
+    }catch(e){return "";}
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 3: docPengambilanBank — multi-bulan, grup per bulan
+     Sesuai dokumen "Pengambilan Operasional RT melalui Bank Jawa Tengah"
+  ════════════════════════════════════════════════════════════ */
+  window.docPengambilanBank=function(mulai,selesai){
+    try{
+      var d=window.data;
+      var m=d.master;
+      mulai=mulai||document.getElementById("pbBulanMulai")&&document.getElementById("pbBulanMulai").value||MO[0];
+      selesai=selesai||document.getElementById("pbBulanSelesai")&&document.getElementById("pbBulanSelesai").value||MO[6];
+      var si=MO.indexOf(mulai),ei=MO.indexOf(selesai);
+      if(si<0) si=0; if(ei<si) ei=si;
+      var rangeMonths=MO.slice(si,ei+1);
+      var grandTotal=0;
+      var noGlobal=0;
+      var tbody="";
+      rangeMonths.forEach(function(mo){
+        var rows=typeof getMonthlyRapRows==="function"?getMonthlyRapRows(mo):[];
+        if(!rows.length) return;
+        tbody+="<tr class='bulan-header'><td colspan='5'><b>Bulan "+es(mo)+" :</b></td></tr>";
+        rows.forEach(function(r){
+          noGlobal++;
+          grandTotal+=Number(r.jumlahBulanan||0);
+          tbody+="<tr><td style='text-align:center'>"+noGlobal+"</td><td>"+es(r.uraian)+"</td><td>"+es(r.volumeBulanan||r.volume||"1 kali")+"</td><td style='text-align:right'>"+rp(r.jumlahBulanan)+"</td><td>"+es(r.keterangan||"")+"</td></tr>";
+        });
+      });
+      if(!tbody) tbody="<tr><td colspan='5' style='text-align:center'>Belum ada kegiatan pada rentang bulan yang dipilih.</td></tr>";
+      tbody+="<tr style='font-weight:700;background:#f1f5f9'><td colspan='3' style='text-align:center'>JUMLAH</td><td style='text-align:right'>"+rp(grandTotal)+"</td><td></td></tr>";
+      var terbilangStr="";
+      try{terbilangStr=terbilang(grandTotal).replace(/\s+/g," ");}catch(e){terbilangStr="…";}
+      var today="";
+      try{today=todaySemarangV18();}catch(e){today="Semarang, "+new Date().toLocaleDateString("id-ID");}
+      var rangeLabel=mulai+(mulai!==selesai?" s.d. "+selesai:"");
+      var body="<div class='title'>Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div>"
+        +"<table class='no-border' style='width:auto;margin-bottom:14px'>"
+        +"<tr><td style='width:170px'>Nama Lembaga</td><td>: RT "+m.rt+" RW "+m.rw+"</td></tr>"
+        +"<tr><td>Kelurahan</td><td>: "+es(m.kelurahan)+"</td></tr>"
+        +"<tr><td>Kecamatan</td><td>: "+es(m.kecamatan)+"</td></tr>"
+        +"<tr><td>Untuk Kegiatan Bulan</td><td>: "+es(rangeLabel)+"</td></tr>"
+        +"</table>"
+        +"<table><thead><tr><th style='width:36px'>No.</th><th>Uraian Kegiatan</th><th>Satuan / Volume</th><th>Anggaran</th><th>Keterangan</th></tr></thead>"
+        +"<tbody>"+tbody+"</tbody></table>"
+        +"<p style='margin-top:8px'>Terbilang : <b>"+terbilangStr+" Rupiah</b></p>"
+        +"<p style='text-align:right;margin-top:20px'>"+today+"</p>"
+        +"<div class='ttd-3'>"
+        +"<div>Yang Mengambil<br>Ketua RT "+m.rt+" RW "+m.rw+"<div class='signature-space'></div>"+(typeof safeNameV18==="function"?safeNameV18(m.ketua):m.ketua||"")+"</div>"
+        +"<div>Bendahara<div class='signature-space'></div>"+(typeof safeNameV18==="function"?safeNameV18(m.bendahara):m.bendahara||"")+"</div>"
+        +"<div>Mengetahui<br>Lurah "+es(m.kelurahan)+"<div class='signature-space'></div>"+(typeof safeNameV18==="function"?safeNameV18(d.pengajuan.namaLurah):d.pengajuan.namaLurah||"")+"</div>"
+        +"</div>";
+      try{if(typeof officialWrap46==="function") return officialWrap46(body);}catch(e){}
+      try{if(typeof official==="function") return official(body);}catch(e){}
+      return "<div class='official official-v36 official-v37'>"+body+"</div>";
+    }catch(err){
+      return "<p style='color:red;padding:20px'>Error docPengambilanBank: "+err.message+"</p>";
+    }
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 4: Wire tombol Pengambilan Bank setelah DOM ready
+  ════════════════════════════════════════════════════════════ */
+  function wirePBButtons(){
+    var prevBtn=document.getElementById("previewPengambilanBank");
+    var printBtn=document.getElementById("printPengambilanBank");
+    var out=document.getElementById("pbDocOutput");
+    if(prevBtn&&!prevBtn.__pb59){
+      prevBtn.__pb59=true;
+      prevBtn.onclick=function(){
+        if(!out) return;
+        out.style.display="block";
+        out.innerHTML=window.docPengambilanBank();
+      };
+    }
+    if(printBtn&&!printBtn.__pb59){
+      printBtn.__pb59=true;
+      printBtn.onclick=function(){
+        if(!out) return;
+        out.style.display="block";
+        out.innerHTML=window.docPengambilanBank();
+        setTimeout(function(){
+          var w=window.open("","_blank");
+          if(!w) return;
+          w.document.write("<!doctype html><html><head><meta charset='utf-8'><title>Pengambilan Bank</title><link rel='stylesheet' href='styles.css'></head><body><div class='doc-paper'>"+out.innerHTML+"</div></body></html>");
+          w.document.close();
+          w.print();
+        },200);
+      };
+    }
+  }
+
+  /* CSS untuk bulan-header row di tabel */
+  var style=document.createElement("style");
+  style.textContent=".bulan-header td{background:#f0f4ff;font-weight:700;color:#1e40af;padding:6px 9px}.no-border{border:none!important}.no-border td,.no-border tr{border:none!important;background:transparent!important;padding:3px 6px}";
+  document.head.appendChild(style);
+
+  /* Jalankan setelah DOM ready */
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(wirePBButtons,800);});
+  } else {
+    setTimeout(wirePBButtons,800);
+  }
+
+  /* Re-wire saat navigasi ke tab pengambilan-bank */
+  document.addEventListener("click",function(e){
+    if(e.target&&e.target.dataset&&e.target.dataset.tab==="pengambilan-bank"){
+      setTimeout(wirePBButtons,100);
+    }
+  });
+
+  console.log("[BOP v1.59] Ringkasan Anggaran + Pengambilan Bank + cursor fix aktif");
+})();
+/* END PATCH v1.59 */

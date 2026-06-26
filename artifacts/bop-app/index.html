@@ -184,6 +184,7 @@
             <button class="subtab" data-tab="undangan-notulen">Undangan & Notulen RAP</button>
             <button class="subtab" data-tab="dokumen">Generate 7 Dokumen</button>
             <button class="subtab" data-tab="riwayat-pengajuan">Riwayat</button>
+            <button class="subtab" data-tab="pengambilan-bank">🏦 Pengambilan Bank</button>
           </div>
           <button class="guide-toggle-v30" data-target="guidePengajuanV30">ℹ Panduan</button>
         </div>
@@ -644,6 +645,36 @@
             <h3>Riwayat Pengajuan & Surat</h3>
             <div id="historyPengajuan" class="history-list"></div>
           </div>
+        </div>
+
+        <div class="tab-content" id="tab-pengambilan-bank">
+          <div class="panel">
+            <h3>🏦 Pengambilan Operasional RT Melalui Bank BPD Jateng</h3>
+            <p class="hint">Generate dokumen pengambilan dana operasional RT melalui Bank Jawa Tengah. Data kegiatan diambil otomatis dari RAP 1 Tahun sesuai rentang bulan yang dipilih.</p>
+            <div class="form-grid">
+              <label>Bulan Mulai
+                <select id="pbBulanMulai">
+                  <option>Januari 2026</option><option>Februari 2026</option><option>Maret 2026</option>
+                  <option>April 2026</option><option>Mei 2026</option><option>Juni 2026</option>
+                  <option>Juli 2026</option><option>Agustus 2026</option><option>September 2026</option>
+                  <option>Oktober 2026</option><option>November 2026</option><option>Desember 2026</option>
+                </select>
+              </label>
+              <label>Bulan Selesai
+                <select id="pbBulanSelesai">
+                  <option>Januari 2026</option><option>Februari 2026</option><option>Maret 2026</option>
+                  <option>April 2026</option><option>Mei 2026</option><option>Juni 2026</option>
+                  <option selected>Juli 2026</option><option>Agustus 2026</option><option>September 2026</option>
+                  <option>Oktober 2026</option><option>November 2026</option><option>Desember 2026</option>
+                </select>
+              </label>
+            </div>
+            <div class="action-row" style="margin-top:14px">
+              <button class="secondary" id="previewPengambilanBank">👁 Preview Dokumen</button>
+              <button class="primary" id="printPengambilanBank">🖨 Cetak / Simpan PDF</button>
+            </div>
+          </div>
+          <div class="doc-paper" id="pbDocOutput" style="margin-top:16px;display:none"></div>
         </div>
       </section>
 

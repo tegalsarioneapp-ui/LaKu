@@ -10000,3 +10000,341 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.59] Ringkasan Anggaran + Pengambilan Bank + cursor fix aktif");
 })();
 /* END PATCH v1.59 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.60 — Universal Document Modal
+   • Semua .doc-paper → collapsed card (👁 Lihat | 🖨 Cetak)
+   • Modal: tab Preview | Edit (rich) | Cetak
+   • Edit → "Salin ke DS" untuk lanjut edit di Document Studio
+   • ESC / klik overlay → tutup modal
+   • @media print: card sembunyi, dokumen asli muncul
+═══════════════════════════════════════════════════════════════ */
+(function bopDocModalV60(){
+  if(window.__bopDocModalV60) return;
+  window.__bopDocModalV60 = true;
+
+  /* ── CSS ── */
+  var style60 = document.createElement('style');
+  style60.textContent = [
+    /* overlay & box */
+    '.dm60-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9900;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)}',
+    '.dm60-box{background:#fff;width:min(900px,96vw);max-height:94vh;border-radius:18px;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.55);overflow:hidden}',
+    /* header */
+    '.dm60-header{display:flex;align-items:center;gap:10px;padding:13px 18px;background:#1e293b;color:#fff;flex-shrink:0}',
+    '.dm60-hicon{font-size:20px}',
+    '.dm60-htitle{flex:1;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.dm60-tabs{display:flex;gap:3px;background:rgba(255,255,255,.12);border-radius:8px;padding:3px}',
+    '.dm60-tab{padding:5px 13px;border:none;border-radius:6px;background:transparent;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}',
+    '.dm60-tab.active{background:#fff;color:#1e293b}',
+    '.dm60-close{margin-left:6px;width:30px;height:30px;border:none;background:rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
+    '.dm60-close:hover{background:rgba(255,255,255,.3)}',
+    /* body */
+    '.dm60-body{flex:1;overflow:hidden;display:flex}',
+    '.dm60-panel{display:none;flex:1;overflow-y:auto;padding:24px;flex-direction:column;align-items:center}',
+    '.dm60-panel.active{display:flex}',
+    '.dm60-doc-area{width:100%;max-width:780px}',
+    /* edit toolbar */
+    '.dm60-edit-bar{width:100%;max-width:780px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px}',
+    '.dm60-edit-bar button{padding:4px 10px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;line-height:1.4}',
+    '.dm60-edit-bar button:hover{background:#f1f5f9}',
+    '.dm60-edit-bar select{padding:4px 6px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px}',
+    '.dm60-copy-ds{margin-left:auto!important;background:#1e40af!important;color:#fff!important;border-color:#1e40af!important}',
+    '.dm60-copy-ds:hover{background:#1d4ed8!important}',
+    '.dm60-edit-content{width:100%;max-width:780px;border:2px solid #3b82f6;border-radius:8px;padding:20px;min-height:400px;outline:none;font-family:"Times New Roman",serif;font-size:12pt;line-height:1.7}',
+    /* cetak panel */
+    '.dm60-cetak-top{width:100%;max-width:780px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-bottom:20px}',
+    '.dm60-cetak-top h4{margin:0 0 12px;font-size:13px;color:#374151;font-weight:700}',
+    '.dm60-cetak-btns{display:flex;gap:10px;flex-wrap:wrap}',
+    '.dm60-cetak-btns button{flex:1 1 150px;padding:11px 16px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;border:none;transition:background .15s}',
+    '.dm60-btn-print{background:#1e293b;color:#fff}',
+    '.dm60-btn-print:hover{background:#334155}',
+    '.dm60-btn-dl{background:#e2e8f0;color:#374151}',
+    '.dm60-btn-dl:hover{background:#cbd5e1}',
+    '.dm60-cetak-hint{font-size:11px;color:#94a3b8;margin:10px 0 0}',
+    /* doc card (replaces inline preview) */
+    '.doc-paper.has-doc60{padding:0!important;background:transparent!important;border:none!important;box-shadow:none!important;display:block!important}',
+    '.doc-paper.has-doc60>*:not(.dm-card60){display:none!important}',
+    '.dm-card60{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,.06);cursor:default;transition:box-shadow .18s}',
+    '.dm-card60:hover{box-shadow:0 4px 18px rgba(0,0,0,.11)}',
+    '.dm-card60-icon{font-size:30px;flex-shrink:0;line-height:1}',
+    '.dm-card60-text{flex:1;min-width:0}',
+    '.dm-card60-text strong{display:block;font-size:14px;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.dm-card60-text small{display:block;font-size:11px;color:#94a3b8;margin-top:3px}',
+    '.dm-card60-btns{display:flex;gap:8px;flex-shrink:0}',
+    '.dm-card60-btns button{padding:7px 15px;border:none;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s}',
+    '.dm-btn-view60{background:#1e40af;color:#fff}',
+    '.dm-btn-view60:hover{background:#1d4ed8}',
+    '.dm-btn-print60{background:#f1f5f9;color:#374151}',
+    '.dm-btn-print60:hover{background:#e2e8f0}',
+    /* print media */
+    '@media print{.doc-paper.has-doc60>*:not(.dm-card60){display:block!important}.dm-card60{display:none!important}.dm60-overlay{display:none!important}}',
+    /* mobile */
+    '@media(max-width:600px){.dm60-tabs .dm60-tab{padding:4px 9px;font-size:11px}.dm-card60{flex-wrap:wrap}.dm-card60-btns{width:100%}.dm-card60-btns button{flex:1}}'
+  ].join('');
+  document.head.appendChild(style60);
+
+  /* ── Modal HTML ── */
+  var modalEl = document.createElement('div');
+  modalEl.id = 'docModal60';
+  modalEl.className = 'dm60-overlay';
+  modalEl.style.display = 'none';
+  modalEl.innerHTML = '<div class="dm60-box">'
+    + '<div class="dm60-header">'
+    +   '<span class="dm60-hicon">📄</span>'
+    +   '<span class="dm60-htitle" id="dm60TitleText">Dokumen</span>'
+    +   '<div class="dm60-tabs">'
+    +     '<button class="dm60-tab active" data-dmtab="preview">👁 Preview</button>'
+    +     '<button class="dm60-tab" data-dmtab="edit">✏️ Edit</button>'
+    +     '<button class="dm60-tab" data-dmtab="cetak">🖨 Cetak</button>'
+    +   '</div>'
+    +   '<button class="dm60-close" id="dm60CloseBtn">✕</button>'
+    + '</div>'
+    + '<div class="dm60-body">'
+    +   '<div class="dm60-panel active" id="dm60PanelPreview">'
+    +     '<div class="dm60-doc-area" id="dm60DocPreview"></div>'
+    +   '</div>'
+    +   '<div class="dm60-panel" id="dm60PanelEdit">'
+    +     '<div class="dm60-edit-bar">'
+    +       '<button title="Tebal" onclick="document.execCommand(\'bold\')"><b>B</b></button>'
+    +       '<button title="Miring" onclick="document.execCommand(\'italic\')"><i>I</i></button>'
+    +       '<button title="Garis bawah" onclick="document.execCommand(\'underline\')"><u>U</u></button>'
+    +       '<button title="Rata kiri" onclick="document.execCommand(\'justifyLeft\')">⬅</button>'
+    +       '<button title="Tengah" onclick="document.execCommand(\'justifyCenter\')">≡</button>'
+    +       '<button title="Rata kanan" onclick="document.execCommand(\'justifyRight\')">➡</button>'
+    +       '<select title="Ukuran font" onchange="document.execCommand(\'fontSize\',false,this.value);this.value=\'\'">'
+    +         '<option value="">Ukuran...</option>'
+    +         '<option value="1">8pt</option><option value="2">10pt</option>'
+    +         '<option value="3">12pt</option><option value="4">14pt</option>'
+    +         '<option value="5">18pt</option><option value="6">24pt</option>'
+    +       '</select>'
+    +       '<button class="dm60-copy-ds" id="dm60CopyDsBtn">📋 Salin ke Document Studio</button>'
+    +     '</div>'
+    +     '<div class="dm60-edit-content" id="dm60DocEdit" contenteditable="true" spellcheck="false"></div>'
+    +   '</div>'
+    +   '<div class="dm60-panel" id="dm60PanelCetak">'
+    +     '<div class="dm60-cetak-top">'
+    +       '<h4>🖨 Cetak atau Simpan sebagai PDF</h4>'
+    +       '<div class="dm60-cetak-btns">'
+    +         '<button class="dm60-btn-print" id="dm60PrintBtn">🖨 Cetak / Simpan PDF</button>'
+    +         '<button class="dm60-btn-dl" id="dm60DlBtn">⬇ Download HTML</button>'
+    +       '</div>'
+    +       '<p class="dm60-cetak-hint">Tips: Pilih "Save as PDF" atau "Microsoft Print to PDF" di dialog print browser untuk mendapatkan file PDF.</p>'
+    +     '</div>'
+    +     '<div class="dm60-doc-area" id="dm60DocCetak"></div>'
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(modalEl);
+
+  /* ── State ── */
+  var _curHtml = '';
+  var _curTitle = '';
+  var _curEl = null;
+
+  /* ── openDocModal ── */
+  window.openDocModal = function(html, title, srcEl) {
+    _curHtml = html || '';
+    _curTitle = title || 'Dokumen';
+    _curEl = srcEl || null;
+    var t = document.getElementById('dm60TitleText');
+    if(t) t.textContent = _curTitle;
+    switchTab('preview');
+    modalEl.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  };
+
+  window.closeDocModal = function() {
+    modalEl.style.display = 'none';
+    document.body.style.overflow = '';
+  };
+
+  /* ── Tab switching ── */
+  function switchTab(tab) {
+    var panels = {preview:'dm60PanelPreview', edit:'dm60PanelEdit', cetak:'dm60PanelCetak'};
+    Object.keys(panels).forEach(function(k) {
+      var p = document.getElementById(panels[k]);
+      var b = modalEl.querySelector('[data-dmtab="'+k+'"]');
+      if(p) p.classList.toggle('active', k===tab);
+      if(b) b.classList.toggle('active', k===tab);
+    });
+    if(tab==='preview') { var e=document.getElementById('dm60DocPreview'); if(e) e.innerHTML=_curHtml; }
+    if(tab==='edit')    { var e=document.getElementById('dm60DocEdit');    if(e) e.innerHTML=_curHtml; }
+    if(tab==='cetak')   { var e=document.getElementById('dm60DocCetak');   if(e) e.innerHTML=_curHtml; }
+  }
+
+  /* ── Wire modal buttons ── */
+  var closeBtn = document.getElementById('dm60CloseBtn');
+  if(closeBtn) closeBtn.onclick = window.closeDocModal;
+
+  modalEl.addEventListener('click', function(e){ if(e.target===modalEl) window.closeDocModal(); });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape' && modalEl.style.display!=='none') window.closeDocModal();
+  });
+
+  modalEl.querySelectorAll('[data-dmtab]').forEach(function(btn){
+    btn.addEventListener('click', function(){ switchTab(this.dataset.dmtab); });
+  });
+
+  /* ── Print ── */
+  var printBtn = document.getElementById('dm60PrintBtn');
+  if(printBtn) printBtn.onclick = function(){
+    var w = window.open('','_blank');
+    if(!w) return;
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+      +_curTitle+'</title><link rel="stylesheet" href="styles.css">'
+      +'<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
+      +'</head><body>'+_curHtml+'</body></html>');
+    w.document.close();
+    setTimeout(function(){w.print();},400);
+  };
+
+  /* ── Download HTML ── */
+  var dlBtn = document.getElementById('dm60DlBtn');
+  if(dlBtn) dlBtn.onclick = function(){
+    var blob = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
+      +_curTitle+'</title><link rel="stylesheet" href="styles.css">'
+      +'</head><body>'+_curHtml+'</body></html>'],{type:'text/html'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (_curTitle||'dokumen').replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50)+'.html';
+    a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+  };
+
+  /* ── Salin ke Document Studio ── */
+  var copyDsBtn = document.getElementById('dm60CopyDsBtn');
+  if(copyDsBtn) copyDsBtn.onclick = function(){
+    var editEl = document.getElementById('dm60DocEdit');
+    var html = editEl ? editEl.innerHTML : _curHtml;
+    var dsPage = document.getElementById('dsPage');
+    if(!dsPage){ showToast('Document Studio tidak ditemukan.', true); return; }
+    dsPage.innerHTML = html;
+    _curHtml = html;
+    if(_curEl) _curEl.__docHtml60 = html;
+    window.closeDocModal();
+    /* Navigasi ke DS: coba click nav + subtab */
+    try{
+      var tabEl = document.querySelector('[data-tab="tab-dokumen"]') || document.querySelector('.subtab[data-tab="dokumen"]');
+      if(tabEl){ tabEl.click(); }
+    }catch(e){}
+    showToast('✅ Dokumen tersalin ke Document Studio');
+  };
+
+  /* ── Toast helper ── */
+  function showToast(msg, isErr){
+    var t = document.createElement('div');
+    t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:'
+      +(isErr?'#dc2626':'#1e293b')+';color:#fff;padding:10px 22px;border-radius:10px;z-index:9999;font-size:13px;font-weight:600;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+    t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(function(){t.style.opacity='0';t.style.transition='opacity .4s';setTimeout(function(){t.remove();},400);},2800);
+  }
+
+  /* ── MutationObserver: wrap .doc-paper ── */
+  function detectTitle(html){
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var el = tmp.querySelector('.title,.kop-judul,h2,h3');
+    return el ? el.textContent.replace(/\s+/g,' ').trim().slice(0,80) : '';
+  }
+
+  var ID_LABEL = {
+    docOutput:'Dokumen Pengajuan', pbDocOutput:'Pengambilan Bank',
+    lpjOut:'Laporan Pertanggungjawaban', rapBulananOut:'RAP Bulanan',
+    persiapanOut:'Persiapan Kegiatan', suratOut:'Surat',
+    previewOut:'Dokumen', rbbOut:'RBB', beritaAcaraOut:'Berita Acara',
+    sptjmOut:'SPTJM', suratPermohonanOut:'Surat Permohonan',
+    daftarHadirOut:'Daftar Hadir', checklistOut:'Checklist',
+    undanganOut:'Undangan', notulenOut:'Notulen', kuitansiOut:'Kuitansi',
+    sklOut:'SKL', rekeningOut:'Rekening', cetakLpj:'Cetak LPJ'
+  };
+
+  function guessTitle(el){
+    if(ID_LABEL[el.id]) return ID_LABEL[el.id];
+    var panel = el.closest ? el.closest('.panel') : null;
+    if(panel){
+      var h = panel.querySelector('h2,h3,h4');
+      if(h) return h.textContent.trim().slice(0,80);
+    }
+    return 'Dokumen';
+  }
+
+  function wrapDocPaper(el){
+    if(el.querySelector('.dm-card60')) return;
+    var raw = el.innerHTML;
+    if(!raw || !raw.trim()) return;
+    /* Skip jika bukan konten dokumen (misalnya panel kosong dengan 1 child) */
+    if(raw.trim().length < 40) return;
+
+    el.__docHtml60 = raw;
+    var title = detectTitle(raw) || guessTitle(el);
+    el.__docTitle60 = title;
+
+    var card = document.createElement('div');
+    card.className = 'dm-card60';
+    card.innerHTML = '<span class="dm-card60-icon">📄</span>'
+      +'<div class="dm-card60-text"><strong>'+title+'</strong>'
+      +'<small>Dokumen siap — klik 👁 Lihat untuk membuka preview</small></div>'
+      +'<div class="dm-card60-btns">'
+      +'<button class="dm-btn-view60">👁 Lihat</button>'
+      +'<button class="dm-btn-print60">🖨 Cetak</button>'
+      +'</div>';
+
+    card.querySelector('.dm-btn-view60').onclick = function(e){
+      e.stopPropagation();
+      window.openDocModal(el.__docHtml60, el.__docTitle60, el);
+    };
+    card.querySelector('.dm-btn-print60').onclick = function(e){
+      e.stopPropagation();
+      var w = window.open('','_blank');
+      if(!w) return;
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+el.__docTitle60+'</title>'
+        +'<link rel="stylesheet" href="styles.css">'
+        +'</head><body>'+el.__docHtml60+'</body></html>');
+      w.document.close();
+      setTimeout(function(){w.print();},400);
+    };
+
+    el.classList.add('has-doc60');
+    el.insertBefore(card, el.firstChild);
+    el.style.display = 'block';
+  }
+
+  var _obs60 = new WeakSet();
+  function observeDocPapers(){
+    document.querySelectorAll('.doc-paper').forEach(function(el){
+      if(_obs60.has(el)) return;
+      _obs60.add(el);
+      if(el.innerHTML.trim().length > 40 && !el.querySelector('.dm-card60')){
+        wrapDocPaper(el);
+      }
+      new MutationObserver(function(muts){
+        var added = muts.some(function(m){
+          return m.type==='childList' && Array.from(m.addedNodes).some(function(n){
+            return n.nodeType===1 && !(n.classList&&n.classList.contains('dm-card60'));
+          });
+        });
+        if(added && !el.querySelector('.dm-card60')){
+          setTimeout(function(){wrapDocPaper(el);},15);
+        }
+      }).observe(el,{childList:true});
+    });
+  }
+
+  function init60(){
+    observeDocPapers();
+    new MutationObserver(function(){ observeDocPapers(); })
+      .observe(document.body,{childList:true, subtree:true});
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',function(){setTimeout(init60,500);});
+  } else {
+    setTimeout(init60,300);
+  }
+
+  console.log('[BOP v1.60] Universal Document Modal aktif');
+})();
+/* END PATCH v1.60 */

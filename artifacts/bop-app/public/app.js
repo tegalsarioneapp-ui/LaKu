@@ -10338,3 +10338,110 @@ ${KOP_PDF_CSS}
   console.log('[BOP v1.60] Universal Document Modal aktif');
 })();
 /* END PATCH v1.60 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.61 — Fix: 👁 Preview Generate 7 Dokumen + pq-preview cleanup
+   Root cause: v1.60 menambah eye card ke docOutput yang off-screen
+   (-9999px, visibility:hidden) → tombol tak terlihat user.
+   Fix: tombol Preview visible di ds-gen panel + auto-buka setelah Generate.
+   ═══════════════════════════════════════════════════════════════ */
+(function bopDocPreviewFixV61(){
+  if(window.__bopDocPreviewFixV61) return;
+  window.__bopDocPreviewFixV61 = true;
+
+  /* ── Ambil clean HTML dari docOutput (tanpa dm-card60) ── */
+  function getDocHtml(){
+    var docOut = document.getElementById('docOutput');
+    if(!docOut) return '';
+    /* v1.60 menyimpan raw HTML di __docHtml60 sebelum dm-card60 ditambahkan */
+    if(docOut.__docHtml60 && docOut.__docHtml60.trim().length > 40){
+      return docOut.__docHtml60;
+    }
+    /* Fallback: baca innerHTML, strip dm-card60 */
+    var tmp = document.createElement('div');
+    tmp.innerHTML = docOut.innerHTML;
+    var card = tmp.querySelector('.dm-card60');
+    if(card) card.remove();
+    return tmp.innerHTML;
+  }
+
+  /* ── Buka modal preview dengan dokumen saat ini ─────── */
+  function openPreviewModal(){
+    var html = getDocHtml();
+    if(!html || html.trim().length < 40){
+      if(typeof window.bopToast === 'function'){
+        window.bopToast('Info','Generate dokumen terlebih dahulu.','info');
+      } else {
+        alert('Generate dokumen terlebih dahulu sebelum preview.');
+      }
+      return;
+    }
+    if(typeof window.openDocModal !== 'function'){
+      alert('Preview modal belum siap. Coba lagi sesaat.');
+      return;
+    }
+    var selEl = document.getElementById('dsDocSelectV43');
+    var selText = (selEl && selEl.options && selEl.selectedIndex >= 0)
+      ? (selEl.options[selEl.selectedIndex].text || 'Dokumen')
+      : 'Dokumen';
+    window.openDocModal(html, selText, null);
+  }
+
+  /* ── Inject tombol 👁 Preview di samping Generate ────── */
+  function injectPreviewBtn(){
+    var genGroup = document.querySelector('.ds-doc-select-group-v43');
+    if(!genGroup || document.getElementById('dsPreviewBtnV61')) return;
+
+    var btn = document.createElement('button');
+    btn.id    = 'dsPreviewBtnV61';
+    btn.type  = 'button';
+    btn.title = 'Lihat pratinjau dokumen yang sudah di-generate';
+    btn.style.cssText =
+      'background:#0f172a;color:#e2e8f0;border:1.5px solid #334155;'
+      +'border-radius:10px;padding:0 16px;height:38px;font-size:13px;'
+      +'font-weight:700;cursor:pointer;display:inline-flex;align-items:center;'
+      +'gap:6px;white-space:nowrap;flex-shrink:0;margin-left:6px;transition:.15s';
+    btn.innerHTML = '👁 Preview';
+    btn.onmouseenter = function(){ this.style.background='#1e293b'; };
+    btn.onmouseleave = function(){ this.style.background='#0f172a'; };
+    btn.onclick = openPreviewModal;
+
+    genGroup.appendChild(btn);
+  }
+
+  /* ── Hook Generate button: auto-buka preview setelah gen */
+  function hookGenerateBtn(){
+    var btn = document.getElementById('dsDocGenBtnV43');
+    if(!btn || btn.__v61hooked) return;
+    btn.__v61hooked = true;
+    btn.addEventListener('click', function(){
+      /* Tunggu previewDoc selesai (kira-kira 300-400ms) */
+      setTimeout(openPreviewModal, 500);
+    });
+  }
+
+  /* ── Fix pqPreviewContent: hapus dm-card60 yang masuk ─ */
+  function patchPqPreview(){
+    var pqContent = document.getElementById('pqPreviewContent');
+    if(!pqContent) return;
+    new MutationObserver(function(){
+      var card = pqContent.querySelector('.dm-card60');
+      if(card) card.remove();
+    }).observe(pqContent, {childList:true, subtree:false});
+  }
+
+  /* ── Init ─────────────────────────────────────────────── */
+  function init(){
+    injectPreviewBtn();
+    hookGenerateBtn();
+    patchPqPreview();
+    console.log('[BOP v1.61] Eye button Generate Dokumen + pq-preview fix aktif');
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init, 1800); });
+  } else {
+    setTimeout(init, 1800);
+  }
+})();
+/* END PATCH v1.61 */

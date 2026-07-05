@@ -10445,3 +10445,133 @@ ${KOP_PDF_CSS}
   }
 })();
 /* END PATCH v1.61 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.62 — (A) Hapus tombol Lihat & Cetak dari card dokumen,
+                 (B) Sinkronisasi konten edit → preview & cetak
+   ═══════════════════════════════════════════════════════════════ */
+(function bopPatchV62(){
+  if(window.__bopPatchV62) return;
+  window.__bopPatchV62 = true;
+
+  /* ── (A) Hapus tombol Lihat & Cetak dari card, card bisa diklik ── */
+  function stripCardBtns(){
+    document.querySelectorAll('.dm-card60').forEach(function(card){
+      var btns = card.querySelector('.dm-card60-btns');
+      if(btns){ btns.remove(); }
+      var small = card.querySelector('.dm-card60-text small');
+      if(small) small.textContent = 'Dokumen siap — klik 👁 Preview untuk membuka pratinjau';
+      card.style.cursor = 'pointer';
+      if(!card.__v62click){
+        card.__v62click = true;
+        card.addEventListener('click', function(){
+          var el = card.closest('.doc-paper');
+          if(el && el.__docHtml60 && typeof window.openDocModal === 'function'){
+            window.openDocModal(el.__docHtml60, el.__docTitle60||'Dokumen', el);
+          }
+        });
+      }
+    });
+  }
+
+  /* ── (B) Sinkronisasi edit → preview & cetak ── */
+  function patchModal(){
+    var modal    = document.getElementById('docModal60');
+    var editEl   = document.getElementById('dm60DocEdit');
+    var previewEl= document.getElementById('dm60DocPreview');
+    var cetakEl  = document.getElementById('dm60DocCetak');
+    var printBtn = document.getElementById('dm60PrintBtn');
+    var dlBtn    = document.getElementById('dm60DlBtn');
+    if(!modal || !editEl || !previewEl) return false;
+
+    /* Ambil HTML terkini: selalu dari editEl jika sudah ada isi */
+    function liveHtml(){
+      if(editEl && editEl.innerHTML && editEl.innerHTML.trim().length > 40)
+        return editEl.innerHTML;
+      return window.__dm60CurHtml || '';
+    }
+
+    /* Intercept tab clicks (capture phase = jalan sebelum switchTab asli) */
+    modal.querySelectorAll('[data-dmtab]').forEach(function(btn){
+      if(btn.__v62tab) return;
+      btn.__v62tab = true;
+      btn.addEventListener('click', function(){
+        var toTab = btn.dataset.dmtab;
+        setTimeout(function(){
+          var html = liveHtml();
+          if(!html || html.trim().length < 40) return;
+          if(toTab === 'preview' && previewEl) previewEl.innerHTML = html;
+          if(toTab === 'cetak'   && cetakEl)   cetakEl.innerHTML   = html;
+        }, 30);
+      }, true);
+    });
+
+    /* Patch Print */
+    if(printBtn && !printBtn.__v62){
+      printBtn.__v62 = true;
+      printBtn.addEventListener('click', function(e){
+        e.stopImmediatePropagation();
+        var html  = liveHtml();
+        var title = (document.getElementById('dm60TitleText')||{}).textContent || 'Dokumen';
+        var w = window.open('','_blank');
+        if(!w) return;
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+          +title+'</title><link rel="stylesheet" href="styles.css">'
+          +'<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
+          +'</head><body>'+html+'</body></html>');
+        w.document.close();
+        setTimeout(function(){w.print();},400);
+      }, true);
+    }
+
+    /* Patch Download HTML */
+    if(dlBtn && !dlBtn.__v62){
+      dlBtn.__v62 = true;
+      dlBtn.addEventListener('click', function(e){
+        e.stopImmediatePropagation();
+        var html  = liveHtml();
+        var title = (document.getElementById('dm60TitleText')||{}).textContent || 'Dokumen';
+        var blob  = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
+          +title+'</title><link rel="stylesheet" href="styles.css">'
+          +'</head><body>'+html+'</body></html>'],{type:'text/html'});
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = title.replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50)+'.html';
+        a.click();
+        setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+      }, true);
+    }
+
+    /* Patch openDocModal: reset editEl + simpan html awal */
+    if(!window.__openDocModal62){
+      window.__openDocModal62 = true;
+      var origOpen = window.openDocModal;
+      window.openDocModal = function(html, title, srcEl){
+        window.__dm60CurHtml = html || '';
+        if(editEl) editEl.innerHTML = html || '';  /* isi edit dari awal agar preview konsisten */
+        if(typeof origOpen === 'function') origOpen.call(this, html, title, srcEl);
+      };
+    }
+
+    return true;
+  }
+
+  /* ── Init ── */
+  function init62(){
+    stripCardBtns();
+    var ok = patchModal();
+    /* Pantau card baru */
+    new MutationObserver(function(){ stripCardBtns(); })
+      .observe(document.body, {childList:true, subtree:true});
+    /* Retry jika modal belum siap */
+    if(!ok) setTimeout(function(){ patchModal(); }, 1200);
+    console.log('[BOP v1.62] Hapus Lihat/Cetak card + edit-sync aktif');
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init62, 2200); });
+  } else {
+    setTimeout(init62, 800);
+  }
+})();
+/* END PATCH v1.62 */

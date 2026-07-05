@@ -1,10 +1,7 @@
 import { Router, type IRouter } from "express";
-import { createRequire } from "module";
+import { ZipArchive } from "archiver";
 import path from "path";
 import { fileURLToPath } from "url";
-
-const require = createRequire(import.meta.url);
-const archiver = require("archiver") as typeof import("archiver");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,7 +34,7 @@ router.get("/download-app", (_req, res) => {
     'attachment; filename="bop-rt005-offline-app.zip"'
   );
 
-  const archive = archiver("zip", { zlib: { level: 9 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
 
   archive.on("error", (err) => {
     res.status(500).json({ error: err.message });

@@ -4,8 +4,8 @@ Sistem manajemen administrasi Bantuan Operasional RT untuk RT 005 RW 012 Tegalsa
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
-- `pnpm --filter @workspace/bop-app run dev` — run the BOP web app (port 22524)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8099)
+- `pnpm --filter @workspace/bop-app run dev` — run the BOP web app (port 8080)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - Required env: `SESSION_SECRET` — session secret
@@ -53,7 +53,7 @@ Sistem manajemen administrasi Bantuan Operasional RT untuk RT 005 RW 012 Tegalsa
 - `app.js` di `public/` bukan module ES — tidak diproses Vite, hanya di-serve sebagai static file
 - Perubahan `app.js` di public/ tidak perlu restart (served as-is)
 - Restart api-server diperlukan setelah perubahan backend
-- archiver di api-server harus di-require via createRequire (CJS module)
+- archiver v8 di api-server adalah ESM — gunakan `import { ZipArchive } from "archiver"` bukan factory function lama
 
 ## Pointers
 

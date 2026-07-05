@@ -1353,16 +1353,17 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       : r
     );
 
-    /* Expand RAP_MONTH_ALL & range bulan → satu entry per bulan */
+    /* Expand HANYA jika bulan === MOKU_MONTH_ALL (eksplisit semua bulan)
+       atau ada range bulanMulai-bulanSelesai.
+       Bulan kosong ("") = belum dijadwalkan → simpan 1 entry, JANGAN expand. */
     const expanded = [];
     normRap.forEach((r, origIdx) => {
-      const bulan = r.bulan || "";
-      const isAll = bulan === MOKU_MONTH_ALL || bulan === "" ||
-                    (r.bulanMulai && r.bulanSelesai); /* format range */
+      const bulan    = r.bulan || "";
+      const hasRange = !!(r.bulanMulai && r.bulanSelesai);
+      const isAll    = bulan === MOKU_MONTH_ALL || hasRange;
       if (isAll) {
-        /* Cek range bulan (bulanMulai - bulanSelesai) */
         let months = MOKU_MONTHS;
-        if (r.bulanMulai && r.bulanSelesai) {
+        if (hasRange) {
           const iStart = MOKU_MONTHS.indexOf(r.bulanMulai);
           const iEnd   = MOKU_MONTHS.indexOf(r.bulanSelesai);
           if (iStart >= 0 && iEnd >= iStart)
@@ -1373,18 +1374,29 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
           expanded.push({ ...r, bulan: m, jumlah: nominalPerBulan, _origIdx: origIdx });
         });
       } else {
+        /* Bulan spesifik atau kosong → satu entry apa adanya */
         expanded.push({ ...r, _origIdx: origIdx });
       }
     });
 
-    const existingIds = new Set((state.activities||[]).map(a => a.id));
-    const mapped      = expanded.map((r, i) => rapToActivity(r, i));
+    const mapped    = expanded.map((r, i) => rapToActivity(r, i));
+    const mappedIds = new Set(mapped.map(a => a.id));
+
+    /* Hapus kegiatan BOP Sync lama yang sudah tidak relevan dengan data BOP saat ini */
+    const staleBefore = (state.activities||[]).filter(
+      a => a.source === "BOP Sync" && !mappedIds.has(a.id)
+    ).length;
+    state.activities = (state.activities||[]).filter(
+      a => a.source !== "BOP Sync" || mappedIds.has(a.id)
+    );
+
+    const existingIds = new Set(state.activities.map(a => a.id));
     const newActs     = mapped.filter(a => !existingIds.has(a.id));
     const updActs     = mapped.filter(a =>  existingIds.has(a.id));
 
     let changed = 0;
     if (newActs.length) {
-      state.activities = [...(state.activities||[]), ...newActs];
+      state.activities = [...state.activities, ...newActs];
       changed += newActs.length;
     }
     if (updActs.length) {
@@ -1394,7 +1406,8 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       });
     }
 
-    if (changed > 0 || updActs.length > 0) {
+    const totalChanged = changed + staleBefore;
+    if (totalChanged > 0 || updActs.length > 0) {
       if (!state.currentId && state.activities.length)
         state.currentId = state.activities[0].id;
       saveState();
@@ -1405,7 +1418,9 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     }
 
     if (!opts.silent) {
-      if (changed > 0)
+      if (staleBefore > 0)
+        showToast(`✓ Sync BOP: ${changed} baru, ${staleBefore} kegiatan lama dihapus`);
+      else if (changed > 0)
         showToast(`✓ Sinkron BOP: ${changed} kegiatan baru ditambahkan`);
       else
         showToast(`✓ Semua ${mapped.length} kegiatan BOP sudah tersinkron`);
@@ -1422,14 +1437,15 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       ? { uraian:r[0]||"", volume:r[1]||"1 Paket", jumlah:Number(r[2]||0), keterangan:r[3]||"", kategori:"Operasional", subKategori:"", bulan:"", tipe:"" }
       : r
     );
-    /* Expand RAP_MONTH_ALL untuk hitung estimasi jumlah kegiatan baru */
+    /* Expand HANYA jika MOKU_MONTH_ALL atau ada range (sama seperti syncFromBOP) */
     const expanded = [];
     normRap.forEach((r, origIdx) => {
-      const bulan = r.bulan || "";
-      const isAll = bulan === MOKU_MONTH_ALL || bulan === "" || (r.bulanMulai && r.bulanSelesai);
+      const bulan    = r.bulan || "";
+      const hasRange = !!(r.bulanMulai && r.bulanSelesai);
+      const isAll    = bulan === MOKU_MONTH_ALL || hasRange;
       if (isAll) {
         let months = MOKU_MONTHS;
-        if (r.bulanMulai && r.bulanSelesai) {
+        if (hasRange) {
           const iS = MOKU_MONTHS.indexOf(r.bulanMulai), iE = MOKU_MONTHS.indexOf(r.bulanSelesai);
           if (iS >= 0 && iE >= iS) months = MOKU_MONTHS.slice(iS, iE + 1);
         }

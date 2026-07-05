@@ -10447,34 +10447,38 @@ ${KOP_PDF_CSS}
 /* END PATCH v1.61 */
 
 /* ═══════════════════════════════════════════════════════════════
-   PATCH v1.62 — (A) Hapus tombol Lihat & Cetak dari card dokumen,
-                 (B) Sinkronisasi konten edit → preview & cetak
+   PATCH v1.62 — (A) Sembunyikan tombol Lihat & Cetak via CSS,
+                 (B) Card dapat diklik langsung buka Preview,
+                 (C) Sinkronisasi edit → preview & cetak diperbaiki
+   Tidak menggunakan MutationObserver pada document.body.
    ═══════════════════════════════════════════════════════════════ */
 (function bopPatchV62(){
   if(window.__bopPatchV62) return;
   window.__bopPatchV62 = true;
 
-  /* ── (A) Hapus tombol Lihat & Cetak dari card, card bisa diklik ── */
-  function stripCardBtns(){
-    document.querySelectorAll('.dm-card60').forEach(function(card){
-      var btns = card.querySelector('.dm-card60-btns');
-      if(btns){ btns.remove(); }
-      var small = card.querySelector('.dm-card60-text small');
-      if(small) small.textContent = 'Dokumen siap — klik 👁 Preview untuk membuka pratinjau';
-      card.style.cursor = 'pointer';
-      if(!card.__v62click){
-        card.__v62click = true;
-        card.addEventListener('click', function(){
-          var el = card.closest('.doc-paper');
-          if(el && el.__docHtml60 && typeof window.openDocModal === 'function'){
-            window.openDocModal(el.__docHtml60, el.__docTitle60||'Dokumen', el);
-          }
-        });
-      }
-    });
-  }
+  /* ── (A) Sembunyikan tombol via CSS — zero-cost, tidak ada MutationObserver ── */
+  var s = document.createElement('style');
+  s.textContent =
+    '.dm-card60-btns{display:none!important}' +
+    '.dm-card60{cursor:pointer!important}' +
+    '.dm-card60 .dm-card60-text small::after{content:" Klik untuk membuka preview"}';
+  document.head.appendChild(s);
 
-  /* ── (B) Sinkronisasi edit → preview & cetak ── */
+  /* ── (B) Event delegation: klik card → buka Preview modal ─── */
+  document.addEventListener('click', function(e){
+    var card = e.target.closest ? e.target.closest('.dm-card60') : null;
+    if(!card) return;
+    /* Abaikan klik tombol di dalam card (sudah disembunyikan, tapi jaga-jaga) */
+    if(e.target.tagName === 'BUTTON') return;
+    var el = card.closest ? card.closest('.doc-paper') : null;
+    if(el && el.__docHtml60 && typeof window.openDocModal === 'function'){
+      window.openDocModal(el.__docHtml60, el.__docTitle60||'Dokumen', el);
+    }
+  }, false);
+
+  /* ── (C) Patch modal: edit → preview & cetak tersinkron ─────
+     Root cause: _curHtml tidak diperbarui saat user mengedit.
+     Fix: ambil selalu dari editEl (contenteditable) saat pindah tab / cetak. */
   function patchModal(){
     var modal    = document.getElementById('docModal60');
     var editEl   = document.getElementById('dm60DocEdit');
@@ -10484,19 +10488,21 @@ ${KOP_PDF_CSS}
     var dlBtn    = document.getElementById('dm60DlBtn');
     if(!modal || !editEl || !previewEl) return false;
 
-    /* Ambil HTML terkini: selalu dari editEl jika sudah ada isi */
+    /* Selalu baca dari editEl jika ada isi (ini adalah sumber kebenaran terkini) */
     function liveHtml(){
       if(editEl && editEl.innerHTML && editEl.innerHTML.trim().length > 40)
         return editEl.innerHTML;
       return window.__dm60CurHtml || '';
     }
 
-    /* Intercept tab clicks (capture phase = jalan sebelum switchTab asli) */
+    /* Intercept tab clicks SEBELUM switchTab asli (capture phase) */
     modal.querySelectorAll('[data-dmtab]').forEach(function(btn){
       if(btn.__v62tab) return;
       btn.__v62tab = true;
       btn.addEventListener('click', function(){
         var toTab = btn.dataset.dmtab;
+        /* Setelah switchTab asli mengisi panel dengan _curHtml lama,
+           timpa dengan versi terbaru dari editEl */
         setTimeout(function(){
           var html = liveHtml();
           if(!html || html.trim().length < 40) return;
@@ -10506,13 +10512,13 @@ ${KOP_PDF_CSS}
       }, true);
     });
 
-    /* Patch Print */
+    /* Patch tombol Cetak */
     if(printBtn && !printBtn.__v62){
       printBtn.__v62 = true;
       printBtn.addEventListener('click', function(e){
         e.stopImmediatePropagation();
         var html  = liveHtml();
-        var title = (document.getElementById('dm60TitleText')||{}).textContent || 'Dokumen';
+        var title = (document.getElementById('dm60TitleText')||{}).textContent||'Dokumen';
         var w = window.open('','_blank');
         if(!w) return;
         w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
@@ -10524,13 +10530,13 @@ ${KOP_PDF_CSS}
       }, true);
     }
 
-    /* Patch Download HTML */
+    /* Patch tombol Download HTML */
     if(dlBtn && !dlBtn.__v62){
       dlBtn.__v62 = true;
       dlBtn.addEventListener('click', function(e){
         e.stopImmediatePropagation();
         var html  = liveHtml();
-        var title = (document.getElementById('dm60TitleText')||{}).textContent || 'Dokumen';
+        var title = (document.getElementById('dm60TitleText')||{}).textContent||'Dokumen';
         var blob  = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
           +title+'</title><link rel="stylesheet" href="styles.css">'
           +'</head><body>'+html+'</body></html>'],{type:'text/html'});
@@ -10542,36 +10548,30 @@ ${KOP_PDF_CSS}
       }, true);
     }
 
-    /* Patch openDocModal: reset editEl + simpan html awal */
+    /* Patch openDocModal: isi editEl sejak awal agar liveHtml() langsung tersedia */
     if(!window.__openDocModal62){
       window.__openDocModal62 = true;
       var origOpen = window.openDocModal;
       window.openDocModal = function(html, title, srcEl){
         window.__dm60CurHtml = html || '';
-        if(editEl) editEl.innerHTML = html || '';  /* isi edit dari awal agar preview konsisten */
+        if(editEl) editEl.innerHTML = html || '';
         if(typeof origOpen === 'function') origOpen.call(this, html, title, srcEl);
       };
     }
-
     return true;
   }
 
-  /* ── Init ── */
+  /* ── Init: tunggu v1.60 + v1.61 selesai ─────────────────── */
   function init62(){
-    stripCardBtns();
     var ok = patchModal();
-    /* Pantau card baru */
-    new MutationObserver(function(){ stripCardBtns(); })
-      .observe(document.body, {childList:true, subtree:true});
-    /* Retry jika modal belum siap */
-    if(!ok) setTimeout(function(){ patchModal(); }, 1200);
-    console.log('[BOP v1.62] Hapus Lihat/Cetak card + edit-sync aktif');
+    if(!ok) setTimeout(function(){ patchModal(); }, 1500);
+    console.log('[BOP v1.62] CSS hide Lihat/Cetak + edit-sync aktif');
   }
 
   if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init62, 2200); });
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init62, 2500); });
   } else {
-    setTimeout(init62, 800);
+    setTimeout(init62, 1000);
   }
 })();
 /* END PATCH v1.62 */

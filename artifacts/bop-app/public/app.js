@@ -10627,3 +10627,190 @@ ${KOP_PDF_CSS}
   }
 })();
 /* END PATCH v1.62 */
+
+
+/* ================================================================
+   PATCH v1.63 — FIX DEFINITIF: KOP Surat + Tanda Tangan 2-Baris
+   ================================================================
+   Ini adalah patch TERAKHIR yang dimuat sehingga override ini yang
+   benar-benar aktif (mengalahkan semua kopHTML/docRap/docRapBulanan
+   versi sebelumnya yang saling tumpang tindih).
+
+   1) kopHTML() — sesuai contoh surat resmi:
+      PEMERINTAH KOTA SEMARANG (header atas)
+      [Logo] KECAMATAN CANDISARI / KELURAHAN TEGALSARI / RW 012 RT 005
+      garis pemisah
+      Sekretariat: alamat
+   2) Tanda tangan 4 penanda tangan jadi 2 baris:
+      "Mengambil," (center) -> Ketua RT | Bendahara
+      "Mengetahui," (center) -> Lurah | Ketua RW
+      Diterapkan pada docRap (RAP 1 Tahun) & docRapBulanan (RAP Bulanan)
+      dengan cara membungkus hasil fungsi aktif saat ini (tidak
+      menulis ulang logic baris RAP yang sudah benar/volumeBulanan).
+   ================================================================ */
+(function bopKopSignatureFinalV63(){
+  if(window.__bopKopSignatureFinalV63) return;
+  window.__bopKopSignatureFinalV63 = true;
+
+  function esc63(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function safeName63(v){
+    try{ if(typeof safeNameV19==="function") return safeNameV19(v); }catch(e){}
+    try{ if(typeof safeNameV18==="function") return safeNameV18(v); }catch(e){}
+    return String(v||"").trim() || "Nama Jelas";
+  }
+
+  /* ── 1. KOP SURAT — layout sesuai contoh resmi ── */
+  window.kopHTML = function kopHTML(){
+    var k = (window.data && window.data.kop) ? window.data.kop : {};
+    var m = (window.data && window.data.master) ? window.data.master : {};
+    var b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
+    var b2 = k.baris2 || "KECAMATAN CANDISARI";
+    var b3 = k.baris3 || "KELURAHAN TEGALSARI";
+    var b4 = k.baris4 || "RW 012 RT 005";
+    var addr = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
+    var addrLine = /^sekretariat/i.test(addr) ? addr : ("Sekretariat: " + addr);
+    return '<div class="kop kop-v63">'+
+      '<div class="kop-v63-header">'+esc63(b1)+'</div>'+
+      '<div class="kop-v63-row">'+
+        '<div class="kop-v63-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-v63-logo" alt="Logo Kota Semarang"></div>'+
+        '<div class="kop-v63-info">'+
+          '<div class="kop-v63-line1">'+esc63(b2)+'</div>'+
+          '<div class="kop-v63-line1">'+esc63(b3)+'</div>'+
+          '<div class="kop-v63-line1">'+esc63(b4)+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="kop-v63-hr"></div>'+
+      '<div class="kop-v63-addr">'+esc63(addrLine)+'</div>'+
+    '</div>';
+  };
+
+  /* ── 2. CSS untuk KOP baru + tanda tangan 2-baris (inject langsung, tidak tergantung file css) ── */
+  function injectCss63(){
+    if(document.getElementById("bopV63Style")) return;
+    var st = document.createElement("style");
+    st.id = "bopV63Style";
+    st.textContent = `
+      .kop.kop-v63{border-bottom:3px double #000;padding:6px 4px 10px;margin-bottom:18px;text-align:left;display:block}
+      .kop-v63-header{font-family:"Times New Roman",serif;font-weight:700;font-size:18px;text-transform:uppercase;text-align:center;margin:0 0 6px}
+      .kop-v63-row{display:flex;align-items:center;gap:14px;padding-left:6%}
+      .kop-v63-logo-wrap{flex:0 0 auto}
+      .kop-v63-logo{width:60px;max-height:74px;object-fit:contain;display:block}
+      .kop-v63-info{flex:1 1 auto;text-align:left}
+      .kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:15px;text-transform:uppercase;margin:2px 0;text-align:left}
+      .kop-v63-hr{border-top:1.5px solid #000;margin:6px 0 4px}
+      .kop-v63-addr{font-family:"Times New Roman",serif;font-size:11px;text-align:center;margin:0}
+      .ttd-grouped-v63{margin-top:22px}
+      .ttd-grouped-v63 .ttd-label-v63{text-align:center;font-family:"Times New Roman",serif;margin:0 0 4px;font-size:12pt}
+      .ttd-grouped-v63 .ttd-row-v63{display:grid;grid-template-columns:repeat(2,1fr);gap:40px;text-align:center;margin-bottom:18px}
+      .ttd-grouped-v63 .ttd-row-v63:last-of-type{margin-bottom:0}
+      @media(max-width:560px){.ttd-grouped-v63 .ttd-row-v63{grid-template-columns:1fr;gap:16px}.kop-v63-row{padding-left:0}}
+      @media print{
+        .kop.kop-v63{border-bottom:3px double #000!important}
+        .kop-v63-logo{width:56px!important;max-height:68px!important}
+        .ttd-grouped-v63 .ttd-row-v63{page-break-inside:avoid;break-inside:avoid}
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  /* ── 3. Blok tanda tangan 2-baris (Mengambil / Mengetahui) ── */
+  function ttdGroupedV63(){
+    var m = (window.data && window.data.master) ? window.data.master : {};
+    var p = (window.data && window.data.pengajuan) ? window.data.pengajuan : {};
+    var rt = m.rt || "005", rw = m.rw || "012";
+    var ketua = safeName63(m.ketua);
+    var bendahara = safeName63(m.bendahara);
+    var lurah = safeName63(p.namaLurah);
+    var ketuaRw = safeName63(p.namaKetuaRw);
+    var kelurahan = m.kelurahan || "Tegalsari";
+    return '<div class="ttd-grouped-v63">'+
+      '<p class="ttd-label-v63">Mengambil,</p>'+
+      '<div class="ttd-row-v63">'+
+        '<div>Ketua RT '+esc63(rt)+' RW '+esc63(rw)+'<div class="signature-space"></div><b>'+esc63(ketua)+'</b></div>'+
+        '<div>Bendahara RT '+esc63(rt)+' RW '+esc63(rw)+'<div class="signature-space"></div><b>'+esc63(bendahara)+'</b></div>'+
+      '</div>'+
+      '<p class="ttd-label-v63">Mengetahui,</p>'+
+      '<div class="ttd-row-v63">'+
+        '<div>Lurah '+esc63(kelurahan)+'<div class="signature-space"></div><b>'+esc63(lurah)+'</b></div>'+
+        '<div>Ketua RW '+esc63(rw)+'<div class="signature-space"></div><b>'+esc63(ketuaRw)+'</b></div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  /* ── 4. Utility: ganti blok <div class="ttd-4">...</div> (balanced) dengan blok baru ── */
+  function replaceTtd4(html){
+    var markers = ['<div class="ttd-4">', "<div class='ttd-4'>"];
+    var startIdx = -1, markerLen = 0;
+    for(var mi=0; mi<markers.length; mi++){
+      var idx = html.indexOf(markers[mi]);
+      if(idx !== -1){ startIdx = idx; markerLen = markers[mi].length; break; }
+    }
+    if(startIdx === -1) return html + ttdGroupedV63();
+
+    var i = startIdx + markerLen;
+    var depth = 1;
+    var openRe = /<div\b[^>]*>/g;
+    var rest = html.slice(startIdx + markerLen);
+    var pos = 0;
+    while(depth > 0 && pos < rest.length){
+      var nextOpen = rest.indexOf("<div", pos);
+      var nextClose = rest.indexOf("</div>", pos);
+      if(nextClose === -1) break;
+      if(nextOpen !== -1 && nextOpen < nextClose){
+        depth++;
+        pos = nextOpen + 4;
+      } else {
+        depth--;
+        pos = nextClose + 6;
+      }
+    }
+    var endIdx = startIdx + markerLen + pos;
+    /* Hapus juga paragraf "Mengetahui," polos sebelum blok ttd-4 jika ada, karena label sudah termasuk di blok baru */
+    var before = html.slice(0, startIdx).replace(/<p>Mengetahui,<\/p>\s*$/,"");
+    var after = html.slice(endIdx);
+    return before + ttdGroupedV63() + after;
+  }
+
+  /* ── 5. Bungkus docRap & docRapBulanan aktif dengan tanda tangan baru ── */
+  function wrapDocSignature(fnName){
+    var orig = window[fnName];
+    if(typeof orig !== "function") return;
+    window[fnName] = function(){
+      var html = orig.apply(this, arguments);
+      try{ return replaceTtd4(html); }catch(e){ return html; }
+    };
+  }
+  wrapDocSignature("docRap");
+  wrapDocSignature("docRapBulanan");
+
+  /* Pastikan docMapV37 (peta dokumen Generate 7 Dokumen) memakai versi terbungkus ini */
+  if(typeof window.docMapV37 === "function"){
+    var origMap63 = window.docMapV37;
+    window.docMapV37 = function(){
+      var b = origMap63();
+      if(b && typeof window.docRap === "function") b.rap = window.docRap;
+      if(b && typeof window.docRapBulanan === "function") b.rapbulanan = window.docRapBulanan;
+      return b;
+    };
+  }
+
+  function initV63(){
+    injectCss63();
+    /* Re-render preview jika dokumen RAP/RAP Bulanan sedang tampil */
+    try{
+      var out = document.getElementById("docOutput");
+      if(out && window.currentDoc && (window.currentDoc==="rap" || window.currentDoc==="rapbulanan")){
+        if(typeof window.previewDoc === "function") window.previewDoc(window.currentDoc);
+      }
+    }catch(e){}
+    console.log("[BOP v1.63] KOP surat + tanda tangan 2-baris (Mengambil/Mengetahui) aktif — FINAL.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initV63, 5000); });
+  else
+    setTimeout(initV63, 5000);
+})();

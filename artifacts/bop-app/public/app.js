@@ -10446,137 +10446,180 @@ ${KOP_PDF_CSS}
 })();
 /* END PATCH v1.61 */
 
+
 /* ═══════════════════════════════════════════════════════════════
-   PATCH v1.62 — (A) Sembunyikan tombol Lihat & Cetak via CSS,
-                 (B) Card dapat diklik langsung buka Preview,
-                 (C) Sinkronisasi edit → preview & cetak diperbaiki
-   Tidak menggunakan MutationObserver pada document.body.
+   PATCH v1.62 — Rewrite bersih:
+   (A) Hapus dm-card60 dari output containers via DOM (bukan CSS)
+   (B) Edit → Preview/Cetak sync via capture-phase delegation
+   (C) Tombol Cetak & Download selalu pakai konten terbaru
    ═══════════════════════════════════════════════════════════════ */
 (function bopPatchV62(){
   if(window.__bopPatchV62) return;
   window.__bopPatchV62 = true;
 
-  /* ── (A) Sembunyikan tombol via CSS — zero-cost, tidak ada MutationObserver ── */
-  var s = document.createElement('style');
-  s.textContent =
-    /* Sembunyikan tombol Lihat & Cetak — sudah tidak diperlukan */
+  /* ── (A) CSS minimal: hanya sembunyikan tombol Lihat/Cetak ─── */
+  var sCss = document.createElement('style');
+  sCss.textContent =
     '.dm-card60-btns{display:none!important}' +
-    '.dm-card60{cursor:pointer!important}' +
-    /* ── Hilangkan card wrapper dari area Generate Dokumen ──────
-       docOutput, pkDocOutput, lpjOutput harus tampil langsung
-       sebagai dokumen HTML, bukan kolaps menjadi card dm-card60. */
-    '#docOutput .dm-card60,#pkDocOutput .dm-card60,#lpjOutput .dm-card60{display:none!important}' +
-    '#docOutput.has-doc60>*:not(.dm-card60),#pkDocOutput.has-doc60>*:not(.dm-card60),#lpjOutput.has-doc60>*:not(.dm-card60){display:block!important}';
-  document.head.appendChild(s);
+    /* Backup hide untuk output containers — JS juga akan hapus dari DOM */
+    '#docOutput .dm-card60,#pkDocOutput .dm-card60,#lpjOutput .dm-card60{display:none!important;visibility:hidden!important}';
+  document.head.appendChild(sCss);
 
-  /* ── (B) Event delegation: klik card → buka Preview modal ─── */
-  document.addEventListener('click', function(e){
-    var card = e.target.closest ? e.target.closest('.dm-card60') : null;
-    if(!card) return;
-    /* Abaikan klik tombol di dalam card (sudah disembunyikan, tapi jaga-jaga) */
-    if(e.target.tagName === 'BUTTON') return;
-    var el = card.closest ? card.closest('.doc-paper') : null;
-    if(el && el.__docHtml60 && typeof window.openDocModal === 'function'){
-      window.openDocModal(el.__docHtml60, el.__docTitle60||'Dokumen', el);
+  /* ── (B) Hapus dm-card60 dari output containers via JS ───────
+     CSS saja tidak cukup karena v1.60 punya aturan setara.
+     Solusi: hapus node dari DOM + cabut class has-doc60 agar
+     dokumen asli tampil kembali. Jika v1.60 observer coba
+     re-insert, watcher kita akan langsung hapus lagi. */
+  var OUTPUT_IDS = ['docOutput','pkDocOutput','lpjOutput'];
+
+  function unwrapOutputEl(container) {
+    if (!container) return;
+    var card = container.querySelector('.dm-card60');
+    if (!card) return;
+    container.removeChild(card);
+    container.classList.remove('has-doc60');
+    /* Pastikan semua anak kembali tampil (has-doc60 menghide mereka) */
+    Array.from(container.childNodes).forEach(function(n){
+      if (n.nodeType === 1) n.style.removeProperty('display');
+    });
+  }
+
+  function watchOutputEl(id) {
+    var el = document.getElementById(id);
+    if (!el || el.__v62watch) return;
+    el.__v62watch = true;
+    unwrapOutputEl(el); /* cleanup awal */
+    new MutationObserver(function(muts) {
+      /* Cek apakah ada dm-card60 yang baru di-insert */
+      var gotCard = muts.some(function(m) {
+        return Array.from(m.addedNodes).some(function(n) {
+          return n.nodeType === 1 && n.classList && n.classList.contains('dm-card60');
+        });
+      });
+      if (gotCard) {
+        /* requestAnimationFrame → hapus sebelum browser paint */
+        requestAnimationFrame(function(){ unwrapOutputEl(el); });
+      }
+    }).observe(el, {childList: true});
+  }
+
+  function initOutputWatchers() {
+    OUTPUT_IDS.forEach(watchOutputEl);
+    /* Jaga-jaga jika elemen belum ada di DOM saat init */
+    var retries = 0;
+    var iv = setInterval(function() {
+      OUTPUT_IDS.forEach(watchOutputEl);
+      retries++;
+      if (retries >= 6) clearInterval(iv);
+    }, 600);
+  }
+
+  /* ── (C) Edit → Preview/Cetak sync ──────────────────────────
+     Gunakan document capture-phase delegation agar listener
+     terpasang sebelum v1.60 switchTab meng-overwrite konten. */
+
+  function liveHtml() {
+    var el = document.getElementById('dm60DocEdit');
+    if (el && el.innerHTML && el.innerHTML.trim().length > 40)
+      return el.innerHTML;
+    return window.__dm60CurHtml || '';
+  }
+
+  /* Tab click: update preview/cetak setelah switchTab asli selesai */
+  document.addEventListener('click', function(e) {
+    var tab = e.target.closest && e.target.closest('[data-dmtab]');
+    if (!tab) return;
+    var modal = document.getElementById('docModal60');
+    if (!modal || !modal.contains(tab)) return;
+    var toTab = tab.dataset.dmtab;
+    if (toTab !== 'preview' && toTab !== 'cetak') return;
+    /* Ambil HTML dari editor — 50ms cukup untuk switchTab selesai */
+    var captured = liveHtml();
+    if (!captured || captured.trim().length < 40) return;
+    setTimeout(function() {
+      if (toTab === 'preview') {
+        var pv = document.getElementById('dm60DocPreview');
+        if (pv) pv.innerHTML = captured;
+      } else {
+        var ct = document.getElementById('dm60DocCetak');
+        if (ct) ct.innerHTML = captured;
+      }
+    }, 50);
+  }, true /* capture — before v1.60 switchTab */);
+
+  /* ── (D) Tombol Cetak & Download selalu pakai konten editor ─ */
+  document.addEventListener('click', function(e) {
+    var btn = e.target;
+    while (btn && btn !== document) {
+      if (btn.id === 'dm60PrintBtn' || btn.id === 'dm60DlBtn') break;
+      btn = btn.parentElement;
     }
+    if (!btn || (btn.id !== 'dm60PrintBtn' && btn.id !== 'dm60DlBtn')) return;
+
+    e.stopImmediatePropagation();
+    var html  = liveHtml();
+    var title = (document.getElementById('dm60TitleText') || {}).textContent || 'Dokumen';
+
+    if (btn.id === 'dm60PrintBtn') {
+      var w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+        + title + '</title><link rel="stylesheet" href="styles.css">'
+        + '<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
+        + '</head><body>' + html + '</body></html>');
+      w.document.close();
+      setTimeout(function(){ w.print(); }, 400);
+    } else {
+      var blob = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
+        + title + '</title><link rel="stylesheet" href="styles.css">'
+        + '</head><body>' + html + '</body></html>'], {type:'text/html'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = title.replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50) + '.html';
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+    }
+  }, true);
+
+  /* ── (E) Klik card di luar output containers → buka modal ── */
+  document.addEventListener('click', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    var card = e.target.closest && e.target.closest('.dm-card60');
+    if (!card) return;
+    var container = card.closest('.doc-paper');
+    if (!container) return;
+    if (OUTPUT_IDS.indexOf(container.id) !== -1) return; /* output containers skip */
+    if (container.__docHtml60 && typeof window.openDocModal === 'function')
+      window.openDocModal(container.__docHtml60, container.__docTitle60 || 'Dokumen', container);
   }, false);
 
-  /* ── (C) Patch modal: edit → preview & cetak tersinkron ─────
-     Root cause: _curHtml tidak diperbarui saat user mengedit.
-     Fix: ambil selalu dari editEl (contenteditable) saat pindah tab / cetak. */
-  function patchModal(){
-    var modal    = document.getElementById('docModal60');
-    var editEl   = document.getElementById('dm60DocEdit');
-    var previewEl= document.getElementById('dm60DocPreview');
-    var cetakEl  = document.getElementById('dm60DocCetak');
-    var printBtn = document.getElementById('dm60PrintBtn');
-    var dlBtn    = document.getElementById('dm60DlBtn');
-    if(!modal || !editEl || !previewEl) return false;
-
-    /* Selalu baca dari editEl jika ada isi (ini adalah sumber kebenaran terkini) */
-    function liveHtml(){
-      if(editEl && editEl.innerHTML && editEl.innerHTML.trim().length > 40)
-        return editEl.innerHTML;
-      return window.__dm60CurHtml || '';
-    }
-
-    /* Intercept tab clicks SEBELUM switchTab asli (capture phase) */
-    modal.querySelectorAll('[data-dmtab]').forEach(function(btn){
-      if(btn.__v62tab) return;
-      btn.__v62tab = true;
-      btn.addEventListener('click', function(){
-        var toTab = btn.dataset.dmtab;
-        /* Setelah switchTab asli mengisi panel dengan _curHtml lama,
-           timpa dengan versi terbaru dari editEl */
-        setTimeout(function(){
-          var html = liveHtml();
-          if(!html || html.trim().length < 40) return;
-          if(toTab === 'preview' && previewEl) previewEl.innerHTML = html;
-          if(toTab === 'cetak'   && cetakEl)   cetakEl.innerHTML   = html;
-        }, 30);
-      }, true);
-    });
-
-    /* Patch tombol Cetak */
-    if(printBtn && !printBtn.__v62){
-      printBtn.__v62 = true;
-      printBtn.addEventListener('click', function(e){
-        e.stopImmediatePropagation();
-        var html  = liveHtml();
-        var title = (document.getElementById('dm60TitleText')||{}).textContent||'Dokumen';
-        var w = window.open('','_blank');
-        if(!w) return;
-        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
-          +title+'</title><link rel="stylesheet" href="styles.css">'
-          +'<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
-          +'</head><body>'+html+'</body></html>');
-        w.document.close();
-        setTimeout(function(){w.print();},400);
-      }, true);
-    }
-
-    /* Patch tombol Download HTML */
-    if(dlBtn && !dlBtn.__v62){
-      dlBtn.__v62 = true;
-      dlBtn.addEventListener('click', function(e){
-        e.stopImmediatePropagation();
-        var html  = liveHtml();
-        var title = (document.getElementById('dm60TitleText')||{}).textContent||'Dokumen';
-        var blob  = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
-          +title+'</title><link rel="stylesheet" href="styles.css">'
-          +'</head><body>'+html+'</body></html>'],{type:'text/html'});
-        var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = title.replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50)+'.html';
-        a.click();
-        setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
-      }, true);
-    }
-
-    /* Patch openDocModal: isi editEl sejak awal agar liveHtml() langsung tersedia */
-    if(!window.__openDocModal62){
-      window.__openDocModal62 = true;
-      var origOpen = window.openDocModal;
-      window.openDocModal = function(html, title, srcEl){
-        window.__dm60CurHtml = html || '';
-        if(editEl) editEl.innerHTML = html || '';
-        if(typeof origOpen === 'function') origOpen.call(this, html, title, srcEl);
-      };
-    }
-    return true;
+  /* ── (F) Patch openDocModal: isi editor saat modal dibuka ── */
+  function patchOpenModal() {
+    if (window.__openDocModal62) return;
+    if (typeof window.openDocModal !== 'function') return;
+    window.__openDocModal62 = true;
+    var orig = window.openDocModal;
+    window.openDocModal = function(html, title, srcEl) {
+      window.__dm60CurHtml = html || '';
+      /* Tulis ke editor agar liveHtml() langsung tersedia */
+      setTimeout(function() {
+        var editEl = document.getElementById('dm60DocEdit');
+        if (editEl && html) editEl.innerHTML = html;
+      }, 80);
+      orig.call(this, html, title, srcEl);
+    };
   }
 
-  /* ── Init: tunggu v1.60 + v1.61 selesai ─────────────────── */
-  function init62(){
-    var ok = patchModal();
-    if(!ok) setTimeout(function(){ patchModal(); }, 1500);
-    console.log('[BOP v1.62] CSS hide Lihat/Cetak + edit-sync aktif');
+  function init62() {
+    initOutputWatchers();
+    patchOpenModal();
+    console.log('[BOP v1.62] Output unwrap (DOM) + edit-sync (delegation) aktif');
   }
 
-  if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init62, 2500); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init62, 2000); });
   } else {
-    setTimeout(init62, 1000);
+    setTimeout(init62, 800);
   }
 })();
 /* END PATCH v1.62 */

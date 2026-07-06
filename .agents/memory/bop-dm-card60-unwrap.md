@@ -1,19 +1,24 @@
 ---
 name: BOP dm-card60 Output Unwrap
-description: docOutput/pkDocOutput/lpjOutput must show document content directly, not collapsed into dm-card60 cards
+description: docOutput/pkDocOutput/lpjOutput must show document content directly — dm-card60 removed from DOM via MutationObserver in v1.62
 ---
 
 ## Rule
-`#docOutput`, `#pkDocOutput`, and `#lpjOutput` are the main document render containers. They must NOT show their v1.60 `dm-card60` wrapper cards — document HTML must be visible directly.
+`#docOutput`, `#pkDocOutput`, and `#lpjOutput` must NOT show dm-card60 wrapper cards. Document HTML must render directly.
 
-Enforced via CSS in PATCH v1.62 (app.js ~line 10468):
-```css
-#docOutput .dm-card60, #pkDocOutput .dm-card60, #lpjOutput .dm-card60 { display: none !important; }
-#docOutput.has-doc60 > *:not(.dm-card60), ... { display: block !important; }
-```
+**Approach: JS DOM removal (not CSS override)**
+CSS `display:none` was insufficient because v1.60 injects rules with equal or higher specificity.
 
-This overrides v1.60's `.doc-paper.has-doc60 > *:not(.dm-card60) { display: none }` for these specific IDs only. dm-card60 cards remain active for other `.doc-paper` elements (e.g., riwayat/history view).
+In PATCH v1.62:
+- `unwrapOutputEl(container)`: removes `.dm-card60` child from DOM, removes `has-doc60` class, resets child display
+- `watchOutputEl(id)`: MutationObserver on each output container — fires when `.dm-card60` is added (via addedNodes filter), calls `requestAnimationFrame(unwrapOutputEl)`
+- v1.60's observer won't re-wrap after removal because it only fires when ADDED nodes are non-card elements (removedNodes don't trigger re-wrap logic)
 
-**Why:** User wants Generate Dokumen area to show document directly without collapsed card wrappers. The empty box bug (just icon, no title) was caused by pkDocOutput being on the same DOM page as docOutput, both wrapped.
+**Why CSS failed:** v1.60 has `.doc-paper.has-doc60>*:not(.dm-card60){display:none!important}` which hides all non-card children. CSS ID-selector override was theoretically stronger but didn't work in practice — DOM removal is deterministic.
 
-**How to apply:** Never add `doc-paper` class to output containers without also adding the unwrap CSS override for their ID.
+**Why removing dm-card60 from DOM is safe:**
+v1.60's observer check: `Array.from(m.addedNodes).some(n => !n.classList.contains('dm-card60'))`.
+When we REMOVE dm-card60, the mutation has only removedNodes — no addedNodes → observer does nothing.
+Next re-wrap only happens when previewDoc() runs again (adds new content → addedNodes → wrap → our observer removes again).
+
+**How to apply:** Any new document output container added to the app MUST be added to `OUTPUT_IDS` array in v1.62.

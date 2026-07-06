@@ -1946,13 +1946,15 @@ function normalizeRapV15(){
       row={
         kategori:kat,
         subKategori:guessSubKategori(kat,uraian),
+        tipe:guessTipe(uraian),
         uraian,
         bulan:r[4]||guessBulan(uraian)||"Januari 2026",
         bulanMulai:r.bulanMulai,
         bulanSelesai:r.bulanSelesai,
         volume:r[1]||"1 Paket",
         jumlah:Number(r[2]||0),
-        keterangan:r[3]||""
+        keterangan:r[3]||"",
+        jadwalInternal:r.jadwalInternal
       };
     }else{
       const uraian=r.uraian||"";
@@ -1960,13 +1962,15 @@ function normalizeRapV15(){
       row={
         kategori:kat,
         subKategori:r.subKategori||guessSubKategori(kat,uraian),
+        tipe:r.tipe||guessTipe(uraian),
         uraian,
         bulan:r.bulan||"Januari 2026",
         bulanMulai:r.bulanMulai,
         bulanSelesai:r.bulanSelesai,
         volume:r.volume||"1 Paket",
         jumlah:Number(r.jumlah||0),
-        keterangan:r.keterangan||""
+        keterangan:r.keterangan||"",
+        jadwalInternal:r.jadwalInternal
       };
     }
     return inferMonthRangeV17(row);

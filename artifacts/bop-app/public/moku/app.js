@@ -25,6 +25,7 @@
   let facingMode   = "environment";
   let lightboxPhoto = null;
   let geocodeCache  = {};
+  let gpsAccuracyHistory = []; /* {t:detik, acc:meter} sepanjang proses kunci GPS terakhir */
   const photoCache  = new Map(); /* photoId → dataUrl, loaded from IndexedDB on boot */
 
   /* ── Helpers ────────────────────────────────────────────── */
@@ -168,6 +169,37 @@
     renderGps();
   }
 
+  /* ── GPS accuracy history mini-chart ─────────────────────── */
+  function renderGpsAccuracyChart() {
+    const box = $("gpsAccuracyChart");
+    if (!box) return;
+    if (!gpsAccuracyHistory.length) {
+      box.innerHTML = `<p class="gps-acc-empty">Belum ada sampel akurasi. Tekan "Kunci GPS Sekarang" untuk mulai memantau.</p>`;
+      return;
+    }
+    const accs   = gpsAccuracyHistory.map(s => s.acc);
+    const worst  = Math.max(...accs, GPS_GOOD_ACC);
+    const latest = accs[accs.length - 1];
+    const tone   = acc => acc <= GPS_GOOD_ACC ? "good" : (acc <= GPS_GOOD_ACC * 3 ? "warn" : "bad");
+    const bars = gpsAccuracyHistory.map(s => {
+      const h = Math.max(6, Math.round((1 - Math.min(s.acc, worst) / worst) * 100));
+      return `<div class="gps-acc-bar-wrap" title="Detik ke-${s.t}: ±${Math.round(s.acc)}m">
+        <div class="gps-acc-bar ${tone(s.acc)}" style="height:${h}%"></div>
+      </div>`;
+    }).join("");
+    box.innerHTML = `
+      <div class="gps-acc-header">
+        <span>Riwayat Akurasi GPS</span>
+        <span class="gps-acc-latest ${tone(latest)}">±${Math.round(latest)}m sekarang</span>
+      </div>
+      <div class="gps-acc-track">${bars}</div>
+      <div class="gps-acc-legend">
+        <span><i class="dot good"></i> Bagus (≤${GPS_GOOD_ACC}m)</span>
+        <span><i class="dot warn"></i> Sedang</span>
+        <span><i class="dot bad"></i> Kurang</span>
+      </div>`;
+  }
+
   /* Reverse geocoding via Nominatim (free, no key needed) */
   async function reverseGeocode(lat, lng) {
     const key = `${Number(lat).toFixed(3)},${Number(lng).toFixed(3)}`;
@@ -202,6 +234,7 @@
     if (gpsWatchId !== null) { try { navigator.geolocation.clearWatch(gpsWatchId); } catch(_){} gpsWatchId = null; }
     if (gpsTimer)            { clearTimeout(gpsTimer); gpsTimer = null; }
 
+    gpsAccuracyHistory = [];
     setGpsStatus("searching", "Mengambil lokasi…", state.gps);
 
     return new Promise(resolve => {
@@ -269,6 +302,9 @@
         }
         state.gps = best;
         saveState();
+        gpsAccuracyHistory.push({ t: elapsed(), acc: Number(g.accuracy||0) });
+        if (gpsAccuracyHistory.length > 20) gpsAccuracyHistory.shift();
+        renderGpsAccuracyChart();
         return best;
       };
 
@@ -1595,6 +1631,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
         ["Koordinat saat ini", state.gps ? coordsToText(state.gps) : "Belum terkunci"],
         ["Alamat", state.gps?.address || "Belum terdeteksi"]
       ].map(([k,v]) => `<div class="debug-item"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("");
+      renderGpsAccuracyChart();
       $("gpsSheet").hidden = false;
     });
   }

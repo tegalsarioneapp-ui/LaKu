@@ -994,6 +994,56 @@ textarea:focus { border-color: var(--blue2); }
   line-height: 1.5;
 }
 
+.gps-acc-chart {
+  background: #f5f8ff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px 10px;
+  margin-bottom: 14px;
+}
+.gps-acc-empty { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.gps-acc-header {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12.5px; font-weight: 800; color: var(--ink);
+  margin-bottom: 10px;
+}
+.gps-acc-latest { font-weight: 900; }
+.gps-acc-latest.good { color: #1a9e5c; }
+.gps-acc-latest.warn { color: #c78a11; }
+.gps-acc-latest.bad  { color: #d64545; }
+.gps-acc-track {
+  display: flex; align-items: flex-end; gap: 4px;
+  height: 56px;
+  padding: 0 2px;
+}
+.gps-acc-bar-wrap {
+  flex: 1 1 auto;
+  height: 100%;
+  display: flex; align-items: flex-end;
+  min-width: 4px;
+}
+.gps-acc-bar {
+  width: 100%;
+  border-radius: 4px 4px 2px 2px;
+  transition: height .3s ease;
+}
+.gps-acc-bar.good { background: #1a9e5c; }
+.gps-acc-bar.warn { background: #e0a726; }
+.gps-acc-bar.bad  { background: #e0574a; }
+.gps-acc-legend {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 11px; color: var(--muted);
+}
+.gps-acc-legend .dot {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 4px;
+  vertical-align: middle;
+}
+.gps-acc-legend .dot.good { background: #1a9e5c; }
+.gps-acc-legend .dot.warn { background: #e0a726; }
+.gps-acc-legend .dot.bad  { background: #e0574a; }
+
 .debug-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
 .debug-item {
   display: flex; justify-content: space-between; align-items: center;

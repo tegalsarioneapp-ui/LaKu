@@ -10276,7 +10276,7 @@ ${KOP_PDF_CSS}
     card.className = 'dm-card60';
     card.innerHTML = '<span class="dm-card60-icon">📄</span>'
       +'<div class="dm-card60-text"><strong>'+title+'</strong>'
-      +'<small>Dokumen siap — klik 👁 Lihat untuk membuka preview</small></div>'
+      +'<small>Klik kartu ini untuk membuka preview dokumen</small></div>'
       +'<div class="dm-card60-btns">'
       +'<button class="dm-btn-view60">👁 Lihat</button>'
       +'<button class="dm-btn-print60">🖨 Cetak</button>'
@@ -10459,9 +10459,14 @@ ${KOP_PDF_CSS}
   /* ── (A) Sembunyikan tombol via CSS — zero-cost, tidak ada MutationObserver ── */
   var s = document.createElement('style');
   s.textContent =
+    /* Sembunyikan tombol Lihat & Cetak — sudah tidak diperlukan */
     '.dm-card60-btns{display:none!important}' +
     '.dm-card60{cursor:pointer!important}' +
-    '.dm-card60 .dm-card60-text small::after{content:" Klik untuk membuka preview"}';
+    /* ── Hilangkan card wrapper dari area Generate Dokumen ──────
+       docOutput, pkDocOutput, lpjOutput harus tampil langsung
+       sebagai dokumen HTML, bukan kolaps menjadi card dm-card60. */
+    '#docOutput .dm-card60,#pkDocOutput .dm-card60,#lpjOutput .dm-card60{display:none!important}' +
+    '#docOutput.has-doc60>*:not(.dm-card60),#pkDocOutput.has-doc60>*:not(.dm-card60),#lpjOutput.has-doc60>*:not(.dm-card60){display:block!important}';
   document.head.appendChild(s);
 
   /* ── (B) Event delegation: klik card → buka Preview modal ─── */

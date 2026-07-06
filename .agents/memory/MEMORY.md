@@ -5,3 +5,6 @@
 - [MoKu initEvents crash fix](moku-init-crash.md) — importActivityFile null crash kills clock+GPS; always null-guard DOM queries in initEvents before addEventListener.
 - [KOP uniformity + doc sync fix](kop-fix-v46.md) — PATCH v1.46: kopHTML() emits h1/h2/p tags + class names; docHadir/SK/Rekening rebuilt dengan officialV37 wrapper; exportPdfDocV38 patched CSS lengkap.
 - [BOP Patch v1.58-v1.59 Fixes](bop-v58-v59-fixes.md) — annualIndex fix, debounce cursor, Ringkasan Anggaran, Pengambilan Bank multi-bulan, mobile CSS.
+- [MoKu Watermark Premium v2](moku-watermark-v2.md) — drawWatermark redesigned: 3 font tiers, gold accent bar, address gold/coords small, RT always shown both corners.
+- [BOP dm-card60 Output Unwrap](bop-dm-card60-unwrap.md) — docOutput/pkDocOutput/lpjOutput show content directly; dm-card60 hidden via ID CSS override in v1.62.
+- [MoKu BOP Sync Safety Rules](moku-bop-sync-safety.md) — isAll excludes bulan===""; stale cleanup skips activities with linked results (hasLinkedData guard).

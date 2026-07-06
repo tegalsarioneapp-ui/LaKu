@@ -854,61 +854,130 @@
     if (cameraStream) await startCamera();
   }
 
-  /* ── Watermark ──────────────────────────────────────────── */
+  /* ── Watermark Premium v2 ───────────────────────────────── */
   function drawWatermark(ctx, canvas, act, gps, capturedAt) {
     const W = canvas.width;
     const H = canvas.height;
 
-    const fontSize  = Math.max(20, Math.round(W * 0.022));
-    const lh        = Math.round(fontSize * 1.4);
-    const pad       = Math.max(16, Math.round(W * 0.016));
+    /* ── Font tiers ── */
+    const fzTitle = Math.max(26, Math.round(W * 0.028));  /* judul kegiatan  */
+    const fzInfo  = Math.max(18, Math.round(W * 0.020));  /* tanggal & alamat */
+    const fzSub   = Math.max(13, Math.round(W * 0.014));  /* koordinat / badge */
+    const pad     = Math.max(18, Math.round(W * 0.020));
 
-    // Build watermark lines
-    const line1 = `🏘 RT 005 RW 012 Tegalsari  ·  ${selectedType || checklistOf(act)[0]}`;
-    const line2 = `📅 ${fmtFull(capturedAt)}`;
-    const line3 = gps
-      ? `📍 ${Number(gps.lat).toFixed(6)}°, ${Number(gps.lng).toFixed(6)}° ±${Math.round(gps.accuracy||0)}m`
-      : `📍 GPS tidak tersedia`;
-    const line4 = (gps && gps.address) ? `   ${gps.address}` : null;
+    const lhTitle = Math.round(fzTitle * 1.40);
+    const lhInfo  = Math.round(fzInfo  * 1.38);
+    const lhSub   = Math.round(fzSub   * 1.30);
 
-    const lines = [line1, line2, line3];
-    if (line4) lines.push(line4);
+    /* ── Konten baris ── */
+    const actLabel = selectedType || checklistOf(act)[0] || "Kegiatan RT";
+    const dateStr  = fmtFull(capturedAt);  /* "Sabtu, 05 Juli 2026 • 15:23:45 WIB" */
 
-    const boxH = pad * 2 + lh * lines.length;
+    const hasGps  = gps && gps.lat != null && gps.lng != null;
+    const hasAddr = gps && gps.address;
 
-    // Semi-transparent dark gradient bar at bottom
-    const grad = ctx.createLinearGradient(0, H - boxH - 20, 0, H);
-    grad.addColorStop(0, "rgba(0,0,0,0)");
-    grad.addColorStop(0.3, "rgba(0,0,0,0.72)");
-    grad.addColorStop(1, "rgba(0,0,0,0.88)");
+    /* Baris GOLD (addrLine)  → alamat terbaca manusia (atau label fallback)
+       Baris KECIL (coordLine) → koordinat mentah; SELALU muncul bila GPS ada
+       Ini memastikan raw coordinates tidak pernah mengisi slot emas. */
+    let addrLine  = null;
+    let coordLine = null;
+    if (hasAddr) {
+      addrLine  = `📍 ${gps.address}`;
+    } else if (hasGps) {
+      addrLine  = "📍 Lokasi GPS terdeteksi";   /* fallback label di gold */
+    } else {
+      addrLine  = "📍 GPS tidak tersedia";
+    }
+    /* Koordinat mentah selalu di baris kecil selama GPS tersedia */
+    if (hasGps) {
+      coordLine = `${Number(gps.lat).toFixed(6)}°, ${Number(gps.lng).toFixed(6)}° ±${Math.round(gps.accuracy||0)}m`;
+    }
+
+    /* Identitas RT — selalu ada */
+    const rtLine = "RT 005 RW 012 · Tegalsari, Candisari, Semarang";
+
+    /* ── Hitung tinggi total overlay ── */
+    let boxH = pad * 2 + lhTitle + lhInfo; /* kegiatan + tanggal */
+    if (addrLine)  boxH += lhInfo;
+    if (coordLine) boxH += lhSub;
+    boxH += lhSub; /* RT badge — selalu */
+
+    /* ── Gradient overlay gelap di bawah ── */
+    const gradH = boxH + 48;
+    const grad  = ctx.createLinearGradient(0, H - gradH, 0, H);
+    grad.addColorStop(0,    "rgba(0,0,0,0)");
+    grad.addColorStop(0.22, "rgba(0,0,8,0.60)");
+    grad.addColorStop(1,    "rgba(0,0,8,0.93)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, H - boxH - 20, W, boxH + 20);
+    ctx.fillRect(0, H - gradH, W, gradH);
 
-    // Gold accent line
-    ctx.fillStyle = "#d4a843";
-    ctx.fillRect(0, H - boxH - 2, W, 3);
+    /* ── Aksen vertikal kiri (emas) ── */
+    const accentW = Math.max(4, Math.round(W * 0.006));
+    const accentGrad = ctx.createLinearGradient(0, H - boxH, 0, H);
+    accentGrad.addColorStop(0, "#ffe066");
+    accentGrad.addColorStop(1, "#c8860a");
+    ctx.fillStyle = accentGrad;
+    ctx.fillRect(0, H - boxH, accentW, boxH);
 
-    // Text
+    /* ── Render teks ── */
     ctx.save();
-    ctx.font      = `700 ${fontSize}px -apple-system, Arial, sans-serif`;
-    ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
+    ctx.shadowColor  = "rgba(0,0,10,0.95)";
+    ctx.shadowBlur   = 8;
+    const xText = pad + accentW + 6;
 
-    lines.forEach((line, i) => {
-      const y = H - boxH + pad + i * lh;
-      // Subtle shadow for readability
-      ctx.shadowColor   = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur    = 4;
-      ctx.fillText(line, pad, y, W - pad * 2);
-    });
+    let y = H - boxH + pad;
 
-    // Small RT logo text top-right
-    ctx.font        = `800 ${Math.max(14, Math.round(W * 0.016))}px -apple-system, Arial, sans-serif`;
-    ctx.fillStyle   = "rgba(255,255,255,0.75)";
-    ctx.shadowBlur  = 3;
+    /* BARIS 1 — Nama kegiatan (besar, putih solid) */
+    ctx.font      = `800 ${fzTitle}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(actLabel, xText, y, W - xText - pad);
+    y += lhTitle;
+
+    /* BARIS 2 — Tanggal & waktu (sedang, putih 90%) */
+    ctx.font      = `600 ${fzInfo}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,0.90)";
+    ctx.fillText(`📅 ${dateStr}`, xText, y, W - xText - pad);
+    y += lhInfo;
+
+    /* BARIS 3 — Alamat (sedang, emas — paling menonjol) */
+    if (addrLine) {
+      ctx.font      = `700 ${fzInfo}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+      ctx.fillStyle = "#ffd660";
+      ctx.fillText(addrLine, xText, y, W - xText - pad);
+      y += lhInfo;
+    }
+
+    /* BARIS 4 — Koordinat mentah (kecil, abu perak) */
+    if (coordLine) {
+      ctx.font      = `400 ${fzSub}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+      ctx.fillStyle = "rgba(190,210,240,0.82)";
+      ctx.shadowBlur = 4;
+      ctx.fillText(coordLine, xText, y, W - xText - pad);
+      y += lhSub;
+    }
+
+    /* BARIS BAWAH — Identitas RT (kecil, putih 70%, selalu ada) */
+    ctx.font      = `700 ${fzSub}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.shadowBlur = 3;
+    ctx.fillText(rtLine, xText, y, W - xText - pad);
+
+    /* ── Badge brand pojok kanan atas ── */
+    const badgeFz = Math.max(12, Math.round(W * 0.015));
+    ctx.font        = `900 ${badgeFz}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle   = "rgba(255,255,255,0.82)";
+    ctx.shadowBlur  = 5;
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
     ctx.textAlign   = "right";
     ctx.textBaseline = "top";
-    ctx.fillText("MoKu RT005", W - pad, pad);
+    ctx.fillText("MoKu · RT005", W - pad, pad);
+
+    /* ── Badge identitas pojok kiri atas ── */
+    ctx.font        = `700 ${Math.max(11, Math.round(W * 0.012))}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle   = "rgba(255,214,96,0.80)";
+    ctx.textAlign   = "left";
+    ctx.fillText("RT 005 RW 012 · Tegalsari", pad, pad);
 
     ctx.restore();
   }
@@ -1382,13 +1451,22 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     const mapped    = expanded.map((r, i) => rapToActivity(r, i));
     const mappedIds = new Set(mapped.map(a => a.id));
 
-    /* Hapus kegiatan BOP Sync lama yang sudah tidak relevan dengan data BOP saat ini */
-    const staleBefore = (state.activities||[]).filter(
+    /* Hapus kegiatan BOP Sync lama yang tidak relevan DAN tidak memiliki
+       hasil/foto terdokumentasi — aktivitas dengan data tetap dipertahankan
+       agar rekaman kerja yang sudah dibuat tidak hilang bila RAP diubah. */
+    const hasLinkedData = id => {
+      const res = (state.results || {})[id] || {};
+      return Object.values(res).some(v => v && String(v).trim().length > 0);
+    };
+    const staleAll    = (state.activities||[]).filter(
       a => a.source === "BOP Sync" && !mappedIds.has(a.id)
-    ).length;
-    state.activities = (state.activities||[]).filter(
-      a => a.source !== "BOP Sync" || mappedIds.has(a.id)
     );
+    const staleRemove = staleAll.filter(a => !hasLinkedData(a.id));
+    const staleBefore = staleRemove.length;
+    if (staleBefore > 0) {
+      const removeIds = new Set(staleRemove.map(a => a.id));
+      state.activities = (state.activities||[]).filter(a => !removeIds.has(a.id));
+    }
 
     const existingIds = new Set(state.activities.map(a => a.id));
     const newActs     = mapped.filter(a => !existingIds.has(a.id));

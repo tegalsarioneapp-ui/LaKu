@@ -5479,26 +5479,6 @@ function printCssV22(){
   window.__bopKopFixV46 = true;
 
   /* ── 1. Override kopHTML() — backward-compatible dengan PDF & print CSS ── */
-  window.kopHTML = function kopHTML(){
-    const k = (window.data && window.data.kop) ? window.data.kop : {};
-    const m = (window.data && window.data.master) ? window.data.master : {};
-    const b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
-    const b2 = k.baris2 || "KECAMATAN CANDISARI";
-    const b3 = k.baris3 || "KELURAHAN TEGALSARI";
-    const b4 = k.baris4 || "RW 012 RT 005";
-    const addr = k.alamat || m.alamat || "";
-    return `<div class="kop">` +
-      `<div class="kop-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang"></div>` +
-      `<div class="kop-text">` +
-        `<h1 class="kop-b1">${b1}</h1>` +
-        `<h2 class="kop-b2">${b2}</h2>` +
-        `<h2 class="kop-b2">${b3}</h2>` +
-        `<h2 class="kop-b2">${b4}</h2>` +
-        `<p class="kop-addr">${addr}</p>` +
-      `</div>` +
-      `<div class="kop-logo-spacer"></div>` +
-    `</div>`;
-  };
 
   /* ── 2. Helper: official wrapper V37 (sama persis dengan officialV37 di IIFE) ── */
   function officialWrap46(body){
@@ -6121,72 +6101,8 @@ ${KOP_PDF_CSS}
   }
 
   /* ── Load kegiatan into form ── */
-  window._pkLoadRap49 = function(annualIndex, month){
-    var rapRows=rap49();
-    var raw=rapRows[annualIndex];
-    if(!raw) return;
-    var r=normalizeRow49(raw);
-    var jumlahBulanan;
-    if(r.bulan===MONTH_ALL_V49 && MONTHS_V49.indexOf(month)>=0){
-      jumlahBulanan=Math.round(r.jumlah/MONTHS_V49.length);
-    } else {
-      jumlahBulanan=r.jumlah;
-    }
-    var jenis=mapJenis49(r);
-    var agenda=r.keterangan
-      ? r.uraian+". "+r.keterangan
-      : "Pelaksanaan "+r.uraian+" dalam rangka kegiatan operasional RT 005 RW 012.";
-    var keperluan="Pembayaran "+r.uraian+" ("+r.volume+") \u2014 Bulan "+month+"."+(r.keterangan?" "+r.keterangan:" Sesuai mata belanja yang tercantum dalam RAP BOP RT.");
-
-    /* Ensure persiapan exists */
-    if(typeof ensurePersiapan==="function") ensurePersiapan();
-    if(!window.data) return;
-    if(!window.data.persiapan) window.data.persiapan={};
-
-    /* Set data.persiapan */
-    window.data.persiapan.jenis    = jenis;
-    window.data.persiapan.nama     = r.uraian||"Kegiatan Operasional RT";
-    window.data.persiapan.agenda   = agenda;
-    window.data.persiapan.keperluan= keperluan;
-    window.data.persiapan.nominal  = jumlahBulanan;
-    window.data.persiapan.rapAutoIdx   = annualIndex;
-    window.data.persiapan.rapAutoMonth = month;
-
-    /* Populate form elements */
-    if(typeof fillPersiapan==="function") fillPersiapan();
-
-    /* Persist */
-    try{ localStorage.setItem(STORE_V49, JSON.stringify(window.data)); }catch(e){}
-
-    /* Update card highlights */
-    renderCardGrid49(month);
-
-    /* Update breadcrumb */
-    var badge=document.getElementById("pkActiveKegiatanBadgeV49");
-    var name=document.getElementById("pkActiveKegiatanNameV49");
-    var hint=document.getElementById("pkFormHintV49");
-    if(badge) badge.style.display="flex";
-    if(name) name.textContent=r.uraian;
-    if(hint) hint.innerHTML=formHint49(jenis);
-
-    /* Navigate to pk-generate + preview */
-    if(typeof activateTab==="function") activateTab("pk-generate");
-    setTimeout(function(){
-      if(typeof collectPersiapan==="function") collectPersiapan();
-      var docType=autoDocType49(jenis);
-      if(typeof previewPkDoc==="function"){
-        window.currentPkDoc=docType;
-        previewPkDoc(docType);
-      }
-    },100);
-  };
 
   /* ── Month selector change ── */
-  window._pkRapMonthChange49 = function(){
-    var sel=document.getElementById("pkRapMonthV49");
-    if(!sel) return;
-    renderCardGrid49(sel.value);
-  };
 
   /* ── Clear active kegiatan ── */
   window._pkClearRap49 = function(){
@@ -6714,128 +6630,8 @@ ${KOP_PDF_CSS}
   }
 
   /* ── Render kartu: pakai getMonthlyRapRows global ── */
-  window.renderCardGrid49 = function(month){
-    var el=document.getElementById("pkRapCardGridV49");
-    if(!el) return;
-    var activeIdx=((window.data&&window.data.persiapan)||{}).rapAutoIdx;
-    var rows=getRowsV49b(month);
-
-    if(!rows.length){
-      el.innerHTML='<div class="pk-rap-empty-v49">'+
-        'Belum ada kegiatan terjadwal untuk bulan <b>'+esc49b(month)+'</b>.<br>'+
-        '<small>Pastikan jadwal kegiatan sudah diatur di <b>Pengajuan Dana Operasional &rarr; RAP 1 Tahun</b> dengan bulan yang sesuai.</small>'+
-      '</div>';
-      return;
-    }
-
-    /* Group by kategori */
-    var groups={};
-    var groupOrder=[];
-    rows.forEach(function(r){
-      var k=r.kategori||"Lainnya";
-      if(!groups[k]){ groups[k]=[]; groupOrder.push(k); }
-      groups[k].push(r);
-    });
-
-    var html="";
-    groupOrder.forEach(function(kat){
-      var items=groups[kat];
-      var badge=katBadge49b(kat);
-      html+='<div class="pk-rap-kategori-v49">';
-      html+='<div class="pk-rap-kat-label-v49" style="color:'+badge.color+'">'+esc49b(badge.label)+'</div>';
-      html+='<div class="pk-rap-cards-row-v49">';
-      items.forEach(function(r){
-        var isActive=(r.annualIndex===activeIdx);
-        var vol=r.volumeBulanan||r.volume||"";
-        var sumber=r.sumber||"";
-        html+='<div class="pk-rap-card-v49'+(isActive?" active":"")+'"'+
-          ' onclick="window._pkLoadRap49('+r.annualIndex+',\''+esc49b(month)+'\')"'+
-          ' title="'+esc49b(r.uraian)+'">';
-        html+='<div class="pk-rap-card-nama-v49">'+esc49b(r.uraian)+'</div>';
-        html+='<div class="pk-rap-card-meta-v49">'+esc49b(vol)+(sumber?' &bull; '+esc49b(sumber):'')+'</div>';
-        html+='<div class="pk-rap-card-jumlah-v49">'+rupiah49b(r.jumlahBulanan||0)+'</div>';
-        html+='</div>';
-      });
-      html+='</div></div>';
-    });
-    el.innerHTML=html;
-  };
 
   /* ── Load kegiatan ke form ── */
-  window._pkLoadRap49 = function(annualIndex, month){
-    /* Cari row dari getMonthlyRapRows untuk bulan ini */
-    var rows=getRowsV49b(month);
-    var r=null;
-    for(var i=0;i<rows.length;i++){
-      if(rows[i].annualIndex===annualIndex){ r=rows[i]; break; }
-    }
-    /* Fallback: ambil langsung dari data.pengajuan.rap */
-    if(!r){
-      var rapArr=(window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))?window.data.pengajuan.rap:[];
-      var raw=rapArr[annualIndex];
-      if(!raw) return;
-      r=Object.assign({},{
-        uraian:raw.uraian||"",
-        volume:raw.volume||"1 Paket",
-        jumlahBulanan:Number(raw.jumlah||0),
-        jumlah:Number(raw.jumlah||0),
-        keterangan:raw.keterangan||"",
-        tipe:raw.tipe||"Lainnya",
-        kategori:raw.kategori||"",
-        subKategori:raw.subKategori||"",
-        sumber:"Langsung",
-        annualIndex:annualIndex
-      });
-    }
-
-    var jenis=mapJenis49b(r);
-    var vol=r.volumeBulanan||r.volume||"1 Paket";
-    var agenda=r.keterangan
-      ? r.uraian+". "+r.keterangan
-      : "Pelaksanaan "+r.uraian+" dalam rangka kegiatan operasional RT 005 RW 012.";
-    var keperluan="Pembayaran "+r.uraian+" ("+vol+") \u2014 Bulan "+month+
-                  "."+(r.keterangan?" "+r.keterangan:" Sesuai mata belanja dalam RAP BOP RT.");
-
-    /* Ensure persiapan ada */
-    if(typeof ensurePersiapan==="function") ensurePersiapan();
-    if(!window.data) return;
-    if(!window.data.persiapan) window.data.persiapan={};
-
-    /* Isi data.persiapan */
-    window.data.persiapan.jenis     = jenis;
-    window.data.persiapan.nama      = r.uraian||"Kegiatan Operasional RT";
-    window.data.persiapan.agenda    = agenda;
-    window.data.persiapan.keperluan = keperluan;
-    window.data.persiapan.nominal   = r.jumlahBulanan||0;
-    window.data.persiapan.rapAutoIdx   = annualIndex;
-    window.data.persiapan.rapAutoMonth = month;
-
-    /* Isi elemen form */
-    if(typeof fillPersiapan==="function") fillPersiapan();
-
-    /* Simpan */
-    try{ localStorage.setItem("bop_rt005_data_v1_25",JSON.stringify(window.data)); }catch(e){}
-
-    /* Update highlight kartu */
-    window.renderCardGrid49(month);
-
-    /* Update breadcrumb + hint */
-    var badge=document.getElementById("pkActiveKegiatanBadgeV49");
-    var name=document.getElementById("pkActiveKegiatanNameV49");
-    var hint=document.getElementById("pkFormHintV49");
-    if(badge) badge.style.display="flex";
-    if(name) name.textContent=r.uraian;
-    if(hint) hint.innerHTML=formHint49b(jenis);
-
-    /* Navigasi ke pk-generate dan preview dokumen */
-    if(typeof activateTab==="function") activateTab("pk-generate");
-    setTimeout(function(){
-      if(typeof collectPersiapan==="function") collectPersiapan();
-      var docType=autoDocType49b(jenis);
-      window.currentPkDoc=docType;
-      if(typeof previewPkDoc==="function") previewPkDoc(docType);
-    },100);
-  };
 
   /* ── Re-render kartu saat navigasi ke Persiapan Kegiatan ── */
   (function patchActivateTabV49b(){
@@ -6883,11 +6679,6 @@ ${KOP_PDF_CSS}
   })();
 
   /* ── Patch month change handler ── */
-  window._pkRapMonthChange49 = function(){
-    var sel=document.getElementById("pkRapMonthV49");
-    if(!sel) return;
-    window.renderCardGrid49(sel.value);
-  };
 
   /* ── Initial re-render jika panel sudah ada ── */
   function initV49b(){
@@ -7480,11 +7271,6 @@ ${KOP_PDF_CSS}
   }
 
   window.getMonthlyRapRows = getMonthlyRapRowsFinal;
-  window.monthlyTotal = function(month){
-    return getMonthlyRapRowsFinal(month).reduce(function(s,r){
-      return s+Number(r.jumlahBulanan||0);
-    },0);
-  };
 
   function _rp(n){ return typeof rupiah==="function"?rupiah(n):"Rp"+Number(n||0).toLocaleString("id-ID"); }
   function _esc(s){ return typeof esc==="function"?esc(s):String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
@@ -7548,47 +7334,6 @@ ${KOP_PDF_CSS}
     );
   };
 
-  window.docRbb = function(){
-    var month=getMonth();
-    var d=getData();
-    if(d.pengajuan) d.pengajuan.selectedMonth=month;
-    var rows=getMonthlyRapRowsFinal(month);
-    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
-    var m=d.master||{};
-    var tbody="";
-    if(rows.length){
-      rows.forEach(function(r,i){
-        tbody+="<tr><td>"+(i+1)+"</td><td>"+_esc(r.uraian)+"</td>"+
-          "<td>"+_esc(r.volume)+"</td><td>"+_rp(r.jumlahBulanan)+"</td>"+
-          "<td>"+_esc(r.keterangan)+"</td></tr>";
-      });
-    } else {
-      tbody="<tr><td colspan='5' style='text-align:center;color:#888'>Belum ada kegiatan bulan ini.</td></tr>";
-    }
-    return _official(
-      "<div class='title'>Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div>"+
-      "<table class='no-border'>"+
-      "<tr><td style='width:160px'>Nama Lembaga</td><td>: RT "+_esc(m.rt||"")+" RW "+_esc(m.rw||"")+"</td></tr>"+
-      "<tr><td>Kelurahan</td><td>: "+_esc(m.kelurahan||"")+"</td></tr>"+
-      "<tr><td>Kecamatan</td><td>: "+_esc(m.kecamatan||"")+"</td></tr>"+
-      "<tr><td>Untuk Kegiatan Bulan</td><td>: "+_esc(month)+"</td></tr>"+
-      "</table><br>"+
-      "<table><thead><tr><th>No.</th><th>Uraian Kegiatan</th>"+
-      "<th>Satuan/Volume</th><th>Anggaran</th><th>Keterangan</th></tr></thead>"+
-      "<tbody>"+tbody+
-      "<tr><td colspan='3'><b>Jumlah</b></td><td><b>"+_rp(total)+"</b></td><td></td></tr>"+
-      "</tbody></table>"+
-      "<p>Terbilang: <i>"+_terbilang(total)+" Rupiah</i></p>"+
-      "<div class='ttd-3'>"+
-      "<div>Yang Mengambil<br>Ketua RT "+_esc(m.rt||"")+" RW "+_esc(m.rw||"")+
-        "<div class='signature-space'></div>"+_esc(m.ketua||"Nama Jelas")+"</div>"+
-      "<div>Bendahara<div class='signature-space'></div>"+_esc(m.bendahara||"Nama Jelas")+"</div>"+
-      "<div>Mengetahui<br>Lurah "+_esc(m.kelurahan||"")+
-        "<div class='signature-space'></div>"+
-        _esc((d.pengajuan&&d.pengajuan.namaLurah)||"Nama Jelas")+"</div>"+
-      "</div>"
-    );
-  };
 
   function initV52(){
     var sel=document.getElementById("monthlyDocMonth");
@@ -7937,7 +7682,6 @@ ${KOP_PDF_CSS}
     return rows;
   }
   window.getMonthlyRapRows=getR;
-  window.monthlyTotal=function(m){return getR(m).reduce(function(s,r){return s+Number(r.jumlahBulanan||0);},0);};
   function rp(n){try{if(typeof rupiah==="function")return rupiah(Number(n||0));}catch(e){}return "Rp"+Number(n||0).toLocaleString("id-ID");}
   function es(s){try{if(typeof esc==="function")return esc(String(s==null?"":s));}catch(e){}return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
   function of(b){try{if(typeof officialWrap46==="function")return officialWrap46(b);}catch(e){} var kop="";try{kop=kopHTML();}catch(e){kop="<div class='kop'><div class='kop-text'><h1 class='kop-b1'>PEMERINTAH KOTA SEMARANG</h1></div></div>";} return "<div class='official official-v36 official-v37'>"+kop+"<div class='kop-rule'></div>"+b+"</div>";}
@@ -8170,13 +7914,6 @@ ${KOP_PDF_CSS}
   /* ════════════════════════════════════════════════════════════
      OVERRIDE addBreakdownRow — buat row format KAK
   ════════════════════════════════════════════════════════════ */
-  window.addBreakdownRow = function(month, annualIndex){
-    if(typeof updateBreakdownFromInputs==="function") updateBreakdownFromInputs();
-    var rows=getBDRows(month,annualIndex);
-    rows.push({uraian:"",qty1:1,sat1:"Pkt",qty2:1,sat2:"Keg",qty3:"",sat3:"",qtyTotal:"",satTotal:"Pkt",hargaSatuan:0,jumlah:0,keterangan:""});
-    var d=getData57(); try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(d));}catch(e){}
-    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
-  };
 
   /* ════════════════════════════════════════════════════════════
      OVERRIDE updateBreakdownFromInputs — baca field bd57
@@ -9752,20 +9489,20 @@ ${KOP_PDF_CSS}
     var st = document.createElement("style");
     st.id = "bopV63Style";
     st.textContent = `
-      .kop.kop-v63{border-bottom:3px double #000;padding:6px 4px 10px;margin-bottom:18px;text-align:left;display:block}
+      .kop.kop-v63{border-bottom:3px double #000;padding:6px 4px 10px;margin-bottom:18px;text-align:center;display:block}
       .kop-v63-header{font-family:"Times New Roman",serif;font-weight:700;font-size:18px;text-transform:uppercase;text-align:center;margin:0 0 6px}
-      .kop-v63-row{display:flex;align-items:center;gap:14px;padding-left:6%}
-      .kop-v63-logo-wrap{flex:0 0 auto}
+      .kop-v63-row{display:grid;grid-template-columns:74px 1fr 74px;align-items:center;column-gap:14px}
+      .kop-v63-logo-wrap{grid-column:1;justify-self:start}
       .kop-v63-logo{width:60px;max-height:74px;object-fit:contain;display:block}
-      .kop-v63-info{flex:1 1 auto;text-align:left}
-      .kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:15px;text-transform:uppercase;margin:2px 0;text-align:left}
+      .kop-v63-info{grid-column:2;text-align:center}
+      .kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:15px;text-transform:uppercase;margin:2px 0;text-align:center}
       .kop-v63-hr{border-top:1.5px solid #000;margin:6px 0 4px}
       .kop-v63-addr{font-family:"Times New Roman",serif;font-size:11px;text-align:center;margin:0}
       .ttd-grouped-v63{margin-top:22px}
       .ttd-grouped-v63 .ttd-label-v63{text-align:center;font-family:"Times New Roman",serif;margin:0 0 4px;font-size:12pt}
       .ttd-grouped-v63 .ttd-row-v63{display:grid;grid-template-columns:repeat(2,1fr);gap:40px;text-align:center;margin-bottom:18px}
       .ttd-grouped-v63 .ttd-row-v63:last-of-type{margin-bottom:0}
-      @media(max-width:560px){.ttd-grouped-v63 .ttd-row-v63{grid-template-columns:1fr;gap:16px}.kop-v63-row{padding-left:0}}
+      @media(max-width:560px){.ttd-grouped-v63 .ttd-row-v63{grid-template-columns:1fr;gap:16px}.kop-v63-row{grid-template-columns:50px 1fr 50px;column-gap:8px}}
       @media print{
         .kop.kop-v63{border-bottom:3px double #000!important}
         .kop-v63-logo{width:56px!important;max-height:68px!important}

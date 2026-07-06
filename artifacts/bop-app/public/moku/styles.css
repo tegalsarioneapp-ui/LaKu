@@ -76,6 +76,7 @@ a { color: inherit; }
   background: linear-gradient(135deg, var(--navy2), var(--navy3));
   padding: 10px 14px;
   box-shadow: 0 8px 24px rgba(6,17,31,.24);
+  border-bottom: 2px solid rgba(212,168,67,.35);
 }
 
 .app-header-top {
@@ -132,18 +133,22 @@ a { color: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(255,255,255,.12);
-  border: 1px solid rgba(255,255,255,.2);
-  color: #fff;
+  background: linear-gradient(135deg, var(--gold), var(--gold2));
+  border: 1px solid rgba(255,255,255,.3);
+  color: var(--navy);
   border-radius: 999px;
-  padding: 7px 12px;
+  padding: 7px 13px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background var(--transition);
+  box-shadow: 0 4px 14px rgba(212,168,67,.35);
+  transition: transform var(--transition), box-shadow var(--transition), opacity var(--transition);
 }
-.install-chip:hover { background: rgba(255,255,255,.2); }
+.install-chip:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(212,168,67,.45); }
+.install-chip:active { transform: translateY(0); }
+.install-chip:disabled { opacity: .6; pointer-events: none; }
+.install-chip svg { stroke: var(--navy); }
 
 .clock-pill {
   display: flex;
@@ -168,9 +173,14 @@ a { color: inherit; }
   border: 1px solid rgba(255,255,255,.14);
   cursor: pointer;
   text-align: left;
-  transition: background var(--transition);
+  transition: background var(--transition), border-color var(--transition);
 }
 .gps-pill:hover { background: rgba(255,255,255,.14); }
+.gps-pill.gps-ok        { background: rgba(20,168,90,.16);  border-color: rgba(20,168,90,.32); }
+.gps-pill.gps-ok:hover  { background: rgba(20,168,90,.24); }
+.gps-pill.gps-bad       { background: rgba(209,47,47,.18);  border-color: rgba(209,47,47,.36); }
+.gps-pill.gps-bad:hover { background: rgba(209,47,47,.26); }
+.gps-pill.gps-searching { background: rgba(212,168,67,.16); border-color: rgba(212,168,67,.32); }
 
 .gps-dot-ring {
   position: relative;

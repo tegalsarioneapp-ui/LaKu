@@ -1854,16 +1854,70 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     });
 
     // PWA install
+    initInstallButton();
+  }
+
+  /* ── PWA Install button ─────────────────────────────────────
+     - Tidak bisa install dari dalam iframe (embed di BOP App):
+       browser menolak beforeinstallprompt/prompt() lintas-frame,
+       jadi tombol disembunyikan & diarahkan ke "Buka Layar Penuh".
+     - Di halaman penuh: tombol muncul saat browser siap (beforeinstallprompt),
+       hilang otomatis begitu sudah terpasang (appinstalled / sudah standalone).
+  ── */
+  const PWA_INSTALLED_FLAG = "moku_pwa_installed_v1";
+  function isRunningStandalone() {
+    try {
+      if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) return true;
+      if (window.navigator.standalone === true) return true;
+    } catch(_){}
+    return localStorage.getItem(PWA_INSTALLED_FLAG) === "1";
+  }
+  function isEmbeddedInIframe() {
+    try { return window.self !== window.top; } catch(_) { return true; }
+  }
+  function initInstallButton() {
+    const btn = $("installBtn");
+    if (!btn) return;
+
+    if (isEmbeddedInIframe()) {
+      // Install tidak bisa dilakukan dari dalam tampilan tertanam.
+      btn.hidden = true;
+      return;
+    }
+
+    if (isRunningStandalone()) {
+      btn.hidden = true;
+      return;
+    }
+
     window.addEventListener("beforeinstallprompt", e => {
       e.preventDefault();
       installPrompt = e;
-      $("installBtn").hidden = false;
+      if (!isRunningStandalone()) btn.hidden = false;
     });
-    const _instBtn = $("installBtn"); if(_instBtn) _instBtn.addEventListener("click", async () => {
+
+    btn.addEventListener("click", async () => {
       if (!installPrompt) return;
-      installPrompt.prompt();
+      btn.disabled = true;
+      try {
+        installPrompt.prompt();
+        const choice = await installPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          btn.hidden = true;
+          localStorage.setItem(PWA_INSTALLED_FLAG, "1");
+        }
+      } catch(_) {
+        /* browser membatalkan prompt, tombol tetap tampil agar bisa dicoba lagi */
+      } finally {
+        installPrompt = null;
+        btn.disabled = false;
+      }
+    });
+
+    window.addEventListener("appinstalled", () => {
+      btn.hidden = true;
       installPrompt = null;
-      $("installBtn").hidden = true;
+      localStorage.setItem(PWA_INSTALLED_FLAG, "1");
     });
   }
 

@@ -67,79 +67,65 @@ a { color: inherit; }
 }
 
 /* =========================================================
-   Hero
+   App Header (compact, sticky)
    ========================================================= */
-.hero {
-  position: relative;
-  background: var(--navy);
-  padding: 20px 18px 0;
-  border-radius: 0 0 36px 36px;
-  overflow: hidden;
-  box-shadow: 0 24px 60px rgba(6,17,31,.32);
-  margin-bottom: 16px;
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  background: linear-gradient(135deg, var(--navy2), var(--navy3));
+  padding: 10px 14px;
+  box-shadow: 0 8px 24px rgba(6,17,31,.24);
 }
 
-.hero-bg {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 90% -10%, rgba(42,141,224,.28) 0%, transparent 45%),
-    radial-gradient(ellipse at -10% 90%, rgba(212,168,67,.14) 0%, transparent 40%),
-    linear-gradient(160deg, #061623 0%, #0c2d4e 60%, #0e3a65 100%);
-}
-
-.hero-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(40px);
-  pointer-events: none;
-}
-.hero-orb1 {
-  width: 200px; height: 200px;
-  background: rgba(42,141,224,.22);
-  right: -60px; top: -80px;
-}
-.hero-orb2 {
-  width: 140px; height: 140px;
-  background: rgba(212,168,67,.16);
-  left: -40px; bottom: -40px;
-}
-
-.hero-inner {
-  position: relative;
-  z-index: 2;
+.app-header-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 18px;
-}
-
-.hero-badge {
-  display: inline-block;
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--gold);
+  gap: 10px;
   margin-bottom: 8px;
 }
 
-.hero-title {
-  margin: 0 0 6px;
-  font-size: 34px;
-  font-weight: 900;
-  letter-spacing: -1.5px;
-  color: #fff;
-  line-height: 1;
+.app-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
-.hero-title-accent { color: var(--gold2); }
 
-.hero-sub {
-  margin: 0;
-  font-size: 12.5px;
-  color: rgba(255,255,255,.62);
-  line-height: 1.4;
+.app-header-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--gold2);
+  box-shadow: 0 0 0 3px var(--gold-dim);
+  flex-shrink: 0;
+}
+
+.app-header-titles { min-width: 0; }
+.app-header-title {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 900;
+  letter-spacing: -.3px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-header-sub {
+  display: block;
+  font-size: 10px;
+  color: rgba(255,255,255,.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .install-chip {
@@ -150,8 +136,8 @@ a { color: inherit; }
   border: 1px solid rgba(255,255,255,.2);
   color: #fff;
   border-radius: 999px;
-  padding: 9px 14px;
-  font-size: 13px;
+  padding: 7px 12px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
@@ -159,55 +145,45 @@ a { color: inherit; }
 }
 .install-chip:hover { background: rgba(255,255,255,.2); }
 
-/* =========================================================
-   Status Row (GPS + Clock)
-   ========================================================= */
-.status-row {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 10px;
-  padding-bottom: 20px;
+.clock-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  cursor: default;
 }
+.clock-pill b { display: block; font-size: 13px; color: #fff; font-variant-numeric: tabular-nums; }
+.clock-pill small { display: block; font-size: 10px; color: rgba(255,255,255,.55); margin-top: 1px; white-space: nowrap; }
 
-.gps-pill, .clock-pill {
+/* =========================================================
+   GPS Pill (header, compact status)
+   ========================================================= */
+.gps-pill {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 11px 12px;
-  border-radius: 18px;
-  background: rgba(255,255,255,.1);
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(255,255,255,.08);
   border: 1px solid rgba(255,255,255,.14);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: background var(--transition);
-}
-
-.gps-pill {
   cursor: pointer;
   text-align: left;
+  transition: background var(--transition);
 }
-.gps-pill:hover { background: rgba(255,255,255,.16); }
+.gps-pill:hover { background: rgba(255,255,255,.14); }
 
-.gps-icon-wrap {
+.gps-dot-ring {
   position: relative;
   flex-shrink: 0;
-  width: 28px; height: 28px;
-  display: flex; align-items: center; justify-content: center;
-}
-
-.gps-ring {
-  position: absolute;
-  inset: 0;
+  width: 10px; height: 10px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,.3);
+  background: rgba(255,255,255,.35);
+  box-shadow: 0 0 0 3px rgba(255,255,255,.08);
+  transition: background var(--transition), box-shadow var(--transition);
 }
-
-.gps-icon { color: rgba(255,255,255,.7); }
 
 .gps-pill-text { flex: 1; min-width: 0; }
-.gps-pill-text b { display: block; font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gps-pill-text b { display: block; font-size: 12.5px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gps-pill-text small { display: block; font-size: 10.5px; color: rgba(255,255,255,.58); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 
 .gps-acc {
@@ -218,25 +194,20 @@ a { color: inherit; }
   flex-shrink: 0;
 }
 
-/* GPS states */
-.gps-pill.gps-ok .gps-ring { border-color: var(--ok); box-shadow: 0 0 0 3px var(--ok-dim); }
-.gps-pill.gps-ok .gps-icon { color: var(--ok); }
-.gps-pill.gps-bad .gps-ring { border-color: var(--danger); }
-.gps-pill.gps-bad .gps-icon { color: var(--danger); }
-.gps-pill.gps-searching .gps-ring {
-  border-color: var(--gold2);
-  animation: gps-spin 1.4s linear infinite;
+/* GPS states — shared by header dot-ring and camera inline dot */
+.gps-dot-ring.gps-ok,   .gps-inline-dot.gps-ok   { background: var(--ok);     box-shadow: 0 0 0 3px var(--ok-dim); }
+.gps-dot-ring.gps-bad,  .gps-inline-dot.gps-bad  { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-dim); }
+.gps-dot-ring.gps-searching, .gps-inline-dot.gps-searching {
+  background: var(--gold2);
+  box-shadow: 0 0 0 3px var(--gold-dim);
+  animation: gps-pulse 1.4s ease-in-out infinite;
 }
-.gps-pill.gps-searching .gps-icon { color: var(--gold2); }
+.gps-dot-ring.gps-wait, .gps-inline-dot.gps-wait { background: rgba(255,255,255,.35); }
 
-@keyframes gps-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+@keyframes gps-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
 }
-
-.clock-pill { cursor: default; }
-.clock-pill-text b { display: block; font-size: 14px; color: #fff; font-variant-numeric: tabular-nums; }
-.clock-pill-text small { display: block; font-size: 10.5px; color: rgba(255,255,255,.55); margin-top: 1px; }
 
 /* =========================================================
    Main Content
@@ -373,21 +344,6 @@ a { color: inherit; }
   padding: 0 4px;
   border: 2px solid var(--surface);
 }
-
-.btn-gps {
-  display: inline-flex; align-items: center; gap: 7px;
-  background: linear-gradient(135deg, #0b7a4f, var(--ok));
-  color: #fff;
-  border-radius: 14px;
-  padding: 11px 16px;
-  font-weight: 800;
-  font-size: 13px;
-  white-space: nowrap;
-  box-shadow: 0 10px 24px rgba(20,168,90,.22);
-  transition: opacity var(--transition);
-  flex-shrink: 0;
-}
-.btn-gps:active { opacity: .8; }
 
 .btn-danger {
   display: flex; align-items: center; justify-content: center;
@@ -597,52 +553,42 @@ a { color: inherit; }
 .camera-card-header h2 { margin: 5px 0 4px; font-size: 21px; font-weight: 800; }
 .camera-card-header p { margin: 0; font-size: 12.5px; color: var(--muted); }
 
-.premium-badge {
-  background: linear-gradient(135deg, #b8900e, var(--gold));
-  color: #fff;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 1.5px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  flex-shrink: 0;
-}
-
-/* GPS Guard */
-.gps-guard {
+/* GPS inline status row (camera tab) */
+.gps-inline-cam {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  background: rgba(26,111,196,.07);
-  border: 1px solid rgba(26,111,196,.18);
-  border-radius: var(--radius-sm);
-  padding: 14px;
+  gap: 8px;
+  background: rgba(26,111,196,.06);
+  border: 1px solid rgba(26,111,196,.16);
+  border-radius: 12px;
+  padding: 9px 12px;
   margin-bottom: 14px;
+  font-size: 12px;
   transition: background var(--transition), border-color var(--transition);
 }
-.gps-guard.locked {
-  background: var(--ok-dim);
-  border-color: rgba(20,168,90,.25);
-}
-.gps-guard.blocked {
-  background: var(--danger-dim);
-  border-color: rgba(209,47,47,.2);
-}
-
-.gps-guard-info { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; }
-.gps-guard-icon {
-  width: 36px; height: 36px;
-  background: rgba(26,111,196,.12);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
+.gps-inline-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: rgba(107,124,144,.4);
   flex-shrink: 0;
-  color: var(--blue);
+  transition: background var(--transition), box-shadow var(--transition);
 }
-.gps-guard.locked .gps-guard-icon { background: var(--ok-dim); color: var(--ok); }
-.gps-guard.blocked .gps-guard-icon { background: var(--danger-dim); color: var(--danger); }
-.gps-guard-info > div > b { display: block; font-size: 13.5px; color: var(--ink); margin-bottom: 3px; }
-.gps-guard-info > div > p { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; }
+.gps-inline-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gps-inline-acc {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--blue);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 /* Type chips */
 .type-section { margin-bottom: 14px; }
@@ -1320,60 +1266,6 @@ body.camera-open .bottom-nav { display: none; }
   font-size: 12px;
   font-weight: 700;
   margin-top: 10px;
-}
-
-/* =========================================================
-   Guide Cards Premium
-   ========================================================= */
-.guide-cards-wrap {
-  padding: 0 0 4px 0;
-  overflow: hidden;
-}
-.guide-card-row {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding: 0 0 8px 0;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  scroll-snap-type: x mandatory;
-}
-.guide-card-row::-webkit-scrollbar { display: none; }
-.guide-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: linear-gradient(135deg, var(--navy2) 0%, var(--navy3) 100%);
-  border: 1px solid rgba(42,141,224,.25);
-  border-radius: var(--radius-sm);
-  padding: 12px 14px;
-  min-width: 182px;
-  max-width: 210px;
-  flex-shrink: 0;
-  scroll-snap-align: start;
-  box-shadow: 0 4px 18px rgba(6,17,31,.15);
-}
-.guide-card-icon {
-  font-size: 22px;
-  line-height: 1;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-.guide-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.guide-card-body b {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--white);
-  line-height: 1.2;
-}
-.guide-card-body small {
-  font-size: 11px;
-  color: rgba(255,255,255,.55);
-  line-height: 1.4;
 }
 
 /* =========================================================

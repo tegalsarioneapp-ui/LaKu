@@ -152,7 +152,7 @@
     if (d.isHttpLan)    return "GPS diblokir karena dibuka dari HTTP/LAN. Buka dari HTTPS atau localhost.";
     if (d.isFileProt)   return "Dibuka sebagai file lokal. GPS bisa timeout. Gunakan HTTPS/localhost untuk GPS stabil.";
     if (state.gpsDebug.permission === "denied") return "Izin lokasi ditolak. Aktifkan di Pengaturan Situs browser.";
-    return "GPS belum terkunci. Aktifkan Akurasi Tinggi, Wi-Fi/data, lalu tekan Kunci GPS.";
+    return "GPS belum terkunci. Aktifkan Akurasi Tinggi dan Wi-Fi/data agar lokasi terkunci otomatis.";
   }
 
   function coordsToText(gps) {
@@ -350,52 +350,61 @@
 
   /* ── GPS render ─────────────────────────────────────────── */
   function renderGps() {
-    const btn         = $("gpsStatusBtn");
-    const short       = $("gpsShort");
-    const detail      = $("gpsDetail");
-    const acc         = $("gpsAcc");
-    const guardBox    = $("gpsGuardBox");
-    const guardTitle  = $("gpsGuardTitle");
-    const guardText   = $("gpsGuardText");
-    const overlayGps  = $("overlayGps");
+    const btn        = $("gpsStatusBtn");
+    const short      = $("gpsShort");
+    const detail     = $("gpsDetail");
+    const acc        = $("gpsAcc");
+    const dotRing    = $("gpsDotRing");
+    const inlineDot  = $("gpsInlineDot");
+    const inlineText = $("gpsInlineText");
+    const inlineAcc  = $("gpsInlineAcc");
+    const overlayGps = $("overlayGps");
 
-    btn.classList.remove("gps-ok","gps-bad","gps-wait","gps-searching");
-    guardBox.classList.remove("locked","blocked");
+    const STATE_CLASSES = ["gps-ok","gps-bad","gps-wait","gps-searching"];
+    const setState = cls => {
+      [btn, dotRing, inlineDot].forEach(el => {
+        if (!el) return;
+        el.classList.remove(...STATE_CLASSES);
+        el.classList.add(cls);
+      });
+    };
+    const setText = (el, text) => { if (el) el.textContent = text; };
 
     if (state.gpsStatus === "locked" && state.gps) {
-      btn.classList.add("gps-ok");
-      short.textContent  = "GPS terkunci";
-      const addr = state.gps.address ? state.gps.address : coordsToText(state.gps);
-      detail.textContent = addr;
-      acc.textContent    = `±${Math.round(state.gps.accuracy||0)}m`;
-      guardBox.classList.add("locked");
-      guardTitle.textContent = "GPS terkunci ✓";
-      guardText.textContent  = `${state.gps.address ? state.gps.address + " • " : ""}${coordsToText(state.gps)}`;
-      if (overlayGps) overlayGps.textContent = `GPS: ${addr} ±${Math.round(state.gps.accuracy||0)}m`;
+      setState("gps-ok");
+      const addr   = state.gps.address ? state.gps.address : coordsToText(state.gps);
+      const accStr = `±${Math.round(state.gps.accuracy||0)}m`;
+      setText(short, "GPS terkunci");
+      setText(detail, addr);
+      setText(acc, accStr);
+      setText(inlineText, addr);
+      setText(inlineAcc, accStr);
+      setText(overlayGps, `GPS: ${addr} ${accStr}`);
       return;
     }
 
     if (state.gpsStatus === "blocked" || state.gpsStatus === "denied" || state.gpsStatus === "failed") {
-      btn.classList.add("gps-bad");
-      short.textContent  = "GPS belum bisa";
-      detail.textContent = state.gpsMessage || "Tekan untuk detail";
-      acc.textContent    = "";
-      guardBox.classList.add("blocked");
-      guardTitle.textContent = "GPS belum bisa";
-      guardText.textContent  = state.gpsMessage || gpsBlockedMsg();
-      if (overlayGps) overlayGps.textContent = "GPS belum terkunci";
+      setState("gps-bad");
+      const msg = state.gpsMessage || gpsBlockedMsg();
+      setText(short, "GPS belum bisa");
+      setText(detail, state.gpsMessage || "Tekan untuk detail");
+      setText(acc, "");
+      setText(inlineText, msg);
+      setText(inlineAcc, "");
+      setText(overlayGps, "GPS belum terkunci");
       return;
     }
 
     const searching = state.gpsStatus === "searching";
-    btn.classList.add(searching ? "gps-searching" : "gps-wait");
-    short.textContent  = searching ? "Mengunci GPS..." : "GPS belum terkunci";
-    detail.textContent = state.gpsMessage || (searching ? "Mencari sinyal..." : "Ketuk untuk kunci GPS");
-    acc.textContent    = (searching && state.gps) ? `±${Math.round(state.gps.accuracy||0)}m` : "";
-    guardBox.classList.remove("locked","blocked");
-    guardTitle.textContent = searching ? "Mengunci GPS..." : "GPS Guard";
-    guardText.textContent  = state.gpsMessage || "Kunci GPS sebelum ambil foto agar koordinat masuk watermark.";
-    if (overlayGps) overlayGps.textContent = searching ? "GPS sedang dikunci..." : "GPS belum terkunci";
+    setState(searching ? "gps-searching" : "gps-wait");
+    const detailMsg = state.gpsMessage || (searching ? "Mencari sinyal..." : "Menunggu GPS...");
+    const accStr    = (searching && state.gps) ? `±${Math.round(state.gps.accuracy||0)}m` : "";
+    setText(short, searching ? "Mengunci GPS..." : "GPS belum terkunci");
+    setText(detail, detailMsg);
+    setText(acc, accStr);
+    setText(inlineText, detailMsg);
+    setText(inlineAcc, accStr);
+    setText(overlayGps, searching ? "GPS sedang dikunci..." : "GPS belum terkunci");
   }
 
   /* ── Activities ─────────────────────────────────────────── */
@@ -1680,7 +1689,6 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     const _ccBtn = $("closeCameraBtn"); if(_ccBtn) _ccBtn.addEventListener("click", closeCamera);
     const _scBtn = $("switchCameraBtn"); if(_scBtn) _scBtn.addEventListener("click", switchCamera);
 
-    const _lgBtn = $("lockGpsBtn"); if(_lgBtn) _lgBtn.addEventListener("click", () => lockGps({ silent:false }));
     const _gsBtn = $("gpsStatusBtn"); if(_gsBtn) _gsBtn.addEventListener("click", showGpsSheet);
     const _rgBtn = $("retryGpsBtn"); if(_rgBtn) _rgBtn.addEventListener("click", () => { const _gs = $("gpsSheet"); if(_gs) _gs.hidden = true; lockGps({ silent:false }); });
     const _cgsBtn = $("closeGpsSheetBtn"); if(_cgsBtn) _cgsBtn.addEventListener("click", () => { const _gs = $("gpsSheet"); if(_gs) _gs.hidden = true; });

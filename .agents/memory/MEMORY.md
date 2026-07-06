@@ -8,3 +8,4 @@
 - [MoKu Watermark Premium v2](moku-watermark-v2.md) — drawWatermark redesigned: 3 font tiers, gold accent bar, address gold/coords small, RT always shown both corners.
 - [BOP dm-card60 Output Unwrap](bop-dm-card60-unwrap.md) — docOutput/pkDocOutput/lpjOutput show content directly; dm-card60 hidden via ID CSS override in v1.62.
 - [MoKu BOP Sync Safety Rules](moku-bop-sync-safety.md) — isAll excludes bulan===""; stale cleanup skips activities with linked results (hasLinkedData guard).
+- [MoKu index.html CRLF line endings](moku-crlf-line-endings.md) — this file uses CRLF; edit tool needs LF conversion first or it silently fails to match.

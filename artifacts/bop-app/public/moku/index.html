@@ -15,42 +15,35 @@
 <body>
   <div class="app-shell">
 
-    <header class="hero" id="hero">
-      <div class="hero-bg"></div>
-      <div class="hero-orb hero-orb1"></div>
-      <div class="hero-orb hero-orb2"></div>
-      <div class="hero-inner">
-        <div class="hero-brand">
-          <div class="hero-badge">RT 005 · RW 012 · Tegalsari</div>
-          <h1 class="hero-title">MoKu<span class="hero-title-accent"> Mobile</span></h1>
-          <p class="hero-sub">Aplikasi Foto Kegiatan RT 005 RW 012 Tegalsari</p>
+    <header class="app-header" id="appHeader">
+      <div class="app-header-top">
+        <div class="app-header-brand">
+          <span class="app-header-dot"></span>
+          <div class="app-header-titles">
+            <b class="app-header-title">MoKu Mobile</b>
+            <small class="app-header-sub">RT 005 · RW 012 · Tegalsari</small>
+          </div>
         </div>
-        <button id="installBtn" class="install-chip" hidden>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v13M7 10l5 5 5-5"/><rect x="3" y="17" width="18" height="4" rx="2"/></svg>
-          Install
-        </button>
-      </div>
-
-      <div class="status-row">
-        <button id="gpsStatusBtn" class="gps-pill gps-wait" type="button">
-          <span class="gps-icon-wrap">
-            <span class="gps-ring"></span>
-            <svg class="gps-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-          </span>
-          <span class="gps-pill-text">
-            <b id="gpsShort">GPS belum terkunci</b>
-            <small id="gpsDetail">Mengunci otomatis...</small>
-          </span>
-          <span class="gps-acc" id="gpsAcc"></span>
-        </button>
-        <div class="clock-pill">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-          <span class="clock-pill-text">
+        <div class="app-header-actions">
+          <button id="installBtn" class="install-chip" hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v13M7 10l5 5 5-5"/><rect x="3" y="17" width="18" height="4" rx="2"/></svg>
+            Install
+          </button>
+          <div class="clock-pill">
             <b id="clockShort">--:--:--</b>
             <small id="dateShort">Memuat...</small>
-          </span>
+          </div>
         </div>
       </div>
+
+      <button id="gpsStatusBtn" class="gps-pill gps-wait" type="button">
+        <span class="gps-dot-ring" id="gpsDotRing"></span>
+        <span class="gps-pill-text">
+          <b id="gpsShort">GPS belum terkunci</b>
+          <small id="gpsDetail">Mengunci otomatis...</small>
+        </span>
+        <span class="gps-acc" id="gpsAcc"></span>
+      </button>
     </header>
 
     <main class="main-content">
@@ -83,40 +76,6 @@
           </div>
         </div>
 
-        <!-- Panduan Premium untuk Warga -->
-        <div class="guide-cards-wrap">
-          <div class="guide-card-row">
-            <div class="guide-card">
-              <div class="guide-card-icon">📸</div>
-              <div class="guide-card-body">
-                <b>Pilih & Foto</b>
-                <small>Ketuk kegiatan di bawah lalu ambil foto langsung dari kamera</small>
-              </div>
-            </div>
-            <div class="guide-card">
-              <div class="guide-card-icon">📋</div>
-              <div class="guide-card-body">
-                <b>5 Jenis Foto</b>
-                <small>Sebelum · Proses · Sesudah · Hadir · Nota — lengkapi semua</small>
-              </div>
-            </div>
-            <div class="guide-card">
-              <div class="guide-card-icon">📍</div>
-              <div class="guide-card-body">
-                <b>GPS Otomatis</b>
-                <small>Lokasi & waktu dicatat di foto tanpa input manual</small>
-              </div>
-            </div>
-            <div class="guide-card">
-              <div class="guide-card-icon">📄</div>
-              <div class="guide-card-body">
-                <b>Masuk LPJ</b>
-                <small>Foto langsung tersedia di lembar LPJ/SPJ BOP utama</small>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div class="section-hdr">
           <h3>Daftar Kegiatan</h3>
           <div style="display:flex;align-items:center;gap:8px">
@@ -137,23 +96,12 @@
               <h2 id="cameraTitle">Pilih kegiatan dulu</h2>
               <p id="cameraMeta">Foto watermark waktu &amp; GPS otomatis.</p>
             </div>
-            <div class="premium-badge">PRO</div>
           </div>
 
-          <div id="gpsGuardBox" class="gps-guard">
-            <div class="gps-guard-info">
-              <div class="gps-guard-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-              </div>
-              <div>
-                <b id="gpsGuardTitle">GPS Guard</b>
-                <p id="gpsGuardText">Menunggu sinyal GPS...</p>
-              </div>
-            </div>
-            <button id="lockGpsBtn" class="btn-gps" type="button">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-              Kunci GPS
-            </button>
+          <div id="gpsInlineCam" class="gps-inline-cam">
+            <span class="gps-inline-dot" id="gpsInlineDot"></span>
+            <span class="gps-inline-text" id="gpsInlineText">Menunggu sinyal GPS...</span>
+            <span class="gps-inline-acc" id="gpsInlineAcc"></span>
           </div>
 
           <div class="type-section">

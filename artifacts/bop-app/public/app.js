@@ -9610,3 +9610,353 @@ ${KOP_PDF_CSS}
   else
     setTimeout(initV63, 5000);
 })();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.64 — Auto-Sync Multi-Device: fillInputs + BroadcastChannel
+   Masalah: applyServerData tidak memanggil fillInputs() →
+   form inputs tidak ter-update saat data datang dari device lain.
+════════════════════════════════════════════════════════════════ */
+(function bopAutoSyncV64(){
+  if(window.__bopAutoSyncV64) return;
+  window.__bopAutoSyncV64 = true;
+
+  /* ── 1. Patch applyServerData agar fillInputs + previewDoc ─── */
+  const _origApply = window.bopApplyServerDataV42;
+  window.bopApplyServerDataV42 = function(result){
+    if(_origApply) _origApply(result);
+    try{ if(typeof fillInputs    === "function") fillInputs(); }catch(e){}
+    try{ if(typeof renderRap     === "function") renderRap(); }catch(e){}
+    try{ if(typeof renderExpenses=== "function") renderExpenses(); }catch(e){}
+    try{ if(typeof renderPeserta === "function") renderPeserta(); }catch(e){}
+    try{
+      if(typeof previewDoc === "function" && window.currentDoc)
+        previewDoc(window.currentDoc);
+    }catch(e){}
+  };
+
+  /* ── 2. BroadcastChannel — sync instan antar tab di browser sama ── */
+  try{
+    const BC_NAME = "bop_sync_v64";
+    const bc = new BroadcastChannel(BC_NAME);
+    bc.onmessage = e => {
+      if(e.data && e.data.type === "DATA_UPDATED"){
+        /* Tab lain baru simpan data — langsung ambil versi terbaru */
+        if(typeof window.__bopRetriggerSync === "function") window.__bopRetriggerSync();
+      }
+    };
+    /* Broadcast setiap kali ada push sukses */
+    const _origPut = window.fetch;
+    window.fetch = async function(url, opts){
+      const res = await _origPut.apply(this, arguments);
+      if(typeof url === "string" && url.includes("/api/bop/data") && opts && opts.method === "PUT"){
+        try{ bc.postMessage({ type: "DATA_UPDATED" }); }catch(_){}
+      }
+      return res;
+    };
+  }catch(e){}
+
+  /* ── 3. Page Visibility: poll lebih cepat saat tab aktif ─────── */
+  let pollFast = null;
+  function startFastPoll(){
+    if(pollFast) return;
+    pollFast = setInterval(() => {
+      if(typeof window.__bopRetriggerSync === "function") window.__bopRetriggerSync();
+    }, 5000);
+  }
+  function stopFastPoll(){
+    if(pollFast){ clearInterval(pollFast); pollFast = null; }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible"){
+      startFastPoll();
+      /* Langsung sync saat tab diaktifkan kembali */
+      setTimeout(()=>{ if(typeof window.__bopRetriggerSync==="function") window.__bopRetriggerSync(); }, 200);
+    } else {
+      stopFastPoll();
+    }
+  });
+  if(document.visibilityState === "visible") startFastPoll();
+
+  console.log("[BOP v1.64] Auto-Sync multi-device: fillInputs + BroadcastChannel + visibilitychange aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.65 — Biometrik: Direct Access Mode + Auto-Detect
+   Fix: setAccessModeV31("bop") langsung dipanggil setelah
+   biometrik sukses, tanpa bergantung pada MutationObserver.
+════════════════════════════════════════════════════════════════ */
+(function bopBiometricFixV65(){
+  if(window.__bopBiometricFixV65) return;
+  window.__bopBiometricFixV65 = true;
+
+  function applyBiometricSuccess(){
+    /* Set BOP access mode langsung */
+    if(typeof setAccessModeV31 === "function") setAccessModeV31("bop");
+    window.__bopBioAuth = true;
+
+    /* Navigasi ke halaman terakhir atau dashboard */
+    const LAST_PAGE = "bop_last_page_v43";
+    const lastPage  = localStorage.getItem(LAST_PAGE) || "dashboard";
+    setTimeout(() => {
+      if(typeof goPage === "function") goPage(lastPage);
+      if(typeof bopToast === "function") bopToast("Selamat Datang 👋","Masuk via biometrik berhasil.","success");
+    }, 250);
+  }
+
+  /* Hook tombol biometrik — intercept SETELAH v1.43 terpasang */
+  function hookBtn(){
+    const btn = document.getElementById("biometricBtnV43");
+    const hint = document.getElementById("biometricHintV43");
+    if(!btn || !hint){ setTimeout(hookBtn, 500); return; }
+
+    /* Observer pada hint: kalau muncul ✅ Berhasil → langsung unlock */
+    new MutationObserver(() => {
+      if(hint.textContent.includes("✅ Berhasil") && !window.__bopBioUnlocked){
+        window.__bopBioUnlocked = true;
+        setTimeout(() => { window.__bopBioUnlocked = false; }, 2000);
+        applyBiometricSuccess();
+      }
+    }).observe(hint, { childList: true, characterData: true, subtree: true });
+  }
+
+  /* Auto-detect platform authenticator & tampilkan tombol */
+  async function autoDetect(){
+    if(!window.PublicKeyCredential) return;
+    try{
+      const ok = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      const row = document.getElementById("biometricRowV43");
+      if(row) row.style.display = ok ? "" : "none";
+
+      /* Tampilkan label sesuai status pendaftaran */
+      const cred = localStorage.getItem("bop_biometric_cred_v43");
+      const label = document.getElementById("biometricBtnLabel");
+      const hint  = document.getElementById("biometricHintV43");
+      if(ok && label){
+        label.textContent = cred ? "Masuk dengan Biometrik" : "Daftarkan Biometrik";
+        if(hint) hint.textContent = cred ? "Sidik jari / wajah terdaftar ✓" : "Tap untuk daftarkan biometrik perangkat ini";
+      }
+    }catch(e){}
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => { setTimeout(hookBtn, 1000); setTimeout(autoDetect, 1200); });
+  else
+    { setTimeout(hookBtn, 1000); setTimeout(autoDetect, 1200); }
+
+  console.log("[BOP v1.65] Biometrik Fix: direct access mode aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.66 — Dropdown Generate Dokumen Premium + Auto-Preview
+   Tambah semua jenis dokumen, auto-preview saat pilih,
+   tanpa mengubah Document Studio.
+════════════════════════════════════════════════════════════════ */
+(function bopDocDropdownPremiumV66(){
+  if(window.__bopDocDropdownV66) return;
+  window.__bopDocDropdownV66 = true;
+
+  const ALL_DOCS = [
+    { group: "📋 Pengajuan Dana Operasional", items: [
+      { value: "permohonan",    label: "1. Surat Permohonan Pencairan" },
+      { value: "rap",           label: "2. RAP 1 Tahun" },
+      { value: "rapbulanan",    label: "2A. RAP Bulanan Otomatis" },
+      { value: "ba",            label: "3. Berita Acara Kesepakatan RAP" },
+      { value: "hadir",         label: "4. Daftar Hadir Rapat RAP" },
+      { value: "sptjm",         label: "5. SPTJM Ketua RT" },
+      { value: "sk",            label: "6. SK Lurah / Dokumentasi" },
+      { value: "rekening",      label: "7. Rekening Bank Jateng" },
+      { value: "rbb",           label: "RBB - Rencana Belanja Bulanan" },
+      { value: "perubahanRap",  label: "5A. Perubahan RAP" },
+      { value: "baPerubahanRap",label: "5B. BA Perubahan RAP" },
+      { value: "tandaTerima",   label: "Tanda Terima Penyaluran" },
+      { value: "paket7pengajuan", label: "📦 Paket 7 Dokumen 2026" },
+    ]},
+    { group: "📝 Rapat & Notulen", items: [
+      { value: "undangan",      label: "Undangan Rapat RAP" },
+      { value: "notulen",       label: "Notulen Resmi RAP" },
+    ]},
+    { group: "📊 LPJ / SPJ", items: [
+      { value: "lpj",           label: "LPJ / SPJ Lengkap" },
+    ]},
+  ];
+
+  function buildSelect(sel){
+    sel.innerHTML = "";
+    ALL_DOCS.forEach(g => {
+      const og = document.createElement("optgroup");
+      og.label = g.group;
+      g.items.forEach(it => {
+        const op = document.createElement("option");
+        op.value = it.value;
+        op.textContent = it.label;
+        og.appendChild(op);
+      });
+      sel.appendChild(og);
+    });
+    /* Restore previously selected */
+    const prev = localStorage.getItem("bop_last_doc_v66") || window.currentDoc || "permohonan";
+    if([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
+
+  function doGenerate(type){
+    if(!type) return;
+    localStorage.setItem("bop_last_doc_v66", type);
+    /* Auto-fill sebelum generate */
+    try{ if(typeof fillInputs  === "function") fillInputs(); }catch(e){}
+    try{ if(typeof collectAll  === "function") collectAll(); }catch(e){}
+    /* Coba previewDoc langsung */
+    if(typeof window.previewDoc === "function"){
+      window.previewDoc(type);
+    } else {
+      const hiddenBtn = document.querySelector(`.doc-btn[data-doc="${type}"]`);
+      if(hiddenBtn) hiddenBtn.click();
+    }
+    /* Scroll ke output */
+    setTimeout(() => {
+      const out = document.getElementById("docOutput");
+      if(out) out.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 400);
+  }
+
+  function init(){
+    const sel = document.getElementById("dsDocSelectV43");
+    const btn = document.getElementById("dsDocGenBtnV43");
+    if(!sel){ setTimeout(init, 600); return; }
+
+    buildSelect(sel);
+
+    /* Auto-preview saat pilih dokumen */
+    sel.addEventListener("change", () => doGenerate(sel.value));
+
+    /* Tombol Generate */
+    if(btn){
+      btn.onclick = () => doGenerate(sel.value);
+      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Generate`;
+    }
+
+    /* Sinkronkan dengan currentDoc saat tab dokumen dibuka */
+    document.querySelectorAll('[data-tab="dokumen"], [data-subtab="dokumen"]').forEach(t => {
+      t.addEventListener("click", () => {
+        setTimeout(() => {
+          if(window.currentDoc && sel.value !== window.currentDoc){
+            const match = [...sel.options].find(o => o.value === window.currentDoc);
+            if(match) sel.value = window.currentDoc;
+          }
+        }, 150);
+      });
+    });
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1400));
+  else
+    setTimeout(init, 1400);
+
+  console.log("[BOP v1.66] Dropdown Generate Dokumen Premium + auto-preview aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.67 — Auto-Fill Dokumen dari Data Master
+   Setiap kali dokumen di-generate, data master (nama ketua RT,
+   alamat, periode, dll) otomatis terisi tanpa perlu isi manual.
+════════════════════════════════════════════════════════════════ */
+(function bopAutoFillMasterV67(){
+  if(window.__bopAutoFillV67) return;
+  window.__bopAutoFillV67 = true;
+
+  const FIELD_MAP = {
+    /* Data Master */
+    "ketua":        ["masterKetua","namaKetua","ketua_rt"],
+    "sekretaris":   ["masterSekretaris","sekretaris"],
+    "bendahara":    ["masterBendahara","bendahara"],
+    "rt":           ["masterRt","noRt"],
+    "rw":           ["masterRw","noRw"],
+    "kelurahan":    ["masterKelurahan","kelurahan"],
+    "kecamatan":    ["masterKecamatan","kecamatan"],
+    "kota":         ["masterKota","kota"],
+    "lurah":        ["namaLurah","masterLurah","lurah"],
+    "ketuaRw":      ["namaKetuaRw","masterKetuaRw","ketuaRw"],
+    "tahun":        ["masterTahun","tahunAnggaran","tahun"],
+  };
+
+  function autoFillFromData(){
+    try{
+      const d = (typeof data !== "undefined") ? data : null;
+      if(!d || !d.master) return;
+      const m = d.master;
+
+      Object.entries(FIELD_MAP).forEach(([key, ids]) => {
+        const val = m[key];
+        if(!val) return;
+        ids.forEach(id => {
+          const el = document.getElementById(id) || document.querySelector(`[name="${id}"]`);
+          if(el && !el.value) el.value = val;
+        });
+      });
+
+      /* Juga isi input form dengan fillInputs jika tersedia */
+      if(typeof fillInputs === "function") fillInputs();
+    }catch(e){}
+  }
+
+  /* Wrap previewDoc — auto-fill sebelum setiap generate */
+  const _origPD = window.previewDoc;
+  window.previewDoc = function(type){
+    autoFillFromData();
+    try{ if(typeof collectAll === "function") collectAll(); }catch(e){}
+    return _origPD ? _origPD.apply(this, arguments) : undefined;
+  };
+
+  /* Auto-fill saat halaman load */
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(autoFillFromData, 1000));
+  else
+    setTimeout(autoFillFromData, 1000);
+
+  console.log("[BOP v1.67] Auto-Fill Dokumen dari Data Master aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.64b — Guard: cegah fillInputs() loop di applyServerData
+════════════════════════════════════════════════════════════════ */
+(function bopSyncGuardV64b(){
+  if(window.__bopSyncGuardV64b) return;
+  window.__bopSyncGuardV64b = true;
+
+  /* Flag global yang diset saat kita sedang apply data dari server
+     — dipakai untuk mencegah schedulePush terpicu balik */
+  window.__bopApplyingServer = false;
+
+  /* Patch applyServerData v1.64 agar set flag sebelum fillInputs */
+  const _applyV64 = window.bopApplyServerDataV42;
+  window.bopApplyServerDataV42 = function(result){
+    window.__bopApplyingServer = true;
+    try{ _applyV64 && _applyV64(result); }finally{}
+    /* fillInputs + renders sudah dijalankan di v1.64,
+       reset flag setelah microtask selesai */
+    Promise.resolve().then(() => { window.__bopApplyingServer = false; });
+  };
+
+  /* Intercept schedulePush: batalkan jika sedang apply dari server */
+  const _origFetch = window.fetch;
+  if(typeof window.__bopSchedulePushPatched === "undefined"){
+    window.__bopSchedulePushPatched = true;
+    const origLS = localStorage.setItem.bind(localStorage);
+    Object.defineProperty(localStorage, "setItem", {
+      configurable: true, writable: true,
+      value: function(key, value){
+        origLS(key, value);
+        /* Jika sedang apply dari server, jangan push balik */
+        if(window.__bopApplyingServer && key && key.startsWith("bop_rt005_data")) return;
+        /* Biarkan schedulePush normal berjalan */
+      }
+    });
+  }
+
+  console.log("[BOP v1.64b] Sync guard: fillInputs loop dicegah aktif.");
+})();

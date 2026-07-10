@@ -9960,3 +9960,242 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.64b] Sync guard: fillInputs loop dicegah aktif.");
 })();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.68 — 5 Bug Fixes:
+   1. Pratinjau Langsung sudah disembunyikan di HTML
+   2+3. getMonthlyRapRows — gunakan monthsScheduledV19 + jadwalInternal
+   4. Document Studio Preview — baca dari editor (dsPage) bukan docOutput
+   5. previewDoc — tambahkan rbb, lpj, baPerubahanRap, tandaTerima, paket7pengajuan
+════════════════════════════════════════════════════════════════ */
+(function bopFix68(){
+  if(window.__bopFix68) return;
+  window.__bopFix68 = true;
+
+  var MO68=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026",
+            "Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 2+3: getMonthlyRapRows — pakai monthsScheduledV19 (jadwalInternal)
+     Root cause: getR58 (v1.58) abaikan jadwalInternal, selalu bagi rata
+     per bulan dalam range. Fix ini menggunakan monthsScheduledV19 sehingga
+     Pola Pelaksanaan (sekali/2bulan/3bulan/manual/dll) benar-benar berlaku.
+  ═══════════════════════════════════════════════════════════════ */
+  function getMonthlyRapRows68(month){
+    if(!month||MO68.indexOf(month)<0){
+      // Coba baca dari selector aktif
+      var sels=["v48RapBulanSel","monthlyDocMonth"];
+      for(var si=0;si<sels.length;si++){
+        var sel68=document.getElementById(sels[si]);
+        if(sel68&&sel68.value&&MO68.indexOf(sel68.value)>=0){ month=sel68.value; break; }
+      }
+      if(!month||MO68.indexOf(month)<0){
+        try{ var sm=window.data.pengajuan.selectedMonth; if(MO68.indexOf(sm)>=0) month=sm; }catch(e){}
+      }
+      if(!month||MO68.indexOf(month)<0) month=MO68[0];
+    }
+
+    var rap=[];
+    try{ rap=window.data.pengajuan.rap||[]; }catch(e){ return []; }
+    if(!Array.isArray(rap)){ try{ rap=Object.values(rap); }catch(e){ return []; } }
+
+    var rows=[];
+    rap.forEach(function(r,idx){
+      if(!r||!r.uraian) return;
+
+      /* Gunakan monthsScheduledV19 agar jadwalInternal dihormati */
+      var scheduled=[];
+      try{ scheduled=monthsScheduledV19(r)||[]; }catch(e){
+        /* Fallback minimal jika monthsScheduledV19 tidak tersedia */
+        var ci=MO68.indexOf(month);
+        var bM=r.bulanMulai||"",bS=r.bulanSelesai||"";
+        var si2=MO68.indexOf(bM),ei=MO68.indexOf(bS);
+        if(si2>=0&&ei>=0&&ci>=si2&&ci<=ei) scheduled=[month];
+        else if(!bM&&!bS) scheduled=MO68; // semua bulan
+      }
+      if(scheduled.indexOf(month)<0) return;
+
+      /* Hitung jumlah & qty untuk bulan ini */
+      var qty=0,jb=0;
+      try{ qty=monthlyQtyForRowV19(r,month)||0; }catch(e){
+        /* Fallback: total qty / jumlah bulan scheduled */
+        try{
+          var v18=parseVolumeV18(r.volume);
+          qty=scheduled.length>0?v18.qty/scheduled.length:0;
+        }catch(e2){ qty=0; }
+      }
+      try{ jb=monthlyAmountForRowV19(r,month)||0; }catch(e){
+        /* Fallback: total jumlah / scheduled count */
+        jb=scheduled.length>0?Math.round(Number(r.jumlah||0)/scheduled.length):0;
+      }
+      if(jb<=0) return;
+
+      /* Format volume bulanan */
+      var volBulanan=r.volume||"1 Paket";
+      try{
+        var v68=parseVolumeV18(r.volume);
+        if(qty>0) volBulanan=formatVolumeV18(qty,v68.unit);
+      }catch(e){}
+
+      rows.push({
+        uraian:r.uraian||"",
+        kategori:r.kategori||"Operasional",
+        subKategori:r.subKategori||"",
+        tipe:r.tipe||"",
+        volume:r.volume||"1 Paket",
+        volumeBulanan:volBulanan,
+        qtyBulanan:qty,
+        jumlah:Number(r.jumlah||0),
+        jumlahBulanan:jb,
+        keterangan:r.keterangan||"",
+        bulanMulai:r.bulanMulai||"",
+        bulanSelesai:r.bulanSelesai||"",
+        rentangBulan:(r.bulanMulai&&r.bulanSelesai)?r.bulanMulai+" s.d "+r.bulanSelesai:"",
+        sumber:(function(){ try{ return scheduleLabelV19(r); }catch(e){ return "Otomatis"; } })(),
+        annualIndex:idx
+      });
+    });
+    return rows;
+  }
+
+  window.getMonthlyRapRows = getMonthlyRapRows68;
+  window.monthlyTotal = function(m){ return getMonthlyRapRows68(m).reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0); };
+  console.log("[BOP v1.68-fix2] getMonthlyRapRows: jadwalInternal + Pola Pelaksanaan aktif.");
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 5: previewDoc — tambah rbb, lpj, baPerubahanRap, tandaTerima, paket7pengajuan
+     Root cause: docMapV37 tidak punya rbb & lpj → jatuh ke docPermohonan
+  ═══════════════════════════════════════════════════════════════ */
+  var _origPD68 = window.previewDoc;
+  window.previewDoc = function previewDoc68(type){
+    /* Lookup map lengkap — fallback ke docMapV37 + tambahan */
+    var extraMap={
+      rbb: function(){ try{ return docRbb(); }catch(e){ return "<p>docRbb belum tersedia.</p>"; } },
+      lpj: function(){ try{ return docLpj(); }catch(e){ return "<p>docLpj belum tersedia.</p>"; } },
+      baPerubahanRap: function(){
+        try{ return (window.docBeritaAcaraPerubahanV37||window.docBeritaAcaraPerubahanV36)(); }
+        catch(e){ return "<p>BA Perubahan RAP belum tersedia.</p>"; }
+      },
+      perubahanRap: function(){
+        try{ return (window.docPerubahanRapV37||window.docPerubahanRapV36)(); }
+        catch(e){ return "<p>Perubahan RAP belum tersedia.</p>"; }
+      },
+      tandaTerima: function(){
+        try{ return (window.docTandaTerimaPenyaluranV37||window.docTandaTerimaPenyaluranV36)(); }
+        catch(e){ return "<p>Tanda Terima belum tersedia.</p>"; }
+      },
+      paket7pengajuan: function(){
+        try{ return (window.docPaket7PengajuanV37||window.docPaket7PengajuanV36)(); }
+        catch(e){ return "<p>Paket 7 Dokumen belum tersedia.</p>"; }
+      }
+    };
+
+    /* Cek apakah tipe ini butuh extra handler */
+    if(extraMap[type]){
+      /* Auto-fill dulu */
+      try{ if(typeof fillInputs==="function") fillInputs(); }catch(e){}
+      try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+      /* Set currentDoc */
+      try{ currentDoc=type; }catch(e){ window.currentDoc=type; }
+      window.currentDoc=type;
+      /* Highlight tombol aktif */
+      document.querySelectorAll(".doc-btn").forEach(function(b){
+        b.classList.toggle("active",b.dataset&&b.dataset.doc===type);
+      });
+      /* Render ke docOutput */
+      var out=document.getElementById("docOutput");
+      if(out){
+        out.innerHTML=extraMap[type]();
+        out.classList.add("doc-paper");
+        /* Scroll ke output */
+        setTimeout(function(){ out.scrollIntoView({behavior:"smooth",block:"nearest"}); },200);
+      }
+      return;
+    }
+
+    /* Untuk tipe lainnya, pakai previewDoc original (v1.37/v1.67) */
+    if(_origPD68) return _origPD68.apply(this,arguments);
+    /* Fallback minimal */
+    var out2=document.getElementById("docOutput");
+    if(out2) out2.innerHTML="<p>Fungsi generate belum tersedia untuk tipe: "+String(type)+"</p>";
+  };
+  console.log("[BOP v1.68-fix5] previewDoc: rbb + lpj + baPerubahanRap + tandaTerima aktif.");
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 4: Document Studio Preview — baca dari editor dsPage
+     Root cause: Preview button membaca docOutput (HTML lama), bukan
+     konten editor yang sedang diedit user.
+  ═══════════════════════════════════════════════════════════════ */
+  function fixDsPreview(){
+    var previewBtn=document.getElementById("dsPreviewBtnV61");
+    var genBtn=document.getElementById("dsDocGenBtnV43");
+    if(!previewBtn && !genBtn){ setTimeout(fixDsPreview,800); return; }
+
+    function getEditorHtml(){
+      /* Prioritas 1: dsPage (contentEditable DS editor) */
+      var dsPage=document.getElementById("dsPage");
+      if(dsPage && dsPage.innerHTML && dsPage.innerHTML.trim().length>40)
+        return dsPage.innerHTML;
+      /* Prioritas 2: docOutput saat ini */
+      var docOut=document.getElementById("docOutput");
+      if(docOut){
+        if(docOut.__docHtml60 && docOut.__docHtml60.trim().length>40) return docOut.__docHtml60;
+        var tmp=document.createElement("div");
+        tmp.innerHTML=docOut.innerHTML;
+        var card=tmp.querySelector(".dm-card60"); if(card) card.remove();
+        return tmp.innerHTML;
+      }
+      return "";
+    }
+
+    function openEditorPreview(){
+      var html=getEditorHtml();
+      if(!html||html.trim().length<40){
+        if(typeof window.bopToast==="function") window.bopToast("Info","Generate dokumen terlebih dahulu.","info");
+        else alert("Generate dokumen terlebih dahulu sebelum preview.");
+        return;
+      }
+      if(typeof window.openDocModal==="function"){
+        var selEl=document.getElementById("dsDocSelectV43");
+        var label=(selEl&&selEl.options&&selEl.selectedIndex>=0)?
+          (selEl.options[selEl.selectedIndex].text||"Dokumen"):"Dokumen";
+        window.openDocModal(html,label,null);
+      } else {
+        /* Fallback: buka window baru */
+        var w=window.open("","_blank","width=800,height=900");
+        if(w) w.document.write("<!doctype html><html><head><meta charset='utf-8'><title>Preview</title><link rel='stylesheet' href='styles.css'></head><body><div class='doc-paper'>"+html+"</div></body></html>");
+      }
+    }
+
+    /* Ganti handler Preview button agar baca dari DS editor */
+    if(previewBtn){
+      previewBtn.onclick = openEditorPreview;
+    }
+
+    /* Tombol Print dari DS juga harus pakai konten editor */
+    var dsPrintBtn=document.getElementById("dsPrintDoc");
+    if(dsPrintBtn){
+      var _origPrint=dsPrintBtn.onclick;
+      dsPrintBtn.onclick=function(){
+        /* Sync konten dsPage ke docOutput agar print pakai versi terkini */
+        var dsPage=document.getElementById("dsPage");
+        var docOut=document.getElementById("docOutput");
+        if(dsPage&&docOut&&dsPage.innerHTML.trim().length>40){
+          docOut.__docHtml60=dsPage.innerHTML;
+        }
+        if(_origPrint) _origPrint.call(this);
+        else if(typeof window.cleanPrintV37==="function") window.cleanPrintV37("doc");
+        else window.print();
+      };
+    }
+    console.log("[BOP v1.68-fix4] DS Preview: baca dari dsPage editor aktif.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(fixDsPreview,1500); });
+  else
+    setTimeout(fixDsPreview,1500);
+
+  console.log("[BOP v1.68] 5 Bug Fixes aktif — Pratinjau Langsung disembunyikan, jadwalInternal fix, DS preview fix, docMap lengkap.");
+})();

@@ -10199,3 +10199,381 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.68] 5 Bug Fixes aktif — Pratinjau Langsung disembunyikan, jadwalInternal fix, DS preview fix, docMap lengkap.");
 })();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.69 — Fix Teliti dan Rapi:
+   1. docRbb()       → pakai getMonthlyRapRows (jadwalInternal-aware)
+   2. docRapBulanan  → tampilkan volumeBulanan (bukan volume tahunan)
+   3. previewDoc map → semua tipe dokumen dipetakan dengan benar
+   4. docPkNotulen   → engine lengkap A-J setara docNotulen pengajuan
+════════════════════════════════════════════════════════════════ */
+(function bopFix69(){
+  if(window.__bopFix69) return;
+  window.__bopFix69 = true;
+
+  /* ── Helpers internal ──────────────────────────────────────── */
+  function s69(v, fb){ return String(v||"").trim() || (fb||"........................................"); }
+  function rp69(n){ try{ return rupiah(Number(n||0)); }catch(e){ return "Rp"+(Number(n||0)).toLocaleString("id-ID"); } }
+  function esc69(v){ try{ return esc(v); }catch(e){ return String(v||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); } }
+  function tgl69(){ try{ return todaySemarangV18(); }catch(e){ return "Semarang, "+new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"long",year:"numeric"}); } }
+  function kop69(){ try{ return official(""); }catch(e){ return ""; } }
+  function off69(body){ try{ return official(body); }catch(e){ return '<div class="official">'+body+'</div>'; } }
+  function getMon69(){
+    var sels=["v48RapBulanSel","monthlyDocMonth"];
+    for(var si=0;si<sels.length;si++){
+      var el=document.getElementById(sels[si]);
+      if(el&&el.value) return el.value;
+    }
+    try{ return window.data.pengajuan.selectedMonth||"Januari 2026"; }catch(e){ return "Januari 2026"; }
+  }
+  function getM69(){ try{ return window.data.master||{}; }catch(e){ return {}; } }
+  function getP69(){ try{ return window.data.pengajuan||{}; }catch(e){ return {}; } }
+  function getRows69(month){
+    try{ return (typeof getMonthlyRapRows==="function"?getMonthlyRapRows(month):[])||[]; }catch(e){ return []; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 1: docRbb — RBB = Rencana Belanja Bulanan
+     Pakai getMonthlyRapRows (jadwalInternal + pola pelaksanaan),
+     bukan getMonthlyFlattenedRows yang butuh breakdown data.
+  ══════════════════════════════════════════════════════════════ */
+  window.docRbb = function docRbb69(){
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+    var month=getMon69();
+    var m=getM69(), p=getP69();
+    var rows=getRows69(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+
+    var tbody=rows.length
+      ? rows.map(function(r,i){
+          return '<tr>'+
+            '<td class="col-no-v37">'+(i+1)+'</td>'+
+            '<td>'+esc69(r.uraian||"")+'<br><small style="color:#666">'+esc69(r.kategori||"")+(r.subKategori?' &bull; '+esc69(r.subKategori):'')+'</small></td>'+
+            '<td style="text-align:center">'+esc69(r.volumeBulanan||r.volume||"")+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+rp69(r.jumlahBulanan)+'</td>'+
+            '<td>'+esc69(r.keterangan||"")+'</td>'+
+          '</tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">Belum ada kegiatan terjadwal untuk bulan '+esc69(month)+'.</td></tr>';
+
+    var body=
+      '<div class="title">RENCANA BELANJA BULANAN (RBB)<br>BANTUAN OPERASIONAL RT<br>BULAN '+esc69(month).toUpperCase()+'</div>'+
+      '<table class="no-border" style="margin-bottom:8px">'+
+        '<tr><td style="width:160px">Nama Lembaga</td><td>: RT '+esc69(m.rt||"005")+' RW '+esc69(m.rw||"012")+'</td></tr>'+
+        '<tr><td>Kelurahan</td><td>: '+esc69(m.kelurahan||"Tegalsari")+'</td></tr>'+
+        '<tr><td>Kecamatan</td><td>: '+esc69(m.kecamatan||"Candisari")+'</td></tr>'+
+        '<tr><td>Untuk Kegiatan Bulan</td><td>: <b>'+esc69(month)+'</b></td></tr>'+
+      '</table>'+
+      '<table><thead><tr>'+
+        '<th class="col-no-v37">No.</th>'+
+        '<th>Uraian Kegiatan</th>'+
+        '<th style="width:110px;text-align:center">Satuan/Volume</th>'+
+        '<th style="width:110px;text-align:right">Anggaran</th>'+
+        '<th>Keterangan</th>'+
+      '</tr></thead><tbody>'+
+        tbody+
+        '<tr><td colspan="3"><b>Jumlah</b></td>'+
+        '<td style="text-align:right;white-space:nowrap"><b>'+rp69(total)+'</b></td>'+
+        '<td></td></tr>'+
+      '</tbody></table>'+
+      '<p>Terbilang: <i>'+(function(){ try{ return terbilang(total).replace(/\s+/g," "); }catch(e){ return "......"; } }())+'</i> Rupiah</p>'+
+      '<p style="text-align:right;margin-top:20px">'+tgl69()+'</p>'+
+      '<div class="ttd-3">'+
+        '<div>Yang Mengambil<br>Ketua RT '+esc69(m.rt||"005")+' RW '+esc69(m.rw||"012")+'<div class="signature-space"></div>'+s69(m.ketua,"Nama Jelas")+'</div>'+
+        '<div>Bendahara RT '+esc69(m.rt||"005")+'<div class="signature-space"></div>'+s69(m.bendahara,"Nama Jelas")+'</div>'+
+        '<div>Mengetahui<br>Lurah '+esc69(m.kelurahan||"Tegalsari")+'<div class="signature-space"></div>'+s69(p.namaLurah,"Nama Jelas")+'</div>'+
+      '</div>';
+
+    return off69(body);
+  };
+  console.log("[BOP v1.69-fix1] docRbb: pakai getMonthlyRapRows + jadwalInternal aktif.");
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 2: docRapBulanan — tampilkan volumeBulanan (per-bulan),
+     bukan volume tahunan. Gunakan getMonthlyRapRows yang sudah
+     aware dengan jadwalInternal / pola pelaksanaan.
+  ══════════════════════════════════════════════════════════════ */
+  window.docRapBulanan = function docRapBulanan69(){
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+    var month=getMon69();
+    try{ if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month; }catch(e){}
+    var m=getM69(), p=getP69();
+    var rows=getRows69(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+
+    var tbody=rows.length
+      ? rows.map(function(r,i){
+          var kat=esc69(r.kategori||"Operasional");
+          var sub=r.subKategori?" &bull; "+esc69(r.subKategori):"";
+          var pola=(function(){ try{ return " | "+scheduleLabelV19(r); }catch(e){ return ""; } }());
+          /* Tampilkan volumeBulanan (per-bulan), bukan volume tahunan */
+          var volBulanan=r.volumeBulanan||r.volume||"1 Paket";
+          return '<tr>'+
+            '<td class="col-no-v37">'+(i+1)+'</td>'+
+            '<td>'+esc69(r.uraian||"")+'<br><small style="color:#666">'+kat+sub+pola+'</small></td>'+
+            '<td style="text-align:center">'+esc69(volBulanan)+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+rp69(r.jumlahBulanan)+'</td>'+
+            '<td>'+esc69(r.keterangan||"")+'</td>'+
+          '</tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">Belum ada kegiatan terjadwal untuk bulan '+esc69(month)+'. Atur Jadwal Internal pada RAP 1 Tahun.</td></tr>';
+
+    var body=
+      '<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN '+esc69(month).toUpperCase()+'</div>'+
+      '<table><thead><tr>'+
+        '<th class="col-no-v37">No</th>'+
+        '<th>Uraian Kegiatan</th>'+
+        '<th style="width:110px;text-align:center">Satuan/Volume Bulanan</th>'+
+        '<th style="width:110px;text-align:right">Rencana Anggaran</th>'+
+        '<th>Keterangan</th>'+
+      '</tr></thead><tbody>'+
+        tbody+
+        '<tr><td colspan="3"><b>Jumlah RAP Bulanan</b></td>'+
+        '<td style="text-align:right;white-space:nowrap"><b>'+rp69(total)+'</b></td>'+
+        '<td></td></tr>'+
+      '</tbody></table>'+
+      '<p style="text-align:right;margin-top:20px">'+tgl69()+'</p>'+
+      '<div class="ttd-4">'+
+        '<div>Ketua RT '+esc69(m.rt||"005")+'<div class="signature-space"></div>'+s69(m.ketua,"Nama Jelas")+'</div>'+
+        '<div>Bendahara RT '+esc69(m.rt||"005")+'<div class="signature-space"></div>'+s69(m.bendahara,"Nama Jelas")+'</div>'+
+        '<div>Lurah '+esc69(m.kelurahan||"Tegalsari")+'<div class="signature-space"></div>'+s69(p.namaLurah,"Nama Jelas")+'</div>'+
+        '<div>Ketua RW '+esc69(m.rw||"012")+'<div class="signature-space"></div>'+s69(p.namaKetuaRw,"Nama Jelas")+'</div>'+
+      '</div>';
+
+    return off69(body);
+  };
+  console.log("[BOP v1.69-fix2] docRapBulanan: volumeBulanan + jadwalInternal aktif.");
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 3: previewDoc — map lengkap & benar semua tipe
+     Ganti wrapper v1.68 dengan implementasi definitif.
+  ══════════════════════════════════════════════════════════════ */
+  window.previewDoc = function previewDoc69(type){
+    /* Auto-fill & collect sebelum generate */
+    try{ if(typeof fillInputs==="function") fillInputs(); }catch(e){}
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+
+    /* Set currentDoc */
+    try{ currentDoc=type; }catch(e){}
+    window.currentDoc=type;
+
+    /* Highlight tombol aktif */
+    document.querySelectorAll(".doc-btn").forEach(function(b){
+      b.classList.toggle("active", b.dataset&&b.dataset.doc===type);
+    });
+
+    /* Map lengkap semua tipe dokumen */
+    function getDocFn(t){
+      switch(t){
+        /* ── Pengajuan Dana Operasional ── */
+        case "permohonan":    return window.docPermohonan  || (function(){ try{return docPermohonan();}catch(e){return "";} });
+        case "rap":           return window.docRap         || (function(){ try{return docRap();}catch(e){return "";} });
+        case "rapbulanan":    return window.docRapBulanan  || (function(){ try{return docRapBulanan();}catch(e){return "";} });
+        case "ba":            return window.docBA          || (function(){ try{return docBA();}catch(e){return "";} });
+        case "hadir":         return window.docHadir       || (function(){ try{return docHadir();}catch(e){return "";} });
+        case "sptjm":         return window.docSptjm       || (function(){ try{return docSptjm();}catch(e){return "";} });
+        case "sk":            return window.docSK          || (function(){ try{return docSK();}catch(e){return "";} });
+        case "rekening":      return window.docRekening    || (function(){ try{return docRekening();}catch(e){return "";} });
+        case "undangan":      return window.docUndangan    || (function(){ try{return docUndangan();}catch(e){return "";} });
+        case "notulen":       return window.docNotulen     || (function(){ try{return docNotulen();}catch(e){return "";} });
+        /* ── Tambahan Pengajuan ── */
+        case "rbb":           return window.docRbb;          /* Fixed above */
+        case "lpj":           return function(){ try{ return docLpj(); }catch(e){ return "<p>Belum ada data LPJ.</p>"; } };
+        case "perubahanRap":  return window.docPerubahanRapV37 || window.docPerubahanRapV36
+                                     || (function(){ try{return docPerubahanRap();}catch(e){return "";} });
+        case "baPerubahanRap":return window.docBeritaAcaraPerubahanV37 || window.docBeritaAcaraPerubahanV36
+                                     || (function(){ try{return docBeritaAcaraPerubahan();}catch(e){return "";} });
+        case "tandaTerima":   return window.docTandaTerimaPenyaluranV37 || window.docTandaTerimaPenyaluranV36
+                                     || (function(){ try{return docTandaTerimaPenyaluran();}catch(e){return "";} });
+        case "paket7pengajuan":return window.docPaket7PengajuanV37 || window.docPaket7PengajuanV36
+                                     || (function(){ try{return docPaket7Pengajuan();}catch(e){return "";} });
+        /* ── Default ── */
+        default: return window.docPermohonan || (function(){ try{return docPermohonan();}catch(e){return "";} });
+      }
+    }
+
+    var fn=getDocFn(type);
+    var html="";
+    try{ html=typeof fn==="function"?fn():(fn&&typeof fn.call==="function"?fn.call(null):""); }catch(e){ html="<p>Gagal generate dokumen: "+e.message+"</p>"; }
+
+    var out=document.getElementById("docOutput");
+    if(out){
+      out.innerHTML=html;
+      out.classList.add("doc-paper");
+      setTimeout(function(){ out.scrollIntoView({behavior:"smooth",block:"nearest"}); },200);
+    }
+  };
+  console.log("[BOP v1.69-fix3] previewDoc69: map lengkap semua tipe aktif.");
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 4: docPkNotulen — Engine A-J setara docNotulen Pengajuan
+     Menghasilkan notulen resmi lengkap dari data persiapan kegiatan.
+  ══════════════════════════════════════════════════════════════ */
+  window.docPkNotulen = function docPkNotulen69(){
+    try{ if(typeof collectPersiapan==="function") collectPersiapan(); }catch(e){}
+    var m=getM69();
+    var p={};
+    try{ p=window.data.persiapan||{}; }catch(e){}
+
+    var rt=m.rt||"005", rw=m.rw||"012";
+    var kel=m.kelurahan||"Tegalsari", kec=m.kecamatan||"Candisari", kota=m.kota||"Semarang";
+    var ketua=m.ketua||"Ketua RT";
+    var sekretaris=m.sekretaris||m.bendahara||"Sekretaris RT";
+    var pimpinan=p.pimpinan||ketua;
+    var notulis=p.notulis||sekretaris;
+    var namaKegiatan=p.nama||"Kegiatan Operasional RT";
+    var jenisKegiatan=p.jenis||"Kegiatan Operasional";
+    var hariTanggal=p.hariTanggal||"........................ 2026";
+    var waktu=(p.waktu||"Pukul .......... s.d. .......... WIB");
+    var tempat=p.tempat||("Balai RT "+rt+" RW "+rw);
+    var hadir=Number(p.hadir||0)||14;
+    var tdkHadir=Number(p.tidakHadir||0);
+    var agendaRaw=p.agenda||namaKegiatan;
+    var pembahasanRaw=p.pembahasan||agendaRaw;
+    var keputusanRaw=p.keputusan||"";
+    var tgl=tgl69();
+
+    /* Helper buat poin dari teks */
+    function poin(teks, fallback){
+      try{ return pointsHtmlV25(textToPointsV25(teks, fallback)); }
+      catch(e){
+        var pts=String(teks||fallback||"").split(/\n|;/).map(function(x){ return x.trim(); }).filter(Boolean);
+        if(!pts.length) pts=[String(fallback||"")];
+        return '<ol class="notulen-list-v25">'+pts.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>';
+      }
+    }
+
+    /* Identifikasi masalah kontekstual */
+    var masalah=[
+      "Perlunya pelaksanaan "+jenisKegiatan.toLowerCase()+" "+namaKegiatan+" secara tertib dan terencana.",
+      "Perlunya pembahasan agenda, mekanisme pelaksanaan, dan pembagian tugas peserta.",
+      "Perlunya kelengkapan administrasi dan dokumentasi kegiatan sebagai bukti pertanggungjawaban BOP RT.",
+      "Perlunya penentuan rencana tindak lanjut agar hasil kegiatan dapat diimplementasikan secara efektif."
+    ];
+    var tujuan=[
+      "Melaksanakan dan mendokumentasikan "+namaKegiatan+" secara resmi.",
+      "Membahas agenda dan mekanisme pelaksanaan kegiatan bersama seluruh peserta.",
+      "Menyepakati hasil keputusan rapat sebagai dasar pelaksanaan tindak lanjut.",
+      "Melengkapi administrasi dan dokumentasi kegiatan untuk keperluan pertanggungjawaban BOP RT."
+    ];
+    var keputusan=[
+      namaKegiatan+" dilaksanakan sesuai agenda yang telah disepakati bersama.",
+      "Seluruh peserta berkomitmen untuk melaksanakan keputusan rapat secara konsisten dan bertanggung jawab.",
+      "Dokumentasi dan administrasi kegiatan disiapkan sebagai kelengkapan laporan pertanggungjawaban BOP RT.",
+      "Rencana tindak lanjut dilaksanakan sesuai jadwal dan PIC yang telah ditetapkan."
+    ];
+    if(keputusanRaw.trim()){
+      try{
+        var pts=textToPointsV25(keputusanRaw,"");
+        if(pts.length>0) keputusan=pts.concat(keputusan.slice(pts.length));
+      }catch(e){}
+    }
+
+    /* Tindak lanjut dari action table */
+    var actionRows=(Array.isArray(p.action)?p.action:[]).map(function(r,i){
+      var a=Array.isArray(r)?{tugas:r[0]||"",waktu:r[1]||"",pic:r[2]||""}:{tugas:r.tugas||r[0]||"",waktu:r.waktu||r[1]||"",pic:r.pic||r[2]||""};
+      return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc69(a.tugas)+'</td><td>'+esc69(a.waktu)+'</td><td>'+esc69(a.pic)+'</td></tr>';
+    }).join("") || '<tr><td>1</td><td></td><td></td><td></td></tr>';
+
+    /* Peserta hadir */
+    var pesertaRows=(Array.isArray(p.peserta)?p.peserta:[])
+      .filter(function(r){ return Array.isArray(r)?(r[0]||r[1]):(r&&(r.nama||r.jabatan)); })
+      .map(function(r,i){
+        if(Array.isArray(r)) return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc69(r[0])+'</td><td>'+esc69(r[1])+'</td><td>'+(i+1)+'.</td></tr>';
+        return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc69(r.nama||"")+'</td><td>'+esc69(r.jabatan||"")+'</td><td>'+(i+1)+'.</td></tr>';
+      }).join("");
+
+    var body='<div class="notulen-doc-v28">'+
+
+      /* Judul */
+      '<div class="title">NOTULEN KEGIATAN OPERASIONAL<br>'+
+      esc69(namaKegiatan).toUpperCase()+'<br>'+
+      'RT '+esc69(rt)+' RW '+esc69(rw)+' KELURAHAN '+esc69(kel).toUpperCase()+'<br>'+
+      'KECAMATAN '+esc69(kec).toUpperCase()+' KOTA '+esc69(kota).toUpperCase()+'</div>'+
+
+      /* A. Identitas Kegiatan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>A. IDENTITAS KEGIATAN</b></div>'+
+      '<table class="no-border notulen-meta-v25 notulen-meta-v28">'+
+        '<tr><td style="width:175px"><b>Jenis Kegiatan</b></td><td>: '+esc69(jenisKegiatan)+'</td></tr>'+
+        '<tr><td><b>Nama / Tema Kegiatan</b></td><td>: <b>'+esc69(namaKegiatan)+'</b></td></tr>'+
+        '<tr><td><b>Hari / Tanggal</b></td><td>: '+esc69(hariTanggal)+'</td></tr>'+
+        '<tr><td><b>Waktu</b></td><td>: '+esc69(waktu)+'</td></tr>'+
+        '<tr><td><b>Tempat</b></td><td>: '+esc69(tempat)+'</td></tr>'+
+        '<tr><td><b>Pimpinan Kegiatan</b></td><td>: '+esc69(pimpinan)+'</td></tr>'+
+        '<tr><td><b>Jabatan</b></td><td>: Ketua RT '+esc69(rt)+' RW '+esc69(rw)+'</td></tr>'+
+        '<tr><td><b>Notulis</b></td><td>: '+esc69(notulis)+'</td></tr>'+
+        '<tr><td><b>Jumlah Peserta</b></td><td>: '+hadir+' orang hadir'+(tdkHadir>0?', '+tdkHadir+' orang tidak hadir':'')+'</td></tr>'+
+        '<tr><td><b>Unsur Peserta</b></td><td>: Ketua RT, Sekretaris RT, Bendahara RT, Pengurus RT, dan Warga RT '+esc69(rt)+' RW '+esc69(rw)+'</td></tr>'+
+      '</table>'+
+
+      /* B. Latar Belakang */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>B. LATAR BELAKANG</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Dalam rangka mendukung kelancaran kegiatan kemasyarakatan dan pelayanan administrasi di wilayah RT '+esc69(rt)+' RW '+esc69(rw)+' Kelurahan '+esc69(kel)+', Kecamatan '+esc69(kec)+', Kota '+esc69(kota)+', perlu dilaksanakan kegiatan operasional yang terencana, terdokumentasi, dan dapat dipertanggungjawabkan.</p>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Sehubungan dengan hal tersebut, dilaksanakan kegiatan <b>'+esc69(namaKegiatan)+'</b> sebagai bagian dari pelaksanaan program BOP RT Tahun 2026. Kegiatan ini diselenggarakan secara musyawarah agar agenda, mekanisme pelaksanaan, dan rencana tindak lanjut dapat disepakati bersama.</p>'+
+
+      /* C. Identifikasi Masalah */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>C. IDENTIFIKASI MASALAH</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Berdasarkan kebutuhan pelaksanaan kegiatan, terdapat beberapa hal pokok yang perlu dibahas, yaitu:</p>'+
+      '<ol class="notulen-list-v25">'+masalah.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>'+
+
+      /* D. Tujuan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>D. TUJUAN KEGIATAN</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Kegiatan ini dilaksanakan dengan tujuan:</p>'+
+      '<ol class="notulen-list-v25">'+tujuan.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>'+
+
+      /* E. Agenda */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. AGENDA KEGIATAN</b></div>'+
+      poin(agendaRaw, namaKegiatan)+
+
+      /* F. Pokok Pembahasan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>F. POKOK PEMBAHASAN</b></div>'+
+      poin(pembahasanRaw, agendaRaw)+
+
+      /* G. Hasil Keputusan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>G. HASIL KEPUTUSAN KEGIATAN</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Berdasarkan pembahasan dan musyawarah, disepakati hal-hal sebagai berikut:</p>'+
+      '<ol class="notulen-list-v25">'+keputusan.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>'+
+
+      /* H. Rencana Tindak Lanjut */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>H. RENCANA TINDAK LANJUT</b></div>'+
+      '<table><thead><tr><th class="col-no-v37">No</th><th>Tugas / Tindak Lanjut</th><th>Target Waktu</th><th>PIC</th></tr></thead><tbody>'+actionRows+'</tbody></table>'+
+
+      /* I. Daftar Peserta (jika ada) */
+      (pesertaRows?
+        '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>I. DAFTAR PESERTA</b></div>'+
+        '<table><thead><tr><th class="col-no-v37">No.</th><th>Nama</th><th>Jabatan / Status</th><th>Tanda Tangan</th></tr></thead><tbody>'+pesertaRows+'</tbody></table>'
+      :'')+
+
+      /* J. Penutup */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>'+(pesertaRows?"J":"I")+'. PENUTUP</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Demikian notulen kegiatan operasional ini dibuat dengan sebenar-benarnya sebagai dokumen resmi hasil musyawarah RT '+esc69(rt)+' RW '+esc69(rw)+' Kelurahan '+esc69(kel)+', Kecamatan '+esc69(kec)+', Kota '+esc69(kota)+'. Notulen ini digunakan sebagai salah satu kelengkapan administrasi dan pertanggungjawaban BOP RT Tahun Anggaran 2026.</p>'+
+
+      /* Tanggal & TTD */
+      '<p class="notulen-date-v28">'+tgl+'</p>'+
+      '<table class="no-border sign-two-v37" style="margin-top:10px"><tbody><tr>'+
+        '<td style="text-align:center">Mengetahui,<br>Pimpinan Kegiatan<br>Ketua RT '+esc69(rt)+' RW '+esc69(rw)+'<div class="signature-space"></div><b>'+esc69(pimpinan)+'</b></td>'+
+        '<td style="text-align:center">Notulis,<br>&nbsp;<br>&nbsp;<div class="signature-space"></div><b>'+esc69(notulis)+'</b></td>'+
+      '</tr></tbody></table>'+
+    '</div>';
+
+    return off69(body);
+  };
+  /* Override global + previewPkDoc map */
+  if(typeof previewPkDoc==="function"){
+    var _origPPD=previewPkDoc;
+    window.previewPkDoc=function(type){
+      if(type==="pk-notulen"||!type){
+        try{ if(typeof collectPersiapan==="function") collectPersiapan(); }catch(e){}
+        window.currentPkDoc=type||"pk-notulen";
+        var el=document.getElementById("pkDocOutput");
+        if(el) el.innerHTML=window.docPkNotulen();
+        return;
+      }
+      _origPPD.apply(this,arguments);
+    };
+  }
+  console.log("[BOP v1.69-fix4] docPkNotulen: engine A-J lengkap setara pengajuan aktif.");
+
+  console.log("[BOP v1.69] Semua 4 fix selesai: RBB, RAB Bulanan, previewDoc map, Notulen PK.");
+})();

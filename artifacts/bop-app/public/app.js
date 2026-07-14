@@ -246,15 +246,26 @@ function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw|
 
 function kopHTML(){
   const k=data.kop;
-  return `<div class="kop" style="display:block!important;position:relative!important;width:100%!important;min-height:78px!important;text-align:center!important;border-bottom:3px double #000!important;padding:4px 0 8px 0!important;margin:0 0 10px 0!important;box-sizing:border-box!important;">
-    <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" style="position:absolute!important;left:0!important;top:50%!important;transform:translateY(-50%)!important;width:58px!important;max-width:58px!important;max-height:70px!important;height:auto!important;object-fit:contain!important;display:block!important;" alt="Logo Kota Semarang">
-    <div class="kop-text" style="display:block!important;width:100%!important;box-sizing:border-box!important;text-align:center!important;padding:0 76px!important;line-height:1.15!important;">
-      <h1 style="margin:0!important;padding:0!important;text-align:center!important;font-size:16pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris1}</h1>
-      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris2}</h2>
-      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris3}</h2>
-      <h2 style="margin:1px 0!important;padding:0!important;text-align:center!important;font-size:13.5pt!important;line-height:1.05!important;text-transform:uppercase!important;white-space:normal!important;">${k.baris4}</h2>
-      <p style="margin:4px 0 0 0!important;padding:0!important;text-align:center!important;font-size:9.5pt!important;line-height:1.05!important;">${k.alamat||data.master.alamat||""}</p>
-    </div>
+  /* Gunakan layout tabel kop-standard agar logo tetap di kiri
+     dan teks selalu center — baik di layar maupun saat cetak/PDF */
+  return `<div class="kop kop-standard">
+    <table class="kop-table">
+      <tr>
+        <td class="kop-col-logo">
+          <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang">
+        </td>
+        <td class="kop-col-text">
+          <div class="kop-text">
+            <h1>${k.baris1}</h1>
+            <h2>${k.baris2}</h2>
+            <h2>${k.baris3}</h2>
+            <h2>${k.baris4}</h2>
+            <p>${k.alamat||data.master.alamat||""}</p>
+          </div>
+        </td>
+        <td class="kop-col-spacer"></td>
+      </tr>
+    </table>
   </div>`;
 }
 
@@ -5889,3 +5900,196 @@ function printCssV22(){
   setTimeout(expose, 800);
 })();
 
+/* ================================================================
+   PATCH v1.31 - AI Engine Notulen Kegiatan Baku + KOP kop-standard
+   Menyamakan engine notulen Persiapan Kegiatan dengan Pengajuan Dana
+   Operasional: Masalah → Tujuan → Pembahasan → Keputusan → Tindak Lanjut
+   ================================================================ */
+
+/* ── Helper reasoning kegiatan ──────────────────────────────── */
+function identifikasiMasalahPkV31(p){
+  const nama=p.nama||p.jenis||"kegiatan operasional";
+  return [
+    `Perlunya pelaksanaan ${nama} secara tertib, transparan, dan terdokumentasi sesuai ketentuan administrasi RT.`,
+    "Perlunya penyusunan agenda kegiatan agar pelaksanaan berjalan sesuai tujuan dan kebutuhan warga.",
+    "Perlunya pembagian tugas yang jelas antara Ketua RT, Sekretaris RT, Bendahara RT, dan pengurus dalam pelaksanaan kegiatan.",
+    "Perlunya kelengkapan dokumen administrasi (notulen, daftar hadir, dokumentasi, kuitansi) sebagai bukti pertanggungjawaban.",
+    "Perlunya mekanisme pelaporan dan dokumentasi agar administrasi pertanggungjawaban dapat diselesaikan dengan baik."
+  ];
+}
+function tujuanKegiatanPkV31(p){
+  const nama=p.nama||p.jenis||"kegiatan operasional";
+  return [
+    `Melaksanakan ${nama} secara tertib dan sesuai rencana yang telah ditetapkan.`,
+    "Menyepakati agenda kegiatan dan mekanisme pelaksanaan secara bersama.",
+    "Menetapkan pembagian tugas antara Ketua RT, Sekretaris RT, Bendahara RT, dan pengurus.",
+    "Menyiapkan kelengkapan dokumen administrasi dan pertanggungjawaban kegiatan.",
+    "Mendokumentasikan seluruh proses kegiatan sebagai bukti administrasi dan laporan pertanggungjawaban."
+  ];
+}
+function keputusanPkV31(p){
+  const nama=p.nama||p.jenis||"kegiatan operasional";
+  return [
+    `Menyetujui pelaksanaan ${nama} sesuai agenda dan rencana yang telah ditetapkan.`,
+    "Menyetujui mekanisme pelaksanaan kegiatan yang tertib, transparan, dan dapat dipertanggungjawabkan.",
+    "Menyetujui pembagian tugas antara Ketua RT, Sekretaris RT, Bendahara RT, dan pengurus.",
+    "Menyetujui kelengkapan dokumen administrasi sebagai bukti pelaksanaan dan pertanggungjawaban kegiatan.",
+    "Menyetujui penyusunan laporan pertanggungjawaban setelah kegiatan selesai dilaksanakan."
+  ];
+}
+function tindakLanjutPkV31(p){
+  const nama=p.nama||p.jenis||"kegiatan operasional";
+  if(p.action && p.action.length>=3) return p.action;
+  return [
+    [`Melaksanakan ${nama} sesuai rencana.`,"Sesuai jadwal","Ketua RT"],
+    ["Menyiapkan daftar hadir, notulen, dan dokumentasi kegiatan.","Selama kegiatan","Sekretaris RT"],
+    ["Menyiapkan kuitansi dan bukti pengeluaran kegiatan.","Setelah kegiatan","Bendahara RT"],
+    ["Melengkapi administrasi dan laporan pertanggungjawaban.","Setelah kegiatan selesai","Sekretaris RT"],
+    ["Mengajukan laporan kepada Pemerintah Kota Semarang.","Setelah dokumen lengkap","Ketua RT / Sekretaris RT"]
+  ];
+}
+
+/* ── Isi Default RT 005 untuk kegiatan ──────────────────────── */
+function aiIsiDefaultNotulenPkV31(){
+  collectPersiapan();
+  const m=data.master, p=data.persiapan;
+  if(!m.ketua) m.ketua="Bapak Karsimin";
+  if(!m.rt) m.rt="005"; if(!m.rw) m.rw="012";
+  if(!m.kelurahan) m.kelurahan="Tegalsari"; if(!m.kecamatan) m.kecamatan="Candisari"; if(!m.kota) m.kota="Semarang";
+  if(!p.pimpinan) p.pimpinan=m.ketua;
+  if(!p.notulis) p.notulis=m.sekretaris||"........................................";
+  if(!Number(p.hadir||0)) p.hadir=14;
+  if(!p.agenda) p.agenda="Persiapan dan pelaksanaan kegiatan operasional RT, pembahasan rencana kerja, pembagian tugas, dan penyusunan laporan pertanggungjawaban.";
+  p.action=tindakLanjutPkV31({...p, action:[]});
+  localStorage.setItem(STORE,JSON.stringify(data));
+  fillPersiapan(); previewPkDoc("pk-notulen");
+  if(typeof notifyChangeV19==="function") notifyChangeV19("Default RT 005 diterapkan","Data dasar notulen kegiatan RT 005 sudah diisi dan siap dipreview.","success");
+}
+
+/* ── Buat Notulen Baku dari Data Mentah (Reasoning Engine) ─── */
+function aiBuatNotulenPkReasoningV31(){
+  collectPersiapan();
+  const m=data.master, p=data.persiapan;
+  if(!p.pimpinan) p.pimpinan=m.ketua||"Bapak Karsimin";
+  if(!p.notulis) p.notulis=m.sekretaris||"";
+  if(!Number(p.hadir||0)) p.hadir=14;
+  const nama=p.nama||p.jenis||"kegiatan operasional";
+  const rt=m.rt||"005", rw=m.rw||"012", kel=m.kelurahan||"Tegalsari";
+  p.pembahasan=[
+    `Rapat membahas rencana pelaksanaan ${nama} di wilayah RT ${rt} RW ${rw} Kelurahan ${kel}.`,
+    "Rapat membahas kesiapan dokumen administrasi dan kelengkapan berkas untuk pertanggungjawaban kegiatan.",
+    "Rapat membahas pembagian tugas antara Ketua RT, Sekretaris RT, Bendahara RT, dan pengurus.",
+    "Rapat membahas mekanisme dokumentasi dan pelaporan kegiatan agar tertib dan dapat dipertanggungjawabkan.",
+    "Rapat membahas kelengkapan administrasi: notulen, daftar hadir, kuitansi, dan dokumentasi kegiatan."
+  ].join("\n");
+  p.keputusan=keputusanPkV31(p).join("\n");
+  p.action=tindakLanjutPkV31({...p, action:[]});
+  localStorage.setItem(STORE,JSON.stringify(data));
+  fillPersiapan(); previewPkDoc("pk-notulen");
+  if(typeof notifyChangeV19==="function") notifyChangeV19("AI Reasoning Notulen Kegiatan selesai","Notulen kegiatan resmi baku telah dibuat dengan alur Masalah → Tujuan → Pembahasan → Keputusan → Tindak Lanjut.","success");
+}
+
+/* ── docPkNotulen override — struktur A–J sama dengan Pengajuan */
+function docPkNotulen(){
+  const m=data.master, p=data.persiapan;
+  const nama=p.nama||p.jenis||"Kegiatan Operasional";
+  const jenisKeg=p.jenis||"Kegiatan Operasional";
+  const hariTanggal=p.hariTanggal||"........................................";
+  const waktu=p.waktu||"........................................";
+  const pimpinan=p.pimpinan||m.ketua||"........................................";
+  const notulis=p.notulis||m.sekretaris||"........................................";
+  const rt=m.rt||"005", rw=m.rw||"012", kel=m.kelurahan||"Tegalsari";
+  const kec=m.kecamatan||"Candisari", kota=m.kota||"Semarang";
+  const unsur=`Ketua RT, Sekretaris RT, Bendahara RT, Pengurus RT, dan Warga RT ${esc(rt)} RW ${esc(rw)}`;
+  return official(`<div class="notulen-doc-v28">
+  <div class="title">NOTULEN KEGIATAN OPERASIONAL<br>${esc(nama.toUpperCase())}<br>RT ${esc(rt)} RW ${esc(rw)} KELURAHAN ${esc(kel.toUpperCase())}<br>KECAMATAN ${esc(kec.toUpperCase())} KOTA ${esc(kota.toUpperCase())}</div>
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>A. IDENTITAS KEGIATAN</b></div>
+  <table class="no-border notulen-meta-v25 notulen-meta-v28">
+    <tr><td style="width:175px"><b>Jenis Kegiatan</b></td><td>: ${esc(jenisKeg)}</td></tr>
+    <tr><td><b>Nama Kegiatan</b></td><td>: ${esc(nama)}</td></tr>
+    <tr><td><b>Hari/Tanggal</b></td><td>: ${esc(hariTanggal)}</td></tr>
+    <tr><td><b>Waktu</b></td><td>: ${esc(waktu)}</td></tr>
+    <tr><td><b>Tempat</b></td><td>: ${esc(p.tempat||"........................................")}</td></tr>
+    <tr><td><b>Pimpinan</b></td><td>: ${esc(pimpinan)}</td></tr>
+    <tr><td><b>Notulis</b></td><td>: ${esc(notulis)}</td></tr>
+    <tr><td><b>Jumlah Peserta</b></td><td>: ${Number(p.hadir||0)} orang</td></tr>
+    <tr><td><b>Unsur Peserta</b></td><td>: ${unsur}</td></tr>
+  </table>
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>B. LATAR BELAKANG</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Dalam rangka mendukung kelancaran pelaksanaan kegiatan kemasyarakatan dan pelayanan administrasi lingkungan di wilayah RT ${esc(rt)} RW ${esc(rw)} Kelurahan ${esc(kel)}, Kecamatan ${esc(kec)}, Kota ${esc(kota)}, perlu dilaksanakan ${esc(nama.toLowerCase())} yang tertib, transparan, dan dapat dipertanggungjawabkan.</p>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Pelaksanaan kegiatan ini merupakan bagian dari program Bantuan Operasional RT/RW yang dilaksanakan secara bertahap sesuai Rencana Anggaran Pelaksanaan (RAP) yang telah disepakati. Setiap kegiatan wajib dilengkapi dokumen administrasi sebagai bukti pertanggungjawaban kepada Pemerintah Kota Semarang melalui Aplikasi Website Ruang Warga.</p>
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>C. IDENTIFIKASI MASALAH</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Berdasarkan kebutuhan pelaksanaan kegiatan dan administrasi pertanggungjawaban, terdapat beberapa permasalahan pokok yang perlu dibahas, yaitu:</p>
+  ${olV26(identifikasiMasalahPkV31(p))}
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>D. TUJUAN KEGIATAN</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Kegiatan ini dilaksanakan dengan tujuan sebagai berikut:</p>
+  ${olV26(tujuanKegiatanPkV31(p))}
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. AGENDA KEGIATAN</b></div>
+  ${pointsHtmlV25(textToPointsV25(p.agenda,"Pelaksanaan kegiatan operasional"))}
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>F. POKOK PEMBAHASAN</b></div>
+  ${pointsHtmlV25(textToPointsV25(p.pembahasan,"Pembahasan kegiatan operasional"))}
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>G. HASIL KEPUTUSAN</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Berdasarkan hasil pembahasan dan musyawarah, kegiatan memutuskan sebagai berikut:</p>
+  ${olV26(keputusanPkV31(p))}
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>H. RENCANA TINDAK LANJUT</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Sebagai tindak lanjut dari hasil kegiatan, disepakati langkah-langkah sebagai berikut:</p>
+  ${actionTableV26(tindakLanjutPkV31(p))}
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>I. KESIMPULAN</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Kegiatan RT ${esc(rt)} RW ${esc(rw)} Kelurahan ${esc(kel)} telah dilaksanakan sesuai rencana. Seluruh keputusan dan tindak lanjut dicatat sebagai dokumen resmi administrasi pertanggungjawaban kegiatan operasional RT.</p>
+
+  <div class="notulen-section-title-v25 notulen-section-title-v28"><b>J. PENUTUP</b></div>
+  <p class="notulen-paragraph-v25 notulen-paragraph-v28">Demikian notulen kegiatan ini dibuat dengan sebenar-benarnya sebagai dokumen resmi pelaksanaan ${esc(nama.toLowerCase())} RT ${esc(rt)} RW ${esc(rw)} Kelurahan ${esc(kel)}, Kecamatan ${esc(kec)}, Kota ${esc(kota)}. Notulen ini digunakan sebagai kelengkapan administrasi Bantuan Operasional RT/RW dan laporan pertanggungjawaban kepada Pemerintah Kota Semarang melalui Aplikasi Website Ruang Warga.</p>
+  <p class="notulen-date-v28">Semarang, ................................ 2026</p>
+  ${notulenSignatureTableV28(m,pimpinan,notulis)}</div>`);
+}
+
+/* ── insertAiNotulenPanelsV25 override — panel PK upgrade v1.31 */
+function insertAiNotulenPanelsV25(){
+  /* Panel Pengajuan — sama dengan v1.26 */
+  if(!$("aiNotulenPengajuanV26") && $("notPembahasan")){
+    const target=$("notPembahasan").closest(".panel");
+    if(target){
+      const box=document.createElement("div");
+      box.id="aiNotulenPengajuanV26";
+      box.className="ai-notulen-panel-v25 ai-notulen-panel-v26";
+      box.innerHTML=`<div class="ai-title"><span class="ai-icon">AI</span> Engine Notulen Baku v1.26</div>
+        <div class="ai-desc"><b>Mode baru:</b> aplikasi cukup menerima data mentah rapat, lalu engine lokal menyusun notulen resmi dengan alur <b>Masalah → Tujuan → Pembahasan → Keputusan → Tindak Lanjut</b>. Cocok untuk RAP BOP RT/RW dan upload Ruang Warga.</div>
+        <div class="ai-actions">
+          <button class="primary" type="button" onclick="aiBuatNotulenReasoningV26()">Buat Notulen Baku dari Data Mentah</button>
+          <button class="secondary" type="button" onclick="aiIsiDefaultNotulenV26()">Isi Default RT 005</button>
+          <button class="secondary" type="button" onclick="aiRingkasPoinPengajuanV25()">Rapikan Poin Mentah</button>
+          <button class="secondary" type="button" onclick="previewDoc('notulen')">Preview Notulen</button>
+        </div>`;
+      target.insertBefore(box,target.firstChild);
+    }
+  }
+  /* Panel PK — UPGRADE ke v1.31 (sama persis dengan Pengajuan) */
+  const oldPk=$("aiNotulenPkV26")||$("aiNotulenPkV25")||$("aiNotulenPkV31");
+  if(oldPk) oldPk.remove();
+  if($("pkPembahasan")){
+    const targetPk=$("pkPembahasan").closest(".panel")||$("tab-pk-notulen");
+    if(targetPk){
+      const box=document.createElement("div");
+      box.id="aiNotulenPkV31";
+      box.className="ai-notulen-panel-v25 ai-notulen-panel-v26";
+      box.innerHTML=`<div class="ai-title"><span class="ai-icon">AI</span> Engine Notulen Kegiatan Baku v1.31</div>
+        <div class="ai-desc"><b>Mode baru:</b> aplikasi cukup menerima data mentah kegiatan, lalu engine lokal menyusun notulen resmi dengan alur <b>Masalah → Tujuan → Pembahasan → Keputusan → Tindak Lanjut</b>. Cocok untuk SPJ/LPJ kegiatan operasional RT.</div>
+        <div class="ai-actions">
+          <button class="primary" type="button" onclick="aiBuatNotulenPkReasoningV31()">Buat Notulen Baku dari Data Mentah</button>
+          <button class="secondary" type="button" onclick="aiIsiDefaultNotulenPkV31()">Isi Default RT 005</button>
+          <button class="secondary" type="button" onclick="aiRingkasPoinPkV25()">Rapikan Poin Mentah</button>
+          <button class="secondary" type="button" onclick="previewPkDoc('pk-notulen')">Preview Notulen</button>
+        </div>`;
+      targetPk.insertBefore(box,targetPk.firstChild);
+    }
+  }
+}

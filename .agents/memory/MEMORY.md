@@ -3,3 +3,4 @@
 - [MoKu IndexedDB + BOP Sync](moku-idb-sync.md) — Photos stored in IndexedDB (db.js) + photoCache Map; BOP sync reads bop_rt005_data_v1_25; PostgreSQL tables: moku_photos, bop_snapshots, moku_results_sync.
 - [BOP PostgreSQL Sync Bugs Fixed](bop-pg-sync-fixes.md) — 5 critical multi-device sync bugs fixed; see file for details.
 - [MoKu initEvents crash fix](moku-init-crash.md) — importActivityFile null crash kills clock+GPS; always null-guard DOM queries in initEvents before addEventListener.
+- [KOP Surat layout](kop-layout.md) — kopHTML() uses kop-standard table layout (not position:absolute) for correct logo-left + text-center in screen AND print/PDF.

@@ -1,7 +1,7 @@
 {
-  "name": "BOP RT 005 Offline Manager",
-  "short_name": "BOP RT 005",
-  "description": "Sistem manajemen administrasi RT untuk Bantuan Operasional RT Kota Semarang",
+  "name": "LaKu Warga — Laporan & Dokumentasi Online Warga",
+  "short_name": "LaKu Warga",
+  "description": "Laporan dan Dokumentasi Online Warga — Sistem manajemen administrasi RT untuk Bantuan Operasional RT Kota Semarang",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#071b38",

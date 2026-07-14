@@ -1,38 +1,36 @@
 
-/* PATCH 012 - API bridge Vercel frontend -> Railway backend */
+/* PATCH 012 - API bridge Vercel frontend -> Railway backend (v43 auto-discovery) */
 (function bopApiBridgeV42(){
   if (window.__bopApiBridgeV42) return;
   window.__bopApiBridgeV42 = true;
 
+  const LS_API_KEY = "bop_api_base";
+
   function cleanBase(v){
     let s = String(v || "").trim().replace(/\/+$/, "");
-    /* Pastikan selalu ada protocol agar tidak jadi path relatif */
     if (s && !/^https?:\/\//i.test(s)) s = "https://" + s;
     return s;
   }
 
-  /* Prioritas: 1) window.BOP_API_BASE (dari Vite define/env), 2) localStorage */
-  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem("bop_api_base") || "");
+  /* Prioritas: 1) Vite define (baked at build), 2) localStorage */
+  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem(LS_API_KEY) || "");
   window.BOP_API_BASE = base;
 
-  /* Expose setter agar UI bisa update tanpa reload */
   window.__bopSetApiBase = function(url){
     const cleaned = cleanBase(url);
     window.BOP_API_BASE = cleaned;
-    localStorage.setItem("bop_api_base", cleaned);
+    localStorage.setItem(LS_API_KEY, cleaned);
     return cleaned;
   };
 
   const nativeFetch = window.fetch.bind(window);
 
   window.fetch = function(input, init){
-    /* Selalu baca window.BOP_API_BASE terbaru (bisa diupdate via __bopSetApiBase) */
     const cur = window.BOP_API_BASE || "";
     try {
       if (cur && typeof input === "string" && input.startsWith("/api/")) {
         return nativeFetch(cur + input, init);
       }
-
       if (cur && input instanceof Request) {
         const u = new URL(input.url, window.location.href);
         if (u.origin === window.location.origin && u.pathname.startsWith("/api/")) {
@@ -43,11 +41,77 @@
     } catch(e) {
       console.warn("[BOP API Bridge] fallback fetch:", e);
     }
-
     return nativeFetch(input, init);
   };
 
-  console.info("[BOP API Bridge] API Base:", base || "(relative /api - belum diset)");
+  /* ── Auto-discovery: jalankan sekali saat startup ─────────── */
+  async function autoDiscover(){
+    /* Jika sudah ada URL yang valid, cukup verifikasi saja */
+    if (window.BOP_API_BASE){
+      try{
+        const r = await nativeFetch(window.BOP_API_BASE + "/api/bop/ping", {
+          signal: AbortSignal.timeout(5000)
+        });
+        if(r.ok){ console.info("[BOP AutoDiscover] URL terverifikasi:", window.BOP_API_BASE); return; }
+      } catch(e){ /* lanjut ke langkah berikutnya */ }
+    }
+
+    /* Langkah 1: Coba relative /api (works on Replit, same-origin, Vite dev) */
+    try{
+      const r = await nativeFetch("/api/bop/ping", { signal: AbortSignal.timeout(4000) });
+      if(r.ok){
+        console.info("[BOP AutoDiscover] Relative /api OK");
+        window.BOP_API_BASE = "";
+        window.__bopRelativeOk = true;
+        return;
+      }
+    } catch(e){ /* tidak bisa reach /api secara relative */ }
+
+    /* Langkah 2: Baca /api-config.json (di-generate oleh Vite build dari env VITE_API_BASE) */
+    try{
+      const r = await nativeFetch("/api-config.json", { signal: AbortSignal.timeout(4000) });
+      if(r.ok){
+        const cfg = await r.json();
+        const url = cleanBase(cfg.apiBase || "");
+        if(url){
+          window.__bopSetApiBase(url);
+          console.info("[BOP AutoDiscover] URL dari api-config.json:", url);
+          return;
+        }
+      }
+    } catch(e){ /* file tidak ada atau tidak valid */ }
+
+    /* Langkah 3: Tanya server sendiri via /api/bop/server-url (fallback terakhir) */
+    try{
+      const r = await nativeFetch("/api/bop/server-url", { signal: AbortSignal.timeout(4000) });
+      if(r.ok){
+        const d = await r.json();
+        const url = cleanBase(d.serverUrl || "");
+        if(url && url !== cleanBase(window.location.origin)){
+          window.__bopSetApiBase(url);
+          console.info("[BOP AutoDiscover] URL dari server-url endpoint:", url);
+        }
+      }
+    } catch(e){ /* tidak bisa */ }
+
+    console.info("[BOP AutoDiscover] Selesai. API Base:", window.BOP_API_BASE || "(relative)");
+
+    /* Trigger ulang sync setelah URL ditemukan, tanpa tunggu poll 8 detik */
+    if(window.BOP_API_BASE || window.__bopRelativeOk){
+      setTimeout(() => {
+        if(typeof window.__bopRetriggerSync === "function") window.__bopRetriggerSync();
+      }, 300);
+    }
+  }
+
+  /* Jalankan auto-discovery segera setelah DOM siap */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", () => autoDiscover());
+  } else {
+    autoDiscover();
+  }
+
+  console.info("[BOP API Bridge] API Base:", base || "(relative /api — auto-discover akan berjalan)");
 })();
 
 const STORE = "bop_rt005_data_v1_25";
@@ -240,59 +304,15 @@ function fillInputs(){
   set("lpjTanggalCetak",l.tanggalCetak); set("lpjDicetakOleh",l.dicetakOleh); set("lpjPeriode",l.periode); set("lpjSaldoAwal",l.saldoAwal); set("lpjSaldoBulanLalu",l.saldoBulanLalu); set("lpjKetua",l.ketua); set("lpjBendahara",l.bendahara); fillPersiapan();
 }
 
-function totalRap(){ return data.pengajuan.rap.reduce((s,r)=>s+Number(r[2]||0),0); }
 function totalExpense(){ return data.lpj.pengeluaran.reduce((s,r)=>s+Number(r[2]||0),0); }
 function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw||"012"}`; }
 
 function kopHTML(){
   const k=data.kop;
-  /* Gunakan layout tabel kop-standard agar logo tetap di kiri
-     dan teks selalu center — baik di layar maupun saat cetak/PDF */
-  return `<div class="kop kop-standard">
-    <table class="kop-table">
-      <tr>
-        <td class="kop-col-logo">
-          <img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang">
-        </td>
-        <td class="kop-col-text">
-          <div class="kop-text">
-            <h1>${k.baris1}</h1>
-            <h2>${k.baris2}</h2>
-            <h2>${k.baris3}</h2>
-            <h2>${k.baris4}</h2>
-            <p>${k.alamat||data.master.alamat||""}</p>
-          </div>
-        </td>
-        <td class="kop-col-spacer"></td>
-      </tr>
-    </table>
-  </div>`;
+  return `<div class="kop"><div class="kop-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang"></div><div class="kop-text"><div class="kop-b1">${k.baris1}</div><div class="kop-b2">${k.baris2}</div><div class="kop-b2">${k.baris3}</div><div class="kop-b2">${k.baris4}</div><div class="kop-addr">${k.alamat||data.master.alamat||""}</div></div><div class="kop-logo-spacer"></div></div>`;
 }
 
-function official(body){ return `<div class="official">${kopHTML()}${body}</div>`; }
 
-function renderRap(){
-  const tb=$("rapTable")?.querySelector("tbody"); if(!tb) return; tb.innerHTML="";
-  data.pengajuan.rap.forEach((r,i)=>{
-    tb.insertAdjacentHTML("beforeend",`<tr>
-      <td>${i+1}</td>
-      <td><input class="mini-input" data-rap="${i},0" value="${escapeAttr(r[0])}"></td>
-      <td><input class="mini-input" data-rap="${i},1" value="${escapeAttr(r[1])}"></td>
-      <td><input class="mini-input" data-rap="${i},2" type="number" value="${Number(r[2]||0)}"></td>
-      <td><input class="mini-input" data-rap="${i},3" value="${escapeAttr(r[3])}"></td>
-      <td><button class="delete" onclick="deleteRap(${i})">Hapus</button></td>
-    </tr>`);
-  });
-  $("rapTotalCell").textContent = rupiah(totalRap());
-}
-function updateRapFromInputs(){
-  document.querySelectorAll("[data-rap]").forEach(inp=>{
-    const [i,j]=inp.dataset.rap.split(",").map(Number);
-    if(data.pengajuan.rap[i]) data.pengajuan.rap[i][j]=j===2?Number(inp.value||0):inp.value;
-  });
-}
-function addRap(){ updateRapFromInputs(); data.pengajuan.rap.push(["","1 Paket",0,""]); saveData(); activateTab("rap"); }
-function deleteRap(i){ updateRapFromInputs(); data.pengajuan.rap.splice(i,1); saveData(); activateTab("rap"); }
 
 function renderPeserta(){
   const tb=$("pesertaTable")?.querySelector("tbody"); if(!tb) return; tb.innerHTML="";
@@ -366,29 +386,7 @@ function renderChecklist(){
   $("dashboardChecklist").innerHTML = items.map(([k,t])=>`<div class="check-item"><label><input type="checkbox" data-check="${k}" ${data.pengajuan.checklist[k]?"checked":""}> ${t}</label><span>${data.pengajuan.checklist[k]?"Selesai":"Belum"}</span></div>`).join("");
 }
 
-function updateDashboard(){
-  const total=totalRap();
-  $("dashAllocated").textContent=rupiah(total);
-  $("dashSisa").textContent=rupiah(25000000-total);
-  $("dashPercent").textContent=Math.round(total/25000000*100)+"%";
-  $("dashHistory").textContent=data.history.length;
-  const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;
-  $("checkProgress").textContent=`${done} / 7`;
-  $("topTitle").textContent=masterTitle();
-  $("topSubtitle").textContent=`${data.master.kelurahan}, ${data.master.kecamatan}, Kota ${data.master.kota}`;
-  renderHistory();
-  if($("kopPreview")) $("kopPreview").innerHTML=official(`<div class="title">CONTOH KOP SURAT RESMI</div><p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>`);
-  if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();
-}
 
-function docRap(){
-  return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN<br>BANTUAN OPERASIONAL RT</div>
-  <table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>
-  ${data.pengajuan.rap.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${rupiah(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("")}
-  <tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(totalRap())}</b></td><td></td></tr></tbody></table>
-  <p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><p>Mengetahui,</p>
-  <div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`);
-}
 function docPermohonan(){
   const p=data.pengajuan,m=data.master;
   return official(`<p style="text-align:right">${p.tanggalSurat}</p>
@@ -400,16 +398,6 @@ function docPermohonan(){
   <p>Pencairan bantuan dapat ditransfer melalui rekening Bank Jateng atas nama ${p.namaRekening||"........"} nomor rekening ${p.nomorRekening||"........"}.</p>
   <p>Demikian permohonan kami, atas perhatian dan kerjasamanya kami sampaikan terima kasih.</p>
   <div class="ttd-grid"><div></div><div>Hormat kami,<br>Ketua RT ${m.rt} RW ${m.rw}<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div></div>`);
-}
-function docBA(){
-  const p=data.pengajuan,m=data.master;
-  return official(`<div class="title">BERITA ACARA<br>KESEPAKATAN RENCANA ANGGARAN PENGGUNAAN BANTUAN OPERASIONAL RT</div>
-  <p style="text-align:center">Nomor: ${p.baNomor||".................."}</p>
-  <p>Pada hari ini ${p.baHari} tanggal ${p.baTanggal} bulan ${p.baBulan} tahun ${p.baTahun}, bertempat di ${p.baTempat} pada pukul ${p.baPukul} telah dilaksanakan pertemuan pembahasan Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ${m.rt} RW ${m.rw}. Pertemuan dipimpin oleh ${p.baPimpinan||m.ketua||"........"}.</p>
-  <p>Adapun hasil pertemuan sebagai berikut:</p>${docRap().match(/<table[\s\S]*?<\/table>/)[0]}
-  <p>Demikian Berita Acara Hasil Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p>
-  <p>Kami yang bertanda tangan di bawah ini:</p>
-  <table><tr><th>No.</th><th>Nama</th><th>Jabatan</th><th>Tanda Tangan</th></tr>${p.peserta.map((r,i)=>`<tr><td>${i+1}.</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${i+1}.</td></tr>`).join("")}</table>`);
 }
 function docHadir(){
   const p=data.pengajuan; let rows=Number(p.hadirRows||50); let list=[...p.peserta]; while(list.length<rows) list.push(["","",""]);
@@ -428,14 +416,6 @@ function docSptjm(){
   <p>Demikian surat pernyataan ini saya buat dengan sebenar-benarnya tanpa ada unsur paksaan untuk dapat digunakan sebagaimana mestinya.</p>
   <div class="ttd-grid"><div></div><div>Semarang, tanggal bulan tahun<br>Ketua RT ${m.rt} RW ${m.rw}<br><br>(materai 10 ribu)<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div></div>`);
 }
-function docRbb(){
-  const m=data.master;
-  return official(`<div class="title">Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div>
-  <table class="no-border"><tr><td style="width:160px">Nama Lembaga</td><td>: RT ${m.rt} RW ${m.rw}</td></tr><tr><td>Kelurahan</td><td>: ${m.kelurahan}</td></tr><tr><td>Kecamatan</td><td>: ${m.kecamatan}</td></tr><tr><td>Untuk Kegiatan Bulan</td><td>: Agustus 2026</td></tr></table><br>
-  <table><tr><th>No.</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Anggaran</th><th>Keterangan</th></tr>${data.pengajuan.rap.slice(0,5).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${rupiah(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("")}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(data.pengajuan.rap.slice(0,5).reduce((s,r)=>s+Number(r[2]||0),0))}</b></td><td></td></tr></table>
-  <p>Terbilang: ${terbilang(data.pengajuan.rap.slice(0,5).reduce((s,r)=>s+Number(r[2]||0),0)).replace(/\s+/g," ")} Rupiah</p>
-  <div class="ttd-3"><div>Yang Mengambil<br>Ketua RT ${m.rt} RW ${m.rw}<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div><div>Bendahara<div class="signature-space"></div>${m.bendahara||"Nama Jelas"}</div><div>Mengetahui<br>Lurah ${m.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div></div>`);
-}
 
 function docUndangan(){
   const m=data.master, mt=data.pengajuan.meeting || defaultData.pengajuan.meeting;
@@ -449,31 +429,6 @@ function docUndangan(){
   <p>Mengingat pentingnya kegiatan tersebut, kami mengharapkan kehadiran Bapak/Ibu/Saudara/i tepat waktu.</p>
   <p>Demikian undangan ini kami sampaikan. Atas perhatian dan kehadirannya, kami ucapkan terima kasih.</p>
   <div class="ttd-grid"><div></div><div>Hormat kami,<br>Ketua RT ${m.rt} RW ${m.rw}<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div></div>`);
-}
-function docNotulen(){
-  const m=data.master, mt=data.pengajuan.meeting || defaultData.pengajuan.meeting;
-  const pesertaRows = data.pengajuan.peserta.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
-  const actRows = (mt.actionPlan||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
-  return official(`<div class="title">NOTULEN RAPAT / KEGIATAN</div>
-  <table class="no-border">
-    <tr><td style="width:170px"><b>Judul/Tema Rapat</b></td><td>: ${esc(mt.rapatJudul)}</td></tr>
-    <tr><td><b>Hari/Tanggal</b></td><td>: ${esc(mt.rapatHariTanggal)}</td></tr>
-    <tr><td><b>Waktu</b></td><td>: ${esc(mt.rapatMulai)} s.d. ${esc(mt.rapatSelesai)}</td></tr>
-    <tr><td><b>Tempat/Lokasi</b></td><td>: ${esc(mt.rapatTempat)}</td></tr>
-    <tr><td><b>Pimpinan Rapat</b></td><td>: ${esc(mt.notPimpinan)||m.ketua||".................."}</td></tr>
-    <tr><td><b>Notulis</b></td><td>: ${esc(mt.notNotulis)||".................."}</td></tr>
-    <tr><td><b>Kehadiran</b></td><td>: Hadir ${Number(mt.notHadir||0)} orang, Tidak Hadir ${Number(mt.notTidakHadir||0)} orang</td></tr>
-  </table>
-  <p><b>Agenda Rapat:</b><br>${esc(mt.rapatAgenda).replaceAll("\\n","<br>")}</p>
-  <p><b>Pembahasan/Diskusi:</b><br>${esc(mt.notPembahasan).replaceAll("\\n","<br>")}</p>
-  <p><b>Hasil Keputusan:</b><br>${esc(mt.notKeputusan).replaceAll("\\n","<br>")}</p>
-  <p><b>Rencana Tindak Lanjut / Action Plan:</b></p>
-  <table><tr><th>No</th><th>Task/Tugas</th><th>Target Waktu</th><th>PIC/Penanggung Jawab</th></tr>${actRows || '<tr><td>1</td><td></td><td></td><td></td></tr>'}</table>
-  <p><b>Jadwal Rapat Berikutnya:</b><br>${esc(mt.notRapatBerikutnya)||"-"}</p>
-  <p><b>Daftar Peserta:</b></p>
-  <table><tr><th>No</th><th>Nama</th><th>Jabatan/Status</th><th>Alamat/RT</th></tr>${pesertaRows}</table>
-  <p>Demikian notulen ini dibuat dengan sebenar-benarnya untuk digunakan sebagaimana mestinya.</p>
-  <div class="ttd-grid"><div>Mengetahui,<br>Pimpinan Rapat<div class="signature-space"></div>${esc(mt.notPimpinan)||m.ketua||"Nama Jelas"}</div><div>Notulis<div class="signature-space"></div>${esc(mt.notNotulis)||"Nama Jelas"}</div></div>`);
 }
 
 function docChecklist(){
@@ -531,28 +486,6 @@ function docRekening(){
     <div>Mengetahui<br>Lurah ${esc(m.kelurahan||"")}<div class="signature-space"></div>NIP. ................................</div>
   </div>`);
 }
-function docLpj(){
-  const m=data.master,l=data.lpj;
-  const now = l.tanggalCetak || new Date().toLocaleString("id-ID");
-  const pengeluaran = l.pengeluaran.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[1])}<br><small>${esc(r[0])}</small></td><td>${rupiah(r[2])}</td><td>${esc(r[3])}</td></tr>`).join("");
-  const total=totalExpense(), sisa=Number(l.saldoAwal||0)+Number(l.saldoBulanLalu||0)-total;
-  return official(`<div class="title">LAPORAN PENGGUNAAN PEMBERIAN BANTUAN<br>OPERASIONAL KOTA SEMARANG</div>
-  <table class="no-border"><tr><td style="width:180px"><b>TANGGAL CETAK</b></td><td>: ${now}</td></tr><tr><td><b>DICETAK OLEH</b></td><td>: ${esc(l.dicetakOleh)}</td></tr><tr><td><b>PERIODE BULAN/TAHUN</b></td><td>: ${esc(l.periode)}</td></tr><tr><td><b>KECAMATAN</b></td><td>: ${m.kecamatan}</td></tr><tr><td><b>KELURAHAN</b></td><td>: ${m.kelurahan}</td></tr><tr><td><b>RW</b></td><td>: ${Number(m.rw)}</td></tr><tr><td><b>RT</b></td><td>: ${Number(m.rt)}</td></tr></table><br>
-  <table class="report-table"><tr><th>No</th><th>Kegiatan</th><th>Jumlah</th><th>Keterangan</th></tr>
-  <tr><td>I</td><td><b>PENERIMAAN SALDO AWAL</b></td><td><b>${rupiah(l.saldoAwal)}</b></td><td></td></tr>
-  <tr><td>II</td><td><b>SALDO BULAN LALU</b></td><td><b>${rupiah(l.saldoBulanLalu)}</b></td><td></td></tr>
-  <tr><td>III</td><td colspan="3"><b>PENGELUARAN</b></td></tr>
-  ${pengeluaran}
-  <tr><td></td><td><b>JUMLAH PENGELUARAN</b></td><td><b>${rupiah(total)}</b></td><td></td></tr>
-  <tr><td>IV</td><td><b>SISA UANG PENYELENGGARAAN</b><br>(jumlah penerimaan - jumlah pengeluaran) menjadi saldo bulan berikutnya</td><td><b>${rupiah(sisa)}</b></td><td></td></tr></table>
-  <div class="ttd-grid"><div>Ketua RT ${Number(m.rt)} RW ${Number(m.rw)}<div class="signature-space"></div>${l.ketua||m.ketua||"Nama Jelas"}</div><div>Bendahara RT ${Number(m.rt)} RW ${Number(m.rw)}<div class="signature-space"></div>${l.bendahara||m.bendahara||"Nama Jelas"}</div></div>`);
-}
-function previewDoc(type=currentDoc){
-  collectAll(); currentDoc=type;
-  const map={permohonan:docPermohonan,rap:docRap,ba:docBA,hadir:docHadir,sptjm:docSptjm,sk:docSK,rekening:docRekening,undangan:docUndangan,notulen:docNotulen};
-  document.querySelectorAll(".doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.doc===type));
-  $("docOutput").innerHTML=(map[type]||docPermohonan)();
-}
 
 function addHistory(kind,type,title,html){
   collectAll();
@@ -595,12 +528,6 @@ function deleteHistory(id){
   });
 }
 
-function goPage(page){
-  document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
-  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
-  $("page-"+page).classList.add("active");
-  if(window.innerWidth<1000) $("sidebar").classList.remove("open");
-}
 function activateTab(id){
   document.querySelectorAll(".subtab").forEach(b=>b.classList.toggle("active",b.dataset.tab===id));
   document.querySelectorAll(".tab-content").forEach(t=>t.classList.toggle("active",t.id==="tab-"+id));
@@ -675,18 +602,6 @@ function bopToast(title, text, icon="success"){
 /* =============================== */
 
 
-function cleanPrint(target){
-  collectAll();
-  document.body.classList.remove("print-doc","print-lpj");
-  if(target === "lpj"){
-    $("lpjOutput").innerHTML = docLpj();
-    document.body.classList.add("print-lpj");
-  } else {
-    previewDoc(currentDoc);
-    document.body.classList.add("print-doc");
-  }
-  setTimeout(()=>window.print(),150);
-}
 window.addEventListener("afterprint",()=>document.body.classList.remove("print-doc","print-lpj","print-pk"));
 
 
@@ -707,19 +622,8 @@ function guessBulan(u=""){u=String(u).toLowerCase();if(u.includes("17")||u.inclu
 function opt(list,sel){return list.map(x=>`<option value="${escapeAttr(x)}" ${x===sel?"selected":""}>${esc(x)}</option>`).join("")}
 function normalizeRapV17(){if(!data.pengajuan)data.pengajuan=clone(defaultData.pengajuan);data.pengajuan.rap=(data.pengajuan.rap||[]).map(r=>{if(Array.isArray(r)){let u=r[0]||"",k=guessKategori(u);return {kategori:k,subKategori:guessSubKategori(k,u),tipe:guessTipe(u),uraian:u,bulan:guessBulan(u),volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||""}}let k=r.kategori||guessKategori(r.uraian||"");return {kategori:k,subKategori:r.subKategori||guessSubKategori(k,r.uraian||""),tipe:r.tipe||guessTipe(r.uraian||""),uraian:r.uraian||"",bulan:r.bulan||guessBulan(r.uraian||""),volume:r.volume||"1 Paket",jumlah:Number(r.jumlah??0),keterangan:r.keterangan||""}});if(!data.pengajuan.selectedMonth)data.pengajuan.selectedMonth="Agustus 2026"}
 function totalRap(){normalizeRapV17();return data.pengajuan.rap.reduce((s,r)=>s+Number(r.jumlah||0),0)}
-function renderRap(){normalizeRapV17();let tb=$("rapTable").querySelector("tbody");tb.innerHTML="";$("rapTable").classList.add("rap-wide-table");data.pengajuan.rap.forEach((r,i)=>tb.insertAdjacentHTML("beforeend",`<tr><td>${i+1}</td><td><select class="mini-input select-compact" data-rap="${i},kategori">${opt(KATEGORI_OPERASIONAL,r.kategori)}</select></td><td><select class="mini-input select-compact" data-rap="${i},subKategori">${opt(SUB_KATEGORI_MAP[r.kategori]||[],r.subKategori)}</select></td><td><select class="mini-input select-compact" data-rap="${i},tipe">${opt(TIPE_OPERASIONAL,r.tipe)}</select></td><td><input class="mini-input" data-rap="${i},uraian" value="${escapeAttr(r.uraian)}"></td><td><select class="mini-input select-compact" data-rap="${i},bulan">${opt([RAP_MONTH_ALL,...RAP_MONTHS],r.bulan)}</select></td><td><input class="mini-input" data-rap="${i},volume" value="${escapeAttr(r.volume)}"></td><td><input class="mini-input" type="number" data-rap="${i},jumlah" value="${Number(r.jumlah||0)}"></td><td><input class="mini-input" data-rap="${i},keterangan" value="${escapeAttr(r.keterangan)}"></td><td><button class="delete" onclick="deleteRap(${i})">Hapus</button></td></tr>`));$("rapTotalCell").textContent=rupiah(totalRap());renderMonthlyRapSummary()}
-function updateRapFromInputs(){normalizeRapV17();document.querySelectorAll("[data-rap]").forEach(inp=>{let [i,k]=inp.dataset.rap.split(",");i=Number(i);if(!data.pengajuan.rap[i])return;let v=inp.value;if(k==="jumlah")v=Number(v||0);data.pengajuan.rap[i][k]=v;if(k==="kategori"){let row=data.pengajuan.rap[i];if(!(SUB_KATEGORI_MAP[v]||[]).includes(row.subKategori))row.subKategori=(SUB_KATEGORI_MAP[v]||[""])[0]}})}
-function addRap(){updateRapFromInputs();data.pengajuan.rap.push({kategori:KATEGORI_OPERASIONAL[0],subKategori:SUB_KATEGORI_MAP[KATEGORI_OPERASIONAL[0]][0],tipe:"Administrasi/ATK/Cetak",uraian:"",bulan:"Januari 2026",volume:"1 Paket",jumlah:0,keterangan:""});localStorage.setItem(STORE,JSON.stringify(data));render();activateTab("rap")}
-function deleteRap(i){updateRapFromInputs();data.pengajuan.rap.splice(i,1);localStorage.setItem(STORE,JSON.stringify(data));render();activateTab("rap")}
-function getMonthlyRapRows(month){normalizeRapV17();let rows=[];data.pengajuan.rap.forEach(r=>{if(r.bulan===month)rows.push({...r,jumlahBulanan:Number(r.jumlah||0),sumber:"Langsung"});else if(r.bulan===RAP_MONTH_ALL&&RAP_MONTHS.includes(month))rows.push({...r,jumlahBulanan:Math.round(Number(r.jumlah||0)/RAP_MONTHS.length),sumber:"Bagi rata"})});return rows}
-function monthlyTotal(month){return getMonthlyRapRows(month).reduce((s,r)=>s+Number(r.jumlahBulanan||0),0)}
-function renderMonthlyRapSummary(){let el=$("monthlyRapSummary");if(!el)return;el.innerHTML=RAP_MONTHS.map(month=>{let rows=getMonthlyRapRows(month);return `<div class="monthly-card"><h3>${month}</h3><div class="table-wrap"><table><thead><tr><th>No</th><th>Uraian</th><th>Kategori</th><th>Jumlah</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.volume)} • ${esc(r.sumber)}</small></td><td>${esc(r.kategori)}</td><td>${rupiah(r.jumlahBulanan)}</td></tr>`).join(""):`<tr><td colspan="4">Belum ada kegiatan pada bulan ini.</td></tr>`}</tbody></table></div><div class="monthly-total"><span>Total ${month}</span><strong>${rupiah(monthlyTotal(month))}</strong></div></div>`}).join("");if($("monthlyDocMonth"))$("monthlyDocMonth").value=data.pengajuan.selectedMonth||"Januari 2026"}
 function updateDashboard(){normalizeRapV17();const total=totalRap();$("dashAllocated").textContent=rupiah(total);$("dashSisa").textContent=rupiah(25000000-total);$("dashPercent").textContent=Math.round(total/25000000*100)+"%";$("dashHistory").textContent=data.history.length;const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;$("checkProgress").textContent=`${done} / 7`;$("topTitle").textContent=masterTitle();$("topSubtitle").textContent=`${data.master.kelurahan}, ${data.master.kecamatan}, Kota ${data.master.kota}`;renderHistory();renderMonthlyRapSummary();if($("kopPreview"))$("kopPreview").innerHTML=official(`<div class="title">CONTOH KOP SURAT RESMI</div><p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>`);if($("lpjOutput"))$("lpjOutput").innerHTML=docLpj()}
-function docRap(){normalizeRapV17();return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN<br>BANTUAN OPERASIONAL RT</div><table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${data.pengajuan.rap.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.kategori)} - ${esc(r.subKategori)}<br>Bulan: ${esc(r.bulan)} | Tipe: ${esc(r.tipe)}</small></td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlah)}</td><td>${esc(r.keterangan)}</td></tr>`).join("")}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(totalRap())}</b></td><td></td></tr></tbody></table><p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><p>Mengetahui,</p><div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`)}
-function docRapBulanan(){let month=$("monthlyDocMonth")?.value||data.pengajuan.selectedMonth||"Januari 2026";data.pengajuan.selectedMonth=month;let rows=getMonthlyRapRows(month);return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN ${esc(month).toUpperCase()}</div><table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.kategori)} - ${esc(r.subKategori)}<br>Tipe: ${esc(r.tipe)} | Sumber: ${esc(r.sumber)}</small></td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlahBulanan)}</td><td>${esc(r.keterangan)}</td></tr>`).join(""):`<tr><td colspan="5">Belum ada rencana kegiatan untuk bulan ${esc(month)}.</td></tr>`}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(monthlyTotal(month))}</b></td><td></td></tr></tbody></table><p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`)}
-function docRbb(){let m=data.master,month=$("monthlyDocMonth")?.value||data.pengajuan.selectedMonth||"Januari 2026",rows=getMonthlyRapRows(month);return official(`<div class="title">Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div><table class="no-border"><tr><td style="width:160px">Nama Lembaga</td><td>: RT ${m.rt} RW ${m.rw}</td></tr><tr><td>Kelurahan</td><td>: ${m.kelurahan}</td></tr><tr><td>Kecamatan</td><td>: ${m.kecamatan}</td></tr><tr><td>Untuk Kegiatan Bulan</td><td>: ${esc(month)}</td></tr></table><br><table><tr><th>No.</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Anggaran</th><th>Keterangan</th></tr>${rows.length?rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}</td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlahBulanan)}</td><td>${esc(r.keterangan)}</td></tr>`).join(""):`<tr><td colspan="5">Belum ada kegiatan bulan ini.</td></tr>`}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(monthlyTotal(month))}</b></td><td></td></tr></table><p>Terbilang: ${terbilang(monthlyTotal(month)).replace(/\s+/g," ")} Rupiah</p><div class="ttd-3"><div>Yang Mengambil<br>Ketua RT ${m.rt} RW ${m.rw}<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div><div>Bendahara<div class="signature-space"></div>${m.bendahara||"Nama Jelas"}</div><div>Mengetahui<br>Lurah ${m.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div></div>`)}
 function docBA(){let p=data.pengajuan,m=data.master;return official(`<div class="title">BERITA ACARA<br>KESEPAKATAN RENCANA ANGGARAN PENGGUNAAN BANTUAN OPERASIONAL RT</div><p style="text-align:center">Nomor: ${p.baNomor||".................."}</p><p>Pada hari ini ${p.baHari} tanggal ${p.baTanggal} bulan ${p.baBulan} tahun ${p.baTahun}, bertempat di ${p.baTempat} pada pukul ${p.baPukul} telah dilaksanakan pertemuan pembahasan Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ${m.rt} RW ${m.rw}. Pertemuan dipimpin oleh ${p.baPimpinan||m.ketua||"........"}.</p><p>Adapun hasil pertemuan sebagai berikut:</p>${docRap().match(/<table[\s\S]*?<\/table>/)[0]}<p>Demikian Berita Acara Hasil Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p><p>Kami yang bertanda tangan di bawah ini:</p><table><tr><th>No.</th><th>Nama</th><th>Jabatan</th><th>Tanda Tangan</th></tr>${p.peserta.map((r,i)=>`<tr><td>${i+1}.</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${i+1}.</td></tr>`).join("")}</table>`)}
-function previewDoc(type=currentDoc){collectAll();if($("monthlyDocMonth"))data.pengajuan.selectedMonth=$("monthlyDocMonth").value;currentDoc=type;const map={permohonan:docPermohonan,rap:docRap,rapbulanan:docRapBulanan,ba:docBA,hadir:docHadir,sptjm:docSptjm,sk:docSK,rekening:docRekening,undangan:docUndangan,notulen:docNotulen};document.querySelectorAll(".doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.doc===type));$("docOutput").innerHTML=(map[type]||docPermohonan)()}
 
 
 /* PATCH v1.8 - Persiapan Kegiatan Operasional / Bukti SPJ */
@@ -800,20 +704,6 @@ function docPkHadir(){
   <table class="no-border"><tr><td style="width:160px">Jenis Kegiatan</td><td>: ${esc(p.jenis)}</td></tr><tr><td>Nama Kegiatan</td><td>: ${esc(p.nama)}</td></tr><tr><td>Hari/Tanggal</td><td>: ${esc(p.hariTanggal)}</td></tr><tr><td>Waktu</td><td>: ${esc(p.waktu)}</td></tr><tr><td>Tempat</td><td>: ${esc(p.tempat)}</td></tr><tr><td>Agenda</td><td>: ${esc(p.agenda)}</td></tr></table><br>
   <table><tr><th>No</th><th>Nama</th><th>Jabatan/Status</th><th>Alamat/RT</th><th>Tanda Tangan</th></tr>${list.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])||" "}</td><td>${esc(r[1])||" "}</td><td>${esc(r[2])||" "}</td><td>${i+1}.</td></tr>`).join("")}</table>`);
 }
-function docPkNotulen(){
-  const m=data.master,p=data.persiapan;const act=(p.action||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
-  const peserta=(p.peserta||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
-  return official(`<div class="title">NOTULEN KEGIATAN OPERASIONAL</div>
-  <table class="no-border"><tr><td style="width:170px"><b>Jenis Kegiatan</b></td><td>: ${esc(p.jenis)}</td></tr><tr><td><b>Judul/Tema</b></td><td>: ${esc(p.nama)}</td></tr><tr><td><b>Hari/Tanggal</b></td><td>: ${esc(p.hariTanggal)}</td></tr><tr><td><b>Waktu</b></td><td>: ${esc(p.waktu)}</td></tr><tr><td><b>Tempat</b></td><td>: ${esc(p.tempat)}</td></tr><tr><td><b>Pimpinan</b></td><td>: ${esc(p.pimpinan)||m.ketua||".................."}</td></tr><tr><td><b>Notulis</b></td><td>: ${esc(p.notulis)||".................."}</td></tr><tr><td><b>Kehadiran</b></td><td>: Hadir ${Number(p.hadir||0)} orang, Tidak Hadir ${Number(p.tidakHadir||0)} orang</td></tr></table>
-  <p><b>Agenda:</b><br>${esc(p.agenda).replaceAll("\\n","<br>")}</p>
-  <p><b>Pembahasan/Diskusi:</b><br>${esc(p.pembahasan).replaceAll("\\n","<br>")}</p>
-  <p><b>Hasil Keputusan:</b><br>${esc(p.keputusan).replaceAll("\\n","<br>")}</p>
-  <p><b>Rencana Tindak Lanjut / Action Plan:</b></p><table><tr><th>No</th><th>Task/Tugas</th><th>Target Waktu</th><th>PIC</th></tr>${act||'<tr><td>1</td><td></td><td></td><td></td></tr>'}</table>
-  <p><b>Jadwal Kegiatan/Rapat Berikutnya:</b><br>${esc(p.rapatBerikutnya)||"-"}</p>
-  <p><b>Daftar Peserta:</b></p><table><tr><th>No</th><th>Nama</th><th>Jabatan/Status</th><th>Alamat/RT</th></tr>${peserta}</table>
-  <p>Demikian notulen ini dibuat sebagai bukti kelengkapan administrasi kegiatan operasional dan laporan pertanggungjawaban.</p>
-  <div class="ttd-grid"><div>Mengetahui,<br>Pimpinan Kegiatan/Rapat<div class="signature-space"></div>${esc(p.pimpinan)||m.ketua||"Nama Jelas"}</div><div>Notulis<div class="signature-space"></div>${esc(p.notulis)||"Nama Jelas"}</div></div>`);
-}
 function docPkKuitansi(){
   const m=data.master,p=data.persiapan;
   return official(`<div class="kuitansi-box"><div class="kuitansi-title">TANDA TERIMA / KUITANSI</div>
@@ -826,11 +716,6 @@ function previewPkDoc(type=currentPkDoc){
   const map={"pk-undangan":docPkUndangan,"pk-hadir":docPkHadir,"pk-notulen":docPkNotulen,"pk-kuitansi":docPkKuitansi};
   document.querySelectorAll(".pk-doc-btn").forEach(b=>b.classList.toggle("active",b.dataset.pkdoc===type));
   if($("pkDocOutput")) $("pkDocOutput").innerHTML=(map[type]||docPkHadir)();
-}
-function cleanPrintPk(){
-  collectPersiapan();previewPkDoc(currentPkDoc);
-  document.body.classList.remove("print-doc","print-lpj");document.body.classList.add("print-pk");
-  setTimeout(()=>window.print(),150);
 }
 function renderPersiapan(){fillPersiapan();renderPkPeserta();renderPkAction();previewPkDoc(currentPkDoc);renderHistory();}
 
@@ -1250,12 +1135,6 @@ function renderMobileDocumentationToLPJ(){
 
 
 /* PATCH v1.12 - RAP 1 Tahun tanpa Tipe + RAP Bulanan Breakdown */
-function ensureMonthlyBreakdown(){
-  if(!data.pengajuan) data.pengajuan = clone(defaultData.pengajuan);
-  if(!data.pengajuan.monthlyBreakdowns) data.pengajuan.monthlyBreakdowns = {};
-  if(!data.pengajuan.selectedMonth) data.pengajuan.selectedMonth = "Januari 2026";
-  if(data.pengajuan.monthlySelectedIndex === undefined || data.pengajuan.monthlySelectedIndex === null) data.pengajuan.monthlySelectedIndex = 0;
-}
 function monthlyKey(month, annualIndex){ return `${month}__${annualIndex}`; }
 function getBreakdownRows(month, annualIndex){
   ensureMonthlyBreakdown();
@@ -1285,74 +1164,6 @@ function normalizeRapV12(){
     };
   });
 }
-function renderRap(){
-  normalizeRapV12();
-  const tb=$("rapTable").querySelector("tbody");
-  tb.innerHTML="";
-  $("rapTable").classList.add("rap-wide-table");
-  data.pengajuan.rap.forEach((r,i)=>{
-    tb.insertAdjacentHTML("beforeend",`<tr>
-      <td>${i+1}</td>
-      <td><select class="mini-input select-compact" data-rap="${i},kategori">${formatSelOptionV12(KATEGORI_OPERASIONAL,r.kategori)}</select></td>
-      <td><select class="mini-input select-compact" data-rap="${i},subKategori">${formatSelOptionV12(SUB_KATEGORI_MAP[r.kategori]||[],r.subKategori)}</select></td>
-      <td><input class="mini-input" data-rap="${i},uraian" value="${escapeAttr(r.uraian)}"></td>
-      <td><select class="mini-input select-compact" data-rap="${i},bulan">${formatSelOptionV12([RAP_MONTH_ALL,...RAP_MONTHS],r.bulan)}</select></td>
-      <td><input class="mini-input" data-rap="${i},volume" value="${escapeAttr(r.volume)}"></td>
-      <td><input class="mini-input" type="number" data-rap="${i},jumlah" value="${Number(r.jumlah||0)}"></td>
-      <td><input class="mini-input" data-rap="${i},keterangan" value="${escapeAttr(r.keterangan)}"></td>
-      <td><button class="delete" onclick="deleteRap(${i})">Hapus</button></td>
-    </tr>`);
-  });
-  $("rapTotalCell").textContent=rupiah(totalRap());
-  renderMonthlyRapSummary();
-}
-function updateRapFromInputs(){
-  normalizeRapV12();
-  document.querySelectorAll("[data-rap]").forEach(inp=>{
-    let [i,k]=inp.dataset.rap.split(",");
-    i=Number(i);
-    if(!data.pengajuan.rap[i])return;
-    let v=inp.value;
-    if(k==="jumlah")v=Number(v||0);
-    data.pengajuan.rap[i][k]=v;
-    if(k==="kategori"){
-      let row=data.pengajuan.rap[i];
-      if(!(SUB_KATEGORI_MAP[v]||[]).includes(row.subKategori)) row.subKategori=(SUB_KATEGORI_MAP[v]||[""])[0];
-    }
-  });
-}
-function addRap(){
-  updateRapFromInputs();
-  data.pengajuan.rap.push({kategori:KATEGORI_OPERASIONAL[0],subKategori:SUB_KATEGORI_MAP[KATEGORI_OPERASIONAL[0]][0],uraian:"",bulan:"Januari 2026",volume:"1 Paket",jumlah:0,keterangan:""});
-  localStorage.setItem(STORE,JSON.stringify(data));
-  render();activateTab("rap");
-}
-function deleteRap(i){
-  updateRapFromInputs();
-  data.pengajuan.rap.splice(i,1);
-  ensureMonthlyBreakdown();
-  Object.keys(data.pengajuan.monthlyBreakdowns).forEach(k=>{ if(k.endsWith(`__${i}`)) delete data.pengajuan.monthlyBreakdowns[k]; });
-  localStorage.setItem(STORE,JSON.stringify(data));
-  render();activateTab("rap");
-}
-function getMonthlyRapRows(month){
-  normalizeRapV12();
-  const rows=[];
-  data.pengajuan.rap.forEach((r,annualIndex)=>{
-    if(r.bulan===month){
-      rows.push({...r, annualIndex, jumlahBulanan:Number(r.jumlah||0), sumber:"Langsung"});
-    }else if(r.bulan===RAP_MONTH_ALL&&RAP_MONTHS.includes(month)){
-      rows.push({...r, annualIndex, jumlahBulanan:Math.round(Number(r.jumlah||0)/RAP_MONTHS.length), sumber:"Bagi rata"});
-    }
-  });
-  return rows;
-}
-function selectMonthlyItem(annualIndex){
-  ensureMonthlyBreakdown();
-  data.pengajuan.monthlySelectedIndex=Number(annualIndex);
-  localStorage.setItem(STORE,JSON.stringify(data));
-  renderMonthlyRapSummary();
-}
 function addBreakdownRow(month, annualIndex){
   updateBreakdownFromInputs();
   const rows=getBreakdownRows(month, annualIndex);
@@ -1378,113 +1189,8 @@ function updateBreakdownFromInputs(){
     rows[Number(rowIndex)][key]=v;
   });
 }
-function renderMonthlyRapSummary(){
-  ensureFullMonthOptionsV16();
-  const el=$("monthlyRapSummary");
-  if(!el) return;
-  normalizeRapV12();
-  const month=$("monthlyDocMonth")?.value || data.pengajuan.selectedMonth || "Januari 2026";
-  data.pengajuan.selectedMonth=month;
-  const rows=getMonthlyRapRows(month);
-  if(rows.length && !rows.some(r=>r.annualIndex===Number(data.pengajuan.monthlySelectedIndex))) data.pengajuan.monthlySelectedIndex=rows[0].annualIndex;
-  const selected=rows.find(r=>r.annualIndex===Number(data.pengajuan.monthlySelectedIndex)) || rows[0];
-  const listHtml = `<div class="monthly-selected-wrap">
-    ${rows.length?rows.map((r,i)=>{
-      const bTotal=breakdownTotal(month,r.annualIndex), ok=bTotal===Number(r.jumlahBulanan||0);
-      return `<div class="monthly-selected-card ${selected&&selected.annualIndex===r.annualIndex?'active':''}">
-        <div>
-          <strong>${i+1}. ${esc(r.uraian)||"Tanpa uraian"}</strong>
-          <div class="monthly-card-meta">
-            ${esc(r.kategori)}<br>
-            ${esc(r.subKategori)} • ${esc(r.volume)} • ${esc(r.sumber)}<br>
-            Anggaran Bulanan: <b>${rupiah(r.jumlahBulanan)}</b> • Breakdown: <b>${rupiah(bTotal)}</b>
-            <span class="breakdown-status ${ok?'ok':'bad'}">${ok?'Sesuai':'Belum sesuai'}</span>
-          </div>
-        </div>
-        <button class="secondary" onclick="selectMonthlyItem(${r.annualIndex})">Breakdown</button>
-      </div>`;
-    }).join(""):`<div class="panel"><p class="hint">Belum ada RAP pada bulan ${esc(month)}. Atur Bulan Pelaksanaan di RAP 1 Tahun.</p></div>`}
-  </div>`;
-  const detailHtml = selected ? renderBreakdownPanel(month, selected) : "";
-  el.innerHTML = listHtml + detailHtml;
-  if($("monthlyDocMonth")) $("monthlyDocMonth").value=month;
-}
-function renderBreakdownPanel(month, item){
-  const rows=getBreakdownRows(month,item.annualIndex);
-  const enc=encodeURIComponent(month);
-  const total=breakdownTotal(month,item.annualIndex);
-  const target=Number(item.jumlahBulanan||0);
-  const ok=total===target;
-  return `<div class="breakdown-panel">
-    <div class="breakdown-head">
-      <div>
-        <h3 style="margin:0">Breakdown RAP Bulanan</h3>
-        <p class="hint" style="margin:6px 0 0">${esc(item.uraian)} • ${esc(month)}</p>
-      </div>
-      <span class="breakdown-status ${ok?'ok':'bad'}">${ok?'TOTAL SESUAI':'TOTAL BELUM SESUAI'}</span>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>No</th><th>Tipe Operasional</th><th>Uraian Breakdown</th><th>Volume</th><th>Jumlah</th><th>Keterangan</th><th>Aksi</th></tr></thead>
-        <tbody>
-          ${rows.length?rows.map((r,i)=>`<tr>
-            <td>${i+1}</td>
-            <td><select class="mini-input select-compact" data-breakdown="${enc}|${item.annualIndex}|${i}|tipe">${formatSelOptionV12(TIPE_OPERASIONAL,r.tipe||"Belanja Barang/Material")}</select></td>
-            <td><input class="mini-input" data-breakdown="${enc}|${item.annualIndex}|${i}|uraian" value="${escapeAttr(r.uraian||"")}"></td>
-            <td><input class="mini-input" data-breakdown="${enc}|${item.annualIndex}|${i}|volume" value="${escapeAttr(r.volume||"1 Paket")}"></td>
-            <td><input class="mini-input" type="number" data-breakdown="${enc}|${item.annualIndex}|${i}|jumlah" value="${Number(r.jumlah||0)}"></td>
-            <td><input class="mini-input" data-breakdown="${enc}|${item.annualIndex}|${i}|keterangan" value="${escapeAttr(r.keterangan||"")}"></td>
-            <td><button class="delete" onclick="deleteBreakdownRow('${month}',${item.annualIndex},${i})">Hapus</button></td>
-          </tr>`).join(""):`<tr><td colspan="7">Belum ada breakdown. Klik Tambah Breakdown.</td></tr>`}
-        </tbody>
-      </table>
-    </div>
-    <div class="breakdown-total-line">
-      <span>Target RAP Bulanan: <strong>${rupiah(target)}</strong></span>
-      <span>Total Breakdown: <strong>${rupiah(total)}</strong></span>
-      <span>Selisih: <strong>${rupiah(target-total)}</strong></span>
-    </div>
-    <div class="action-row">
-      <button class="primary" onclick="addBreakdownRow('${month}',${item.annualIndex})">+ Tambah Breakdown</button>
-      <button class="secondary" onclick="updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();">Simpan Breakdown</button>
-    </div>
-  </div>`;
-}
 function monthlyTotal(month){ return getMonthlyRapRows(month).reduce((s,r)=>s+Number(r.jumlahBulanan||0),0); }
 function monthlyBreakdownTotal(month){ return getMonthlyRapRows(month).reduce((s,r)=>s+breakdownTotal(month,r.annualIndex),0); }
-function docRap(){
-  normalizeRapV12();
-  return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN<br>BANTUAN OPERASIONAL RT</div><table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${data.pengajuan.rap.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.kategori)} - ${esc(r.subKategori)}<br>Bulan: ${esc(r.bulan)}</small></td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlah)}</td><td>${esc(r.keterangan)}</td></tr>`).join("")}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(totalRap())}</b></td><td></td></tr></tbody></table><p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><p>Mengetahui,</p><div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`);
-}
-function docRapBulanan(){
-  updateBreakdownFromInputs();
-  const month=$("monthlyDocMonth")?.value||data.pengajuan.selectedMonth||"Januari 2026";
-  data.pengajuan.selectedMonth=month;
-  const monthly=getMonthlyRapRows(month);
-  let no=1;
-  const rowsHtml = monthly.map(item=>{
-    const details=getBreakdownRows(month,item.annualIndex);
-    if(details.length){
-      return details.map(d=>`<tr><td>${no++}</td><td>${esc(item.uraian)}<br><small>${esc(item.kategori)} - ${esc(item.subKategori)}<br>Tipe: ${esc(d.tipe)}</small></td><td>${esc(d.volume||"1 Paket")}</td><td>${rupiah(d.jumlah)}</td><td>${esc(d.keterangan||item.keterangan)}</td></tr>`).join("");
-    }
-    return `<tr><td>${no++}</td><td>${esc(item.uraian)}<br><small>${esc(item.kategori)} - ${esc(item.subKategori)}<br>Belum dibreakdown</small></td><td>${esc(item.volume)}</td><td>${rupiah(item.jumlahBulanan)}</td><td>${esc(item.keterangan)}</td></tr>`;
-  }).join("");
-  return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN ${esc(month).toUpperCase()}</div><table><thead><tr><th>No</th><th>Uraian Kegiatan / Breakdown</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${rowsHtml||`<tr><td colspan="5">Belum ada rencana kegiatan untuk bulan ${esc(month)}.</td></tr>`}<tr><td colspan="3"><b>Jumlah RAP Bulanan</b></td><td><b>${rupiah(monthlyTotal(month))}</b></td><td></td></tr><tr><td colspan="3"><b>Jumlah Breakdown</b></td><td><b>${rupiah(monthlyBreakdownTotal(month))}</b></td><td>${monthlyTotal(month)===monthlyBreakdownTotal(month)?"Sesuai":"Belum sesuai"}</td></tr></tbody></table><p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`);
-}
-function docRbb(){
-  updateBreakdownFromInputs();
-  const m=data.master,month=$("monthlyDocMonth")?.value||data.pengajuan.selectedMonth||"Januari 2026",monthly=getMonthlyRapRows(month);
-  let no=1;
-  const rowsHtml=monthly.map(item=>{
-    const details=getBreakdownRows(month,item.annualIndex);
-    if(details.length){
-      return details.map(d=>`<tr><td>${no++}</td><td>${esc(item.uraian)} - ${esc(d.uraian||d.tipe)}</td><td>${esc(d.volume||"1 Paket")}</td><td>${rupiah(d.jumlah)}</td><td>${esc(d.keterangan||item.keterangan)}</td></tr>`).join("");
-    }
-    return `<tr><td>${no++}</td><td>${esc(item.uraian)}</td><td>${esc(item.volume)}</td><td>${rupiah(item.jumlahBulanan)}</td><td>${esc(item.keterangan)}</td></tr>`;
-  }).join("");
-  const total=monthlyBreakdownTotal(month)||monthlyTotal(month);
-  return official(`<div class="title">Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div><table class="no-border"><tr><td style="width:160px">Nama Lembaga</td><td>: RT ${m.rt} RW ${m.rw}</td></tr><tr><td>Kelurahan</td><td>: ${m.kelurahan}</td></tr><tr><td>Kecamatan</td><td>: ${m.kecamatan}</td></tr><tr><td>Untuk Kegiatan Bulan</td><td>: ${esc(month)}</td></tr></table><br><table><tr><th>No.</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Anggaran</th><th>Keterangan</th></tr>${rowsHtml||`<tr><td colspan="5">Belum ada kegiatan bulan ini.</td></tr>`}<tr><td colspan="3"><b>Jumlah</b></td><td><b>${rupiah(total)}</b></td><td></td></tr></table><p>Terbilang: ${terbilang(total).replace(/\s+/g," ")} Rupiah</p><div class="ttd-3"><div>Yang Mengambil<br>Ketua RT ${m.rt} RW ${m.rw}<div class="signature-space"></div>${m.ketua||"Nama Jelas"}</div><div>Bendahara<div class="signature-space"></div>${m.bendahara||"Nama Jelas"}</div><div>Mengetahui<br>Lurah ${m.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div></div>`);
-}
 function previewDoc(type=currentDoc){
   updateBreakdownFromInputs();
   collectAll();
@@ -1518,120 +1224,6 @@ function closeMonthlyBreakdown(){
   localStorage.setItem(STORE,JSON.stringify(data));
   renderMonthlyRapSummary();
 }
-function updateBreakdownLiveStatus(){
-  const month=$("monthlyDocMonth")?.value || data.pengajuan.selectedMonth || "Januari 2026";
-  const idx=Number(data.pengajuan.monthlySelectedIndex);
-  if(Number.isNaN(idx)) return;
-  const item=getMonthlyRapRows(month).find(r=>r.annualIndex===idx);
-  if(!item) return;
-  const total=breakdownTotal(month,idx);
-  const target=Number(item.jumlahBulanan||0);
-  const diff=target-total;
-  const totalEl=$("breakdownLiveTotal"), diffEl=$("breakdownLiveDiff"), statusEl=$("breakdownLiveStatus");
-  if(totalEl) totalEl.textContent=rupiah(total);
-  if(diffEl) diffEl.textContent=rupiah(diff);
-  if(statusEl){
-    statusEl.textContent=(diff===0)?"TOTAL SESUAI":"TOTAL BELUM SESUAI";
-    statusEl.className="breakdown-status "+(diff===0?"ok":"bad");
-  }
-}
-function renderMonthlyRapSummary(){
-  ensureFullMonthOptionsV16();
-  const el=$("monthlyRapSummary");
-  if(!el) return;
-  normalizeRapV12();
-  ensureMonthlyBreakdown();
-  const month=$("monthlyDocMonth")?.value || data.pengajuan.selectedMonth || "Januari 2026";
-  if(month!==data.pengajuan.selectedMonth){
-    data.pengajuan.monthlyBreakdownOpen=false;
-    data.pengajuan.monthlySelectedIndex=null;
-  }
-  data.pengajuan.selectedMonth=month;
-  const rows=getMonthlyRapRows(month);
-  const selected=(data.pengajuan.monthlyBreakdownOpen)
-    ? rows.find(r=>r.annualIndex===Number(data.pengajuan.monthlySelectedIndex))
-    : null;
-
-  const cards = rows.length ? rows.map((r,i)=>{
-    const bTotal=breakdownTotal(month,r.annualIndex);
-    const target=Number(r.jumlahBulanan||0);
-    const ok=bTotal===target && target>0;
-    const active=selected&&selected.annualIndex===r.annualIndex;
-    return `<div class="monthly-selected-card ${active?'active':''}">
-      <div class="monthly-card-main">
-        <span class="monthly-index">${i+1}</span>
-        <div class="monthly-card-title">${esc(r.uraian)||'Tanpa uraian kegiatan'}</div>
-        <div class="monthly-card-category">${esc(r.kategori)}<br>${esc(r.subKategori)}</div>
-        <div class="monthly-card-budget">Anggaran Bulanan<br><strong>${rupiah(target)}</strong></div>
-        <div class="monthly-chip-row">
-          <span class="monthly-chip">${esc(r.volume||'1 Paket')}</span>
-          <span class="monthly-chip">${esc(r.sumber||'Langsung')}</span>
-          <span class="monthly-chip ${ok?'ok':'bad'}">${ok?'Sesuai':'Belum sesuai'}</span>
-        </div>
-        <div class="breakdown-summary-inline">
-          <span>Target: ${rupiah(target)}</span>
-          <span class="${ok?'ok':'bad'}">Breakdown: ${rupiah(bTotal)}</span>
-        </div>
-      </div>
-      <div class="monthly-card-action">
-        <button type="button" class="secondary" onclick="selectMonthlyItem(${r.annualIndex})">${active?'Edit Breakdown':'Breakdown'}</button>
-      </div>
-    </div>`;
-  }).join('') : `<div class="monthly-empty"><p class="hint">Belum ada RAP pada bulan ${esc(month)}. Atur Bulan Pelaksanaan di RAP 1 Tahun.</p></div>`;
-
-  const detail = selected ? renderBreakdownPanel(month, selected) : `<div class="breakdown-panel is-hidden"></div>`;
-  el.innerHTML = `<div class="monthly-summary-shell"><div class="monthly-cards-row">${cards}</div>${detail}</div>`;
-  if($("monthlyDocMonth")) $("monthlyDocMonth").value=month;
-}
-function renderBreakdownPanel(month, item){
-  const rows=getBreakdownRows(month,item.annualIndex);
-  const enc=encodeURIComponent(month);
-  const total=breakdownTotal(month,item.annualIndex);
-  const target=Number(item.jumlahBulanan||0);
-  const diff=target-total;
-  const ok=diff===0;
-  return `<div class="breakdown-panel">
-    <div class="breakdown-head">
-      <div>
-        <h3 style="margin:0">Breakdown RAP Bulanan</h3>
-        <div class="breakdown-subtitle"><b>${esc(item.uraian)}</b> • ${esc(month)}<br>${esc(item.kategori)} • ${esc(item.subKategori)}</div>
-      </div>
-      <div class="action-row">
-        <span id="breakdownLiveStatus" class="breakdown-status ${ok?'ok':'bad'}">${ok?'TOTAL SESUAI':'TOTAL BELUM SESUAI'}</span>
-        <button type="button" class="secondary" onclick="closeMonthlyBreakdown()">Tutup</button>
-      </div>
-    </div>
-    <div class="breakdown-toolbar">
-      <div class="hint">Isi rincian breakdown sesuai tipe operasional. Total breakdown harus sama dengan anggaran bulanan.</div>
-      <div class="action-row">
-        <button type="button" class="primary" onclick="addBreakdownRow('${month}',${item.annualIndex})">+ Tambah Breakdown</button>
-        <button type="button" class="secondary" onclick="updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();">Simpan Breakdown</button>
-      </div>
-    </div>
-    <div class="table-wrap">
-      <table class="breakdown-table">
-        <thead><tr><th>No</th><th>Tipe Operasional</th><th>Uraian Breakdown</th><th>Volume</th><th>Jumlah (Rp)</th><th>Keterangan</th><th>Aksi</th></tr></thead>
-        <tbody>
-          ${rows.length?rows.map((r,i)=>`<tr>
-            <td>${i+1}</td>
-            <td><select class="mini-input select-compact" data-breakdown="${enc}|${item.annualIndex}|${i}|tipe">${formatSelOptionV12(TIPE_OPERASIONAL,r.tipe||'Belanja Barang/Material')}</select></td>
-            <td><input class="mini-input" data-breakdown="${enc}|${item.annualIndex}|${i}|uraian" value="${escapeAttr(r.uraian||'')}" placeholder="Contoh: Pembelian cat jalan"></td>
-            <td><input class="mini-input" data-breakdown="${enc}|${item.annualIndex}|${i}|volume" value="${escapeAttr(r.volume||'1 Paket')}"></td>
-            <td><input class="mini-input" type="number" data-breakdown="${enc}|${item.annualIndex}|${i}|jumlah" value="${Number(r.jumlah||0)}"></td>
-            <td><input class="mini-input" data-breakdown="${enc}|${item.annualIndex}|${i}|keterangan" value="${escapeAttr(r.keterangan||'')}"></td>
-            <td><button type="button" class="delete" onclick="deleteBreakdownRow('${month}',${item.annualIndex},${i})">Hapus</button></td>
-          </tr>`).join(''):`<tr><td colspan="7">Belum ada breakdown. Klik Tambah Breakdown.</td></tr>`}
-        </tbody>
-      </table>
-    </div>
-    <div class="breakdown-summary-cards">
-      <div class="breakdown-summary-card primary"><div class="label">Target RAP Bulanan</div><div class="value">${rupiah(target)}</div></div>
-      <div class="breakdown-summary-card danger"><div class="label">Total Breakdown</div><div class="value" id="breakdownLiveTotal">${rupiah(total)}</div></div>
-      <div class="breakdown-summary-card ${diff===0?'success':'danger'}"><div class="label">Selisih</div><div class="value" id="breakdownLiveDiff">${rupiah(diff)}</div></div>
-      <div class="breakdown-summary-card status"><div class="label">Status</div><div class="value" style="font-size:16px;color:${ok?'#1b7f3a':'#9b1c1c'}">${ok?'TOTAL SUDAH SESUAI':'SEGERA SESUAIKAN TOTAL'}</div></div>
-    </div>
-  </div>`;
-}
 function previewMonthlyRapFromTab(){
   updateBreakdownFromInputs();
   previewDoc("rapbulanan");
@@ -1659,120 +1251,6 @@ function printMonthlyRbbFromTab(){
 
 
 /* PATCH v1.15 - RAP Tahunan memakai rentang Bulan Mulai s.d Bulan */
-function monthIndexV15(month){
-  return RAP_MONTHS.indexOf(month);
-}
-function monthRangeCountV15(startMonth,endMonth){
-  const a=monthIndexV15(startMonth), b=monthIndexV15(endMonth);
-  if(a<0||b<0) return 1;
-  return Math.max(1,b-a+1);
-}
-function monthsInRangeV15(startMonth,endMonth){
-  const a=monthIndexV15(startMonth), b=monthIndexV15(endMonth);
-  if(a<0||b<0) return [startMonth||"Januari 2026"];
-  const start=Math.min(a,b), end=Math.max(a,b);
-  return RAP_MONTHS.slice(start,end+1);
-}
-function normalizeMonthRangeV15(row){
-  if(!row.bulanMulai || !row.bulanSelesai){
-    const old=row.bulan || "Januari 2026";
-    if(old===RAP_MONTH_ALL || old==="Agustus-Desember 2026"){
-      row.bulanMulai="Januari 2026";
-      row.bulanSelesai="Desember 2026";
-    }else{
-      row.bulanMulai=old;
-      row.bulanSelesai=old;
-    }
-  }
-  if(monthIndexV15(row.bulanMulai)>monthIndexV15(row.bulanSelesai)){
-    const tmp=row.bulanMulai;
-    row.bulanMulai=row.bulanSelesai;
-    row.bulanSelesai=tmp;
-  }
-  row.bulan = row.bulanMulai===row.bulanSelesai ? row.bulanMulai : `${row.bulanMulai} s.d ${row.bulanSelesai}`;
-  return row;
-}
-function normalizeRapV15(){
-  normalizeRapV17();
-  ensureMonthlyBreakdown();
-  data.pengajuan.rap = (data.pengajuan.rap||[]).map(r=>{
-    let base;
-    if(Array.isArray(r)){
-      const kat=guessKategori(r[0]||"");
-      base={kategori:kat,subKategori:guessSubKategori(kat,r[0]||""),uraian:r[0]||"",bulan:guessBulan(r[0]||""),volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||""};
-    }else{
-      const kat=r.kategori||guessKategori(r.uraian||"");
-      base={
-        kategori:kat,
-        subKategori:r.subKategori||guessSubKategori(kat,r.uraian||""),
-        uraian:r.uraian||"",
-        bulan:r.bulan||"Januari 2026",
-        bulanMulai:r.bulanMulai,
-        bulanSelesai:r.bulanSelesai,
-        volume:r.volume||"1 Paket",
-        jumlah:Number(r.jumlah||0),
-        keterangan:r.keterangan||""
-      };
-    }
-    return normalizeMonthRangeV15(base);
-  });
-}
-function renderRap(){
-  ensureFullMonthOptionsV16();
-  normalizeRapV15();
-  const tb=$("rapTable").querySelector("tbody");
-  tb.innerHTML="";
-  $("rapTable").classList.add("rap-wide-table");
-  data.pengajuan.rap.forEach((r,i)=>{
-    const count=monthRangeCountV15(r.bulanMulai,r.bulanSelesai);
-    tb.insertAdjacentHTML("beforeend",`<tr>
-      <td>${i+1}</td>
-      <td><select class="mini-input select-compact" data-rap="${i},kategori">${formatSelOptionV12(KATEGORI_OPERASIONAL,r.kategori)}</select></td>
-      <td><select class="mini-input select-compact" data-rap="${i},subKategori">${formatSelOptionV12(SUB_KATEGORI_MAP[r.kategori]||[],r.subKategori)}</select></td>
-      <td><input class="mini-input" data-rap="${i},uraian" value="${escapeAttr(r.uraian)}"></td>
-      <td class="range-month-cell"><select class="mini-input select-compact" data-rap="${i},bulanMulai">${formatSelOptionV12(RAP_MONTHS,r.bulanMulai)}</select></td>
-      <td class="range-month-cell"><select class="mini-input select-compact" data-rap="${i},bulanSelesai">${formatSelOptionV12(RAP_MONTHS,r.bulanSelesai)}</select><div class="range-month-note">${count} bulan</div></td>
-      <td><input class="mini-input" data-rap="${i},volume" value="${escapeAttr(r.volume)}"></td>
-      <td><input class="mini-input" type="number" data-rap="${i},jumlah" value="${Number(r.jumlah||0)}"></td>
-      <td><input class="mini-input" data-rap="${i},keterangan" value="${escapeAttr(r.keterangan)}"></td>
-      <td><button type="button" class="delete" onclick="deleteRap(${i})">Hapus</button></td>
-    </tr>`);
-  });
-  $("rapTotalCell").textContent=rupiah(totalRap());
-  renderMonthlyRapSummary();
-}
-function updateRapFromInputs(){
-  normalizeRapV15();
-  document.querySelectorAll("[data-rap]").forEach(inp=>{
-    let [i,k]=inp.dataset.rap.split(",");
-    i=Number(i);
-    if(!data.pengajuan.rap[i])return;
-    let v=inp.value;
-    if(k==="jumlah")v=Number(v||0);
-    data.pengajuan.rap[i][k]=v;
-    if(k==="kategori"){
-      let row=data.pengajuan.rap[i];
-      if(!(SUB_KATEGORI_MAP[v]||[]).includes(row.subKategori)) row.subKategori=(SUB_KATEGORI_MAP[v]||[""])[0];
-    }
-  });
-  data.pengajuan.rap.forEach(r=>normalizeMonthRangeV15(r));
-}
-function addRap(){
-  updateRapFromInputs();
-  data.pengajuan.rap.push({
-    kategori:KATEGORI_OPERASIONAL[0],
-    subKategori:SUB_KATEGORI_MAP[KATEGORI_OPERASIONAL[0]][0],
-    uraian:"",
-    bulanMulai:"Januari 2026",
-    bulanSelesai:"Januari 2026",
-    bulan:"Januari 2026",
-    volume:"1 Paket",
-    jumlah:0,
-    keterangan:""
-  });
-  localStorage.setItem(STORE,JSON.stringify(data));
-  render();activateTab("rap");
-}
 function deleteRap(i){
   updateRapFromInputs();
   data.pengajuan.rap.splice(i,1);
@@ -1780,29 +1258,6 @@ function deleteRap(i){
   Object.keys(data.pengajuan.monthlyBreakdowns).forEach(k=>{ if(k.endsWith(`__${i}`)) delete data.pengajuan.monthlyBreakdowns[k]; });
   localStorage.setItem(STORE,JSON.stringify(data));
   render();activateTab("rap");
-}
-function getMonthlyRapRows(month){
-  normalizeRapV15();
-  const rows=[];
-  data.pengajuan.rap.forEach((r,annualIndex)=>{
-    const months=monthsInRangeV15(r.bulanMulai,r.bulanSelesai);
-    if(months.includes(month)){
-      const count=months.length;
-      const jumlahBulanan=count>1 ? Math.round(Number(r.jumlah||0)/count) : Number(r.jumlah||0);
-      rows.push({
-        ...r,
-        annualIndex,
-        jumlahBulanan,
-        sumber: count>1 ? `Bagi rata ${count} bulan` : "Langsung",
-        rentangBulan:`${r.bulanMulai} s.d ${r.bulanSelesai}`
-      });
-    }
-  });
-  return rows;
-}
-function docRap(){
-  normalizeRapV15();
-  return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN<br>BANTUAN OPERASIONAL RT</div><table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Rentang Bulan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${data.pengajuan.rap.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.kategori)} - ${esc(r.subKategori)}</small></td><td>${esc(r.bulanMulai)} s.d ${esc(r.bulanSelesai)}</td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlah)}</td><td>${esc(r.keterangan)}</td></tr>`).join("")}<tr><td colspan="4"><b>Jumlah</b></td><td><b>${rupiah(totalRap())}</b></td><td></td></tr></tbody></table><p style="text-align:right;margin-top:20px">Semarang, tanggal bulan tahun</p><p>Mengetahui,</p><div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${data.master.ketua||"Nama Jelas"}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${data.master.bendahara||"Nama Jelas"}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${data.pengajuan.namaLurah||"Nama Jelas"}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${data.pengajuan.namaKetuaRw||"Nama Jelas"}</div></div>`);
 }
 
 
@@ -1902,13 +1357,15 @@ function normalizeRapV15(){
       row={
         kategori:kat,
         subKategori:guessSubKategori(kat,uraian),
+        tipe:guessTipe(uraian),
         uraian,
         bulan:r[4]||guessBulan(uraian)||"Januari 2026",
         bulanMulai:r.bulanMulai,
         bulanSelesai:r.bulanSelesai,
         volume:r[1]||"1 Paket",
         jumlah:Number(r[2]||0),
-        keterangan:r[3]||""
+        keterangan:r[3]||"",
+        jadwalInternal:r.jadwalInternal
       };
     }else{
       const uraian=r.uraian||"";
@@ -1916,41 +1373,19 @@ function normalizeRapV15(){
       row={
         kategori:kat,
         subKategori:r.subKategori||guessSubKategori(kat,uraian),
+        tipe:r.tipe||guessTipe(uraian),
         uraian,
         bulan:r.bulan||"Januari 2026",
         bulanMulai:r.bulanMulai,
         bulanSelesai:r.bulanSelesai,
         volume:r.volume||"1 Paket",
         jumlah:Number(r.jumlah||0),
-        keterangan:r.keterangan||""
+        keterangan:r.keterangan||"",
+        jadwalInternal:r.jadwalInternal
       };
     }
     return inferMonthRangeV17(row);
   });
-}
-function renderRap(){
-  ensureFullMonthOptionsV17();
-  normalizeRapV15();
-  const tb=$("rapTable").querySelector("tbody");
-  tb.innerHTML="";
-  $("rapTable").classList.add("rap-wide-table");
-  data.pengajuan.rap.forEach((r,i)=>{
-    const count=monthRangeCountV15(r.bulanMulai,r.bulanSelesai);
-    tb.insertAdjacentHTML("beforeend",`<tr>
-      <td>${i+1}</td>
-      <td><select class="mini-input select-compact" data-rap="${i},kategori">${formatSelOptionV12(KATEGORI_OPERASIONAL,r.kategori)}</select></td>
-      <td><select class="mini-input select-compact" data-rap="${i},subKategori">${formatSelOptionV12(SUB_KATEGORI_MAP[r.kategori]||[],r.subKategori)}</select></td>
-      <td><input class="mini-input" data-rap="${i},uraian" value="${escapeAttr(r.uraian)}"></td>
-      <td class="range-month-cell"><select class="mini-input select-compact" data-rap="${i},bulanMulai">${formatSelOptionV12(monthListV17(),r.bulanMulai)}</select></td>
-      <td class="range-month-cell"><select class="mini-input select-compact" data-rap="${i},bulanSelesai">${formatSelOptionV12(monthListV17(),r.bulanSelesai)}</select><div class="range-month-note">${count} bulan</div></td>
-      <td><input class="mini-input" data-rap="${i},volume" value="${escapeAttr(r.volume)}"></td>
-      <td><input class="mini-input" type="number" data-rap="${i},jumlah" value="${Number(r.jumlah||0)}"></td>
-      <td><input class="mini-input" data-rap="${i},keterangan" value="${escapeAttr(r.keterangan)}"></td>
-      <td><button type="button" class="delete" onclick="deleteRap(${i})">Hapus</button></td>
-    </tr>`);
-  });
-  $("rapTotalCell").textContent=rupiah(totalRap());
-  renderMonthlyRapSummary();
 }
 function updateRapFromInputs(){
   ensureFullMonthOptionsV17();
@@ -1994,74 +1429,6 @@ function addRap(){
   });
   localStorage.setItem(STORE,JSON.stringify(data));
   render();activateTab("rap");
-}
-function getMonthlyRapRows(month){
-  normalizeRapV15();
-  const rows=[];
-  data.pengajuan.rap.forEach((r,annualIndex)=>{
-    const months=monthsInRangeV15(r.bulanMulai,r.bulanSelesai);
-    if(months.includes(month)){
-      const count=months.length;
-      const jumlahBulanan=count>1 ? Math.round(Number(r.jumlah||0)/count) : Number(r.jumlah||0);
-      rows.push({
-        ...r,
-        annualIndex,
-        jumlahBulanan,
-        sumber: count>1 ? `Bagi rata ${count} bulan` : "Langsung",
-        rentangBulan:`${r.bulanMulai} s.d ${r.bulanSelesai}`
-      });
-    }
-  });
-  return rows;
-}
-function renderMonthlyRapSummary(){
-  ensureFullMonthOptionsV17();
-  const el=$("monthlyRapSummary");
-  if(!el) return;
-  normalizeRapV15();
-  ensureMonthlyBreakdown();
-  const month=$("monthlyDocMonth")?.value || data.pengajuan.selectedMonth || "Januari 2026";
-  if(month!==data.pengajuan.selectedMonth){
-    data.pengajuan.monthlyBreakdownOpen=false;
-    data.pengajuan.monthlySelectedIndex=null;
-  }
-  data.pengajuan.selectedMonth=month;
-  const rows=getMonthlyRapRows(month);
-  const selected=(data.pengajuan.monthlyBreakdownOpen)
-    ? rows.find(r=>r.annualIndex===Number(data.pengajuan.monthlySelectedIndex))
-    : null;
-
-  const cards = rows.length ? rows.map((r,i)=>{
-    const bTotal=breakdownTotal(month,r.annualIndex);
-    const target=Number(r.jumlahBulanan||0);
-    const ok=bTotal===target && target>0;
-    const active=selected&&selected.annualIndex===r.annualIndex;
-    return `<div class="monthly-selected-card ${active?'active':''}">
-      <div class="monthly-card-main">
-        <span class="monthly-index">${i+1}</span>
-        <div class="monthly-card-title">${esc(r.uraian)||'Tanpa uraian kegiatan'}</div>
-        <div class="monthly-card-category">${esc(r.kategori)}<br>${esc(r.subKategori)}</div>
-        <div class="monthly-card-budget">Anggaran Bulanan<br><strong>${rupiah(target)}</strong></div>
-        <div class="monthly-chip-row">
-          <span class="monthly-chip">${esc(r.volume||'1 Paket')}</span>
-          <span class="monthly-chip">${esc(r.sumber||'Langsung')}</span>
-          <span class="monthly-chip">${esc(r.rentangBulan)}</span>
-          <span class="monthly-chip ${ok?'ok':'bad'}">${ok?'Sesuai':'Belum sesuai'}</span>
-        </div>
-        <div class="breakdown-summary-inline">
-          <span>Target: ${rupiah(target)}</span>
-          <span class="${ok?'ok':'bad'}">Breakdown: ${rupiah(bTotal)}</span>
-        </div>
-      </div>
-      <div class="monthly-card-action">
-        <button type="button" class="secondary" onclick="selectMonthlyItem(${r.annualIndex})">${active?'Edit Breakdown':'Breakdown'}</button>
-      </div>
-    </div>`;
-  }).join('') : `<div class="monthly-empty"><p class="hint">Belum ada RAP pada bulan ${esc(month)}. Atur Bulan Mulai s.d Bulan di RAP 1 Tahun.</p></div>`;
-
-  const detail = selected ? renderBreakdownPanel(month, selected) : `<div class="breakdown-panel is-hidden"></div>`;
-  el.innerHTML = `<div class="monthly-summary-shell"><div class="monthly-cards-row">${cards}</div>${detail}</div>`;
-  if($("monthlyDocMonth")) $("monthlyDocMonth").value=month;
 }
 
 
@@ -2140,52 +1507,6 @@ function normalizeRapV18(){
     if(!r.volume) r.volume="1 Paket";
     return normalizeMonthRangeV15(r);
   });
-}
-function renderRap(){
-  ensureFullMonthOptionsV17();
-  normalizeRapV18();
-  const tb=$("rapTable").querySelector("tbody");
-  tb.innerHTML="";
-  $("rapTable").classList.add("rap-wide-table");
-  data.pengajuan.rap.forEach((r,i)=>{
-    const count=monthRangeCountV15(r.bulanMulai,r.bulanSelesai);
-    const ter=annualBreakdownTotalV18(i);
-    const sisa=Number(r.jumlah||0)-ter;
-    const cls=sisa===0?"good":(sisa>0?"warning":"danger");
-    tb.insertAdjacentHTML("beforeend",`<tr>
-      <td>${i+1}</td>
-      <td><select class="mini-input select-compact" data-rap="${i},kategori">${formatSelOptionV12(KATEGORI_OPERASIONAL,r.kategori)}</select></td>
-      <td><select class="mini-input select-compact" data-rap="${i},subKategori">${formatSelOptionV12(SUB_KATEGORI_MAP[r.kategori]||[],r.subKategori)}</select></td>
-      <td><input class="mini-input" data-rap="${i},uraian" value="${escapeAttr(r.uraian)}"></td>
-      <td class="range-month-cell"><select class="mini-input select-compact" data-rap="${i},bulanMulai">${formatSelOptionV12(monthListV17(),r.bulanMulai)}</select></td>
-      <td class="range-month-cell"><select class="mini-input select-compact" data-rap="${i},bulanSelesai">${formatSelOptionV12(monthListV17(),r.bulanSelesai)}</select><div class="range-month-note">${count} bulan</div></td>
-      <td><input class="mini-input" data-rap="${i},volume" value="${escapeAttr(r.volume)}" placeholder="Contoh: 2 Kegiatan / 12 Bulan"></td>
-      <td><input class="mini-input" type="number" data-rap="${i},jumlah" value="${Number(r.jumlah||0)}"></td>
-      <td class="unit-price-cell">${rupiah(unitPriceV18(r))}</td>
-      <td class="budget-progress-cell">${rupiah(ter)}</td>
-      <td class="budget-progress-cell ${cls}">${rupiah(sisa)}</td>
-      <td><input class="mini-input" data-rap="${i},keterangan" value="${escapeAttr(r.keterangan)}"></td>
-      <td><button type="button" class="delete" onclick="deleteRap(${i})">Hapus</button></td>
-    </tr>`);
-  });
-  $("rapTotalCell").textContent=rupiah(totalRap());
-  renderMonthlyRapSummary();
-}
-function getMonthlyRapRows(month){
-  normalizeRapV18();
-  const rows=[];
-  data.pengajuan.rap.forEach((r,annualIndex)=>{
-    const months=monthsInRangeV15(r.bulanMulai,r.bulanSelesai);
-    if(months.includes(month)){
-      const qty=monthlyQtyForRowV18(r,month);
-      const amount=monthlyAmountForRowV18(r,month);
-      if(qty>0 && amount>0){
-        const v=parseVolumeV18(r.volume);
-        rows.push({...r,annualIndex,volumeBulanan:formatVolumeV18(qty,v.unit),qtyBulanan:qty,jumlahBulanan:amount,sumber:months.length>1?`Otomatis ${formatVolumeV18(v.qty,v.unit)} / ${months.length} bulan`:"Langsung",rentangBulan:`${r.bulanMulai} s.d ${r.bulanSelesai}`});
-      }
-    }
-  });
-  return rows;
 }
 
 
@@ -2338,14 +1659,6 @@ function getMonthlyFlattenedRows(month){
     }
   });
   return rows;
-}
-function docRap(){
-  normalizeRapV18();
-  return official(`<div class="title">RENCANA ANGGARAN PENGGUNAAN<br>BANTUAN OPERASIONAL RT</div>
-  <table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Rentang Bulan</th><th>Total Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>${data.pengajuan.rap.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.uraian)}<br><small>${esc(r.kategori)} - ${esc(r.subKategori)}</small></td><td>${esc(r.bulanMulai)} s.d ${esc(r.bulanSelesai)}</td><td>${esc(r.volume)}</td><td>${rupiah(r.jumlah)}</td><td>${esc(r.keterangan)}</td></tr>`).join("")}<tr><td colspan="4"><b>Jumlah</b></td><td><b>${rupiah(totalRap())}</b></td><td></td></tr></tbody></table>
-  <p style="text-align:right;margin-top:20px">${todaySemarangV18()}</p>
-  <p>Mengetahui,</p>
-  <div class="ttd-4"><div>Ketua RT ${data.master.rt}<div class="signature-space"></div>${safeNameV18(data.master.ketua)}</div><div>Bendahara RT ${data.master.rt}<div class="signature-space"></div>${safeNameV18(data.master.bendahara)}</div><div>Lurah ${data.master.kelurahan}<div class="signature-space"></div>${safeNameV18(data.pengajuan.namaLurah)}</div><div>Ketua RW ${data.master.rw}<div class="signature-space"></div>${safeNameV18(data.pengajuan.namaKetuaRw)}</div></div>`);
 }
 function docRapBulanan(){
   updateBreakdownFromInputs();
@@ -2692,81 +2005,12 @@ function restoreFolioPrintV21(){
   if(old!==undefined) document.title=old || "BOP RT 005 Offline Manager";
   document.body.classList.remove("print-doc","print-lpj","print-pk","print-folio-v21");
 }
-function cleanPrint(target){
-  prepareFolioPrintV21(target==="lpj"?"lpj":"doc");
-  setTimeout(()=>window.print(),180);
-}
-function cleanPrintPk(){
-  prepareFolioPrintV21("pk");
-  setTimeout(()=>window.print(),180);
-}
 window.addEventListener("afterprint",restoreFolioPrintV21);
 
 
-function ensurePrintHelpV21(){
-  if($("docOutput") && !$("printHelpDocV21")){
-    const box=document.createElement("div");
-    box.id="printHelpDocV21";
-    box.innerHTML=printHelpV21();
-    const parent=$("docOutput").parentElement;
-    if(parent) parent.insertBefore(box,$("docOutput"));
-  }
-  if($("pkDocOutput") && !$("printHelpPkV21")){
-    const box=document.createElement("div");
-    box.id="printHelpPkV21";
-    box.innerHTML=printHelpV21();
-    const parent=$("pkDocOutput").parentElement;
-    if(parent) parent.insertBefore(box,$("pkDocOutput"));
-  }
-}
 
 
 /* PATCH v1.22 - Cetak langsung dari iframe bersih agar preview aplikasi tidak ikut tercetak */
-function printCssV22(){
-  return `
-  @page{size:215mm 330mm;margin:12mm 14mm 12mm 14mm}
-  html,body{margin:0;padding:0;background:#fff;color:#000}
-  body{font-family:"Times New Roman",serif}
-  .print-page{width:187mm;box-sizing:border-box;margin:0 auto;background:#fff}
-  .official{font-family:"Times New Roman",serif;color:#000;font-size:11.5pt;line-height:1.22;width:100%;box-sizing:border-box}
-  .kop{position:relative;text-align:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;min-height:72px;display:flex;align-items:center;justify-content:center}
-  .kop-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);width:58px;max-height:70px;object-fit:contain;display:block}
-  .kop-text{text-align:center;width:100%}
-  .kop h1,.kop-text h1{font-family:"Times New Roman",serif;margin:0;font-size:16px;text-transform:uppercase;text-align:center}
-  .kop h2,.kop-text h2{font-family:"Times New Roman",serif;margin:2px 0;font-size:15px;text-transform:uppercase;text-align:center}
-  .kop p,.kop-text p{font-family:"Times New Roman",serif;margin:2px 0;font-size:11px;text-align:center}
-  .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt}
-  .official table{width:100%;border-collapse:collapse}
-  .official th,.official td{border:1px solid #000;padding:5px;vertical-align:top}
-  .official table.no-border td,.official table.no-border th,.official .no-border td,.official .no-border th{border:0!important;padding:3px 2px!important}
-  .official p{margin:7px 0}
-  .ttd-grid,.ttd-4,.ttd-3{display:grid;gap:18px;text-align:center;margin-top:16px}
-  .ttd-grid{grid-template-columns:1fr 1fr}
-  .ttd-4{grid-template-columns:repeat(4,1fr)}
-  .ttd-3{grid-template-columns:repeat(3,1fr)}
-  .signature-space{height:58px}
-  .kuitansi-box{border:2px solid #000;padding:14px;margin-top:8px}
-  .kuitansi-title{text-align:center;font-weight:bold;text-transform:uppercase;font-size:16pt;margin-bottom:10px}
-  .kuitansi-nominal{border:1px solid #000;padding:8px 12px;font-weight:bold;display:inline-block;min-width:220px;text-align:center}
-  @media print{
-    html,body{width:215mm;min-height:330mm}
-    .print-page{width:187mm;margin:0 auto}
-  }`;
-}
-function getPrintHtmlV22(target){
-  collectAll();
-  let html="", title=" ";
-  if(target==="lpj"){
-    html=docLpj();
-  }else if(target==="pk"){
-    collectPersiapan();
-    html=(typeof pkDocs!=="undefined" && pkDocs[currentPkDoc]) ? pkDocs[currentPkDoc]() : (document.getElementById("pkDocOutput")?.innerHTML||"");
-  }else{
-    previewDoc(currentDoc);
-    html=document.getElementById("docOutput")?.innerHTML || "";
-  }
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>${printCssV22()}</style></head><body><div class="print-page">${html}</div></body></html>`;
-}
 function printInIframeV22(target){
   const old=document.getElementById("printFrameV22");
   if(old) old.remove();
@@ -2790,55 +2034,9 @@ function cleanPrint(target){
 function cleanPrintPk(){
   printInIframeV22("pk");
 }
-function ensurePrintHelpV22(){
-  const msg=`<div class="print-help-v21"><b>Mode cetak langsung bersih aktif</b>Dokumen akan dicetak dari halaman khusus Folio/F4, bukan dari tampilan aplikasi. Pada dialog print tetap pilih kertas Folio/F4/8.5 x 13 dan matikan <b>Headers and footers</b>.</div>`;
-  if($("docOutput") && !$("printHelpDocV22")){
-    const box=document.createElement("div");box.id="printHelpDocV22";box.innerHTML=msg;
-    const parent=$("docOutput").parentElement;if(parent) parent.insertBefore(box,$("docOutput"));
-  }
-  if($("pkDocOutput") && !$("printHelpPkV22")){
-    const box=document.createElement("div");box.id="printHelpPkV22";box.innerHTML=msg;
-    const parent=$("pkDocOutput").parentElement;if(parent) parent.insertBefore(box,$("pkDocOutput"));
-  }
-}
 
 
 /* PATCH v1.23 - Print CSS stabil dan preview tidak turun */
-function printCssV22(){
-  return `
-  @page{size:215mm 330mm;margin:12mm 14mm 12mm 14mm}
-  html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
-  body{font-family:"Times New Roman",serif!important}
-  .print-page{width:187mm;box-sizing:border-box;margin:0 auto;background:#fff}
-  .official{font-family:"Times New Roman",serif!important;color:#000!important;font-size:11.2pt!important;line-height:1.2!important;width:100%;box-sizing:border-box}
-  .kop{display:grid;grid-template-columns:68px 1fr;align-items:center;border-bottom:3px double #000;padding-bottom:8px;margin-bottom:12px;text-align:center;break-after:avoid;page-break-after:avoid}
-  .kop-logo{width:54px;max-height:66px;object-fit:contain;margin:auto;display:block}
-  .kop h1{font-family:"Times New Roman",serif;margin:0;font-size:15.5px;text-transform:uppercase}
-  .kop h2{font-family:"Times New Roman",serif;margin:1px 0;font-size:14.5px;text-transform:uppercase}
-  .kop p{font-family:"Times New Roman",serif;margin:1px 0;font-size:10.5px}
-  .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:9px 0 10px;font-size:12.6pt;break-after:avoid;page-break-after:avoid}
-  .official table{width:100%;border-collapse:collapse;table-layout:fixed;page-break-inside:auto}
-  .official thead{display:table-header-group}
-  .official tfoot{display:table-footer-group}
-  .official tr{page-break-inside:avoid;break-inside:avoid}
-  .official th,.official td{border:1px solid #000;padding:4px 4px;vertical-align:top;font-size:10.2pt;line-height:1.15;overflow-wrap:anywhere;word-break:normal}
-  .official th{text-align:center;font-weight:bold}
-  .official table.no-border{table-layout:auto!important}
-  .official table.no-border td,.official table.no-border th,.official .no-border td,.official .no-border th{border:0!important;padding:3px 2px!important;font-size:11.2pt!important;overflow-wrap:normal!important}
-  .official p{margin:7px 0}
-  .ttd-grid,.ttd-4,.ttd-3{display:grid;gap:18px;text-align:center;margin-top:16px;page-break-inside:avoid;break-inside:avoid}
-  .ttd-grid{grid-template-columns:1fr 1fr}
-  .ttd-4{grid-template-columns:repeat(4,1fr)}
-  .ttd-3{grid-template-columns:repeat(3,1fr)}
-  .signature-space{height:54px}
-  .kuitansi-box{border:2px solid #000;padding:14px;margin-top:8px;page-break-inside:avoid;break-inside:avoid}
-  .kuitansi-title{text-align:center;font-weight:bold;text-transform:uppercase;font-size:15.5pt;margin-bottom:10px}
-  .kuitansi-nominal{border:1px solid #000;padding:8px 12px;font-weight:bold;display:inline-block;min-width:220px;text-align:center}
-  @media print{
-    html,body{width:215mm;min-height:330mm}
-    .print-page{width:187mm;margin:0 auto}
-  }`;
-}
 
 function ensurePrintHelpV21(){}
 function ensurePrintHelpV22(){}
@@ -3208,65 +2406,6 @@ function aiRingkasPoinPkV25(){
   localStorage.setItem(STORE,JSON.stringify(data));
   fillPersiapan(); previewPkDoc("pk-notulen");
   if(typeof notifyChangeV19==="function") notifyChangeV19("Poin diringkas","Pembahasan dan keputusan kegiatan dibuat menjadi poin ringkas.","success");
-}
-function insertAiNotulenPanelsV25(){
-  if($("aiNotulenPengajuanV25") || !$("notPembahasan")) return;
-  const target=$("notPembahasan").closest(".panel");
-  if(target){
-    const box=document.createElement("div");
-    box.id="aiNotulenPengajuanV25";
-    box.className="ai-notulen-panel-v25";
-    box.innerHTML=`<div class="ai-title"><span class="ai-icon">AI</span> Asisten Notulen Resmi</div>
-      <div class="ai-desc">Tempel catatan mentah rapat pada kolom pembahasan/keputusan, lalu gunakan AI Notulen untuk merapikan bahasa, menyusun poin, melengkapi pimpinan/notulis, dan membuat format notulen resmi.</div>
-      <div class="ai-actions">
-        <button class="primary" type="button" onclick="aiRapikanNotulenPengajuanV25()">Rapikan Notulen dengan AI</button>
-        <button class="secondary" type="button" onclick="aiRingkasPoinPengajuanV25()">Ringkas Jadi Poin</button>
-        <button class="secondary" type="button" onclick="previewDoc('notulen')">Preview Notulen</button>
-      </div>`;
-    target.insertBefore(box,target.firstChild);
-  }
-  if($("aiNotulenPkV25") || !$("pkPembahasan")) return;
-  const targetPk=$("pkPembahasan").closest(".panel") || $("tab-pk-notulen");
-  if(targetPk){
-    const box=document.createElement("div");
-    box.id="aiNotulenPkV25";
-    box.className="ai-notulen-panel-v25";
-    box.innerHTML=`<div class="ai-title"><span class="ai-icon">AI</span> Asisten Notulen Kegiatan</div>
-      <div class="ai-desc">Gunakan untuk membuat notulen kegiatan operasional/SPJ menjadi rapi, formal, terstruktur, dan siap dicetak.</div>
-      <div class="ai-actions">
-        <button class="primary" type="button" onclick="aiRapikanNotulenPkV25()">Rapikan Notulen dengan AI</button>
-        <button class="secondary" type="button" onclick="aiRingkasPoinPkV25()">Ringkas Jadi Poin</button>
-        <button class="secondary" type="button" onclick="previewPkDoc('pk-notulen')">Preview Notulen</button>
-      </div>`;
-    targetPk.insertBefore(box,targetPk.firstChild);
-  }
-}
-function docNotulen(){
-  const m=data.master, mt=data.pengajuan.meeting || defaultData.pengajuan.meeting;
-  const pesertaRows = (data.pengajuan.peserta||[]).filter(r=>r&&r[0]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
-  const actRows = (mt.actionPlan||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
-  return official(`<div class="title">NOTULEN RAPAT / KEGIATAN</div>
-  <table class="no-border notulen-meta-v25">
-    <tr><td style="width:170px"><b>Judul/Tema Rapat</b></td><td>: ${esc(mt.rapatJudul)}</td></tr>
-    <tr><td><b>Hari/Tanggal</b></td><td>: ${esc(mt.rapatHariTanggal)}</td></tr>
-    <tr><td><b>Waktu</b></td><td>: ${esc(mt.rapatMulai)} s.d. ${esc(mt.rapatSelesai)}</td></tr>
-    <tr><td><b>Tempat/Lokasi</b></td><td>: ${esc(mt.rapatTempat)}</td></tr>
-    <tr><td><b>Pimpinan Rapat</b></td><td>: ${esc(mt.notPimpinan)||esc(m.ketua)||".................."}</td></tr>
-    <tr><td><b>Notulis</b></td><td>: ${esc(mt.notNotulis)||esc(m.sekretaris)||".................."}</td></tr>
-    <tr><td><b>Kehadiran</b></td><td>: Hadir ${Number(mt.notHadir||0)} orang, Tidak Hadir ${Number(mt.notTidakHadir||0)} orang</td></tr>
-  </table>
-  <div class="notulen-section-title-v25">I. Agenda Rapat</div>
-  ${pointsHtmlV25(textToPointsV25(mt.rapatAgenda,"Pembahasan agenda rapat"))}
-  <div class="notulen-section-title-v25">II. Pembahasan</div>
-  ${pointsHtmlV25(textToPointsV25(mt.notPembahasan,"Pembahasan rapat"))}
-  <div class="notulen-section-title-v25">III. Hasil Keputusan</div>
-  ${pointsHtmlV25(textToPointsV25(mt.notKeputusan,"Hasil keputusan rapat"))}
-  <div class="notulen-section-title-v25">IV. Rencana Tindak Lanjut</div>
-  <table><thead><tr><th>No</th><th>Tugas/Tindak Lanjut</th><th>Target Waktu</th><th>Penanggung Jawab</th></tr></thead><tbody>${actRows||'<tr><td>1</td><td></td><td></td><td></td></tr>'}</tbody></table>
-  <div class="notulen-section-title-v25">V. Penutup</div>
-  <p class="notulen-paragraph-v25">Demikian notulen ini dibuat sebagai catatan resmi rapat/kegiatan dan sebagai dasar tindak lanjut administrasi RT.</p>
-  <p style="text-align:right;margin-top:18px">${typeof todaySemarangV18==="function"?todaySemarangV18():"Semarang, tanggal bulan tahun"}</p>
-  <div class="ttd-grid"><div>Pimpinan Rapat<div class="signature-space"></div>${esc(mt.notPimpinan)||esc(m.ketua)||"Nama Jelas"}</div><div>Notulis<div class="signature-space"></div>${esc(mt.notNotulis)||esc(m.sekretaris)||"Nama Jelas"}</div></div>`);
 }
 function docPkNotulen(){
   const m=data.master,p=data.persiapan;
@@ -3732,19 +2871,6 @@ function insertAiLpjPanelV29(){
     </div>`;
   target.insertBefore(box,target.firstChild);
 }
-function goPage(page){
-  const target=$("page-"+page);
-  if(!target){ page="akses"; }
-  document.querySelectorAll(".nav button").forEach(b=>b.classList.toggle("active",b.dataset.page===page));
-  document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
-  const active=$("page-"+page);
-  if(active) active.classList.add("active");
-  if(page==="moku"){
-    const frame=$("mokuFrameV29");
-    if(frame && !frame.src) frame.src="moku/index.html";
-  }
-  if(window.innerWidth<1000 && $("sidebar")) $("sidebar").classList.remove("open");
-}
 
 function bind(){
   $("hamburger").onclick=()=>{
@@ -3796,25 +2922,6 @@ function setAccessGateV30(isLocked){
   shell.classList.toggle("access-lock-v30", !!isLocked);
   shell.classList.toggle("access-unlocked-v30", !isLocked);
   if(isLocked && window.innerWidth < 1000 && $("sidebar")) $("sidebar").classList.remove("open");
-}
-function goPage(page){
-  const target = $("page-" + page);
-  if(!target){ page = "akses"; }
-  const locked = page === "akses";
-  setAccessGateV30(locked);
-  document.querySelectorAll(".nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
-  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
-  const active = $("page-" + page);
-  if(active) active.classList.add("active");
-  if(page === "moku"){
-    const frame = $("mokuFrameV29");
-    if(frame){
-      const current = frame.getAttribute("src") || "";
-      if(!current || current === "about:blank") frame.setAttribute("src", "moku/index.html?v=2.1");
-      else if(!current.includes("v=2.1")) frame.setAttribute("src", "moku/index.html?v=2.1");
-    }
-  }
-  if(window.innerWidth < 1000 && $("sidebar")) $("sidebar").classList.remove("open");
 }
 (function initAccessGateV30(){
   setAccessGateV30(true);
@@ -4773,12 +3880,14 @@ async function goPage(page){
     body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.24}
     .print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}
     .official,.official-v37{font-family:"Times New Roman",serif;color:#000;font-size:11.5pt;line-height:1.24;width:100%;box-sizing:border-box;text-align:justify}
-    .kop{position:relative;text-align:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;min-height:72px;display:flex;align-items:center;justify-content:center}
-    .kop-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);width:58px;max-height:70px;object-fit:contain;display:block}
-    .kop-text{text-align:center;width:100%}
-    .kop h1,.kop-text h1{margin:0;font-size:16px;text-transform:uppercase;text-align:center}
-    .kop h2,.kop-text h2{margin:2px 0;font-size:15px;text-transform:uppercase;text-align:center}
-    .kop p,.kop-text p{margin:2px 0;font-size:11px;text-align:center}
+    .kop{display:flex;align-items:center;border-bottom:3px double #000;padding:4px 0 8px 0;margin-bottom:14px;width:100%;box-sizing:border-box;page-break-inside:avoid;break-inside:avoid}
+    .kop-logo-wrap{width:56px;min-width:56px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+    .kop-logo{width:52px;height:auto;max-height:64px;object-fit:contain;display:block}
+    .kop-logo-spacer{width:56px;min-width:56px;flex-shrink:0}
+    .kop-text{flex:1;text-align:center;padding:0 4px}
+    .kop-b1{font-family:"Times New Roman",serif;font-size:15pt;font-weight:bold;text-transform:uppercase;text-align:center;white-space:nowrap;line-height:1.1;margin:0;padding:0}
+    .kop-b2{font-family:"Times New Roman",serif;font-size:12.5pt;font-weight:bold;text-transform:uppercase;text-align:center;white-space:nowrap;line-height:1.1;margin:1px 0;padding:0}
+    .kop-addr{font-family:"Times New Roman",serif;font-size:9pt;font-weight:normal;text-align:center;margin-top:3px;line-height:1.2;white-space:normal}
     .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt;line-height:1.2}
     .official p{margin:7px 0;text-align:justify}.center-v37{text-align:center!important}.date-right-v37{text-align:right!important}.ket-v37{font-size:10pt}.mengetahui-v37{margin-top:14px!important}
     .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
@@ -5098,47 +4207,14 @@ async function goPage(page){
     if(pushBtn) pushBtn.onclick = () => manualPush();
     if(pullBtn) pullBtn.onclick = () => manualPull();
 
-    /* ── Railway URL input ────────────────────────────────────── */
-    const urlInput   = document.getElementById("railwayUrlInput");
-    const urlSaveBtn = document.getElementById("railwayUrlSaveBtn");
-    const urlStatus  = document.getElementById("railwayUrlStatus");
-
-    if(urlInput && !urlInput._bound){
-      urlInput._bound = true;
-      /* Tampilkan URL yang sudah tersimpan */
-      const saved = localStorage.getItem("bop_api_base") || window.BOP_API_BASE || "";
-      urlInput.value = saved;
-
-      if(urlSaveBtn){
-        urlSaveBtn.onclick = () => {
-          const val = urlInput.value.trim();
-          if(!val){
-            if(urlStatus){ urlStatus.textContent = "⚠ Masukkan URL Railway terlebih dahulu."; urlStatus.style.color = "#b45309"; }
-            return;
-          }
-          const cleaned = window.__bopSetApiBase ? window.__bopSetApiBase(val) : val;
-          if(urlStatus){
-            urlStatus.innerHTML = "✅ URL disimpan: <b>" + cleaned + "</b><br><small>API bridge aktif. Klik 🔍 Cek Server untuk verifikasi.</small>";
-            urlStatus.style.color = "#15803d";
-          }
-        };
-      }
-    }
-
     /* ── Setup Otomatis ──────────────────────────────────────── */
     const autoSetupBtn = document.getElementById("syncAutoSetupBtn");
     if(autoSetupBtn && !autoSetupBtn._bound){
       autoSetupBtn._bound = true;
       autoSetupBtn.onclick = async () => {
         const info = document.getElementById("syncServerInfo");
-        const curBase = window.BOP_API_BASE || localStorage.getItem("bop_api_base") || "";
 
         function step(msg, color){ if(info){ info.style.display="block"; info.innerHTML=msg; info.style.color=color||"#475569"; } }
-
-        if(!curBase){
-          step("⚠ <b>URL Railway belum diset.</b><br>Isi kolom <b>URL Server Railway</b> di atas dengan URL Railway-mu lalu klik Simpan URL.", "#b45309");
-          return;
-        }
 
         autoSetupBtn.disabled = true;
         autoSetupBtn.textContent = "⏳ Memeriksa...";
@@ -5227,70 +4303,6 @@ async function goPage(page){
       };
     }
 
-    const checkBtn = document.getElementById("syncCheckServerBtn");
-    if(checkBtn && !checkBtn._bound){
-      checkBtn._bound = true;
-      checkBtn.onclick = async () => {
-        const info = document.getElementById("syncServerInfo");
-        if(info){ info.style.display = "block"; info.textContent = "⏳ Mengecek server..."; info.style.color = "#475569"; }
-        const curBase = window.BOP_API_BASE || localStorage.getItem("bop_api_base") || "";
-        if(!curBase){
-          if(info){ info.innerHTML = "⚠ <b>URL Railway belum diset.</b><br>Isi kolom <b>URL Server Railway</b> di atas dengan URL Railway-mu, lalu klik Simpan URL."; info.style.color = "#b45309"; }
-          return;
-        }
-        try{
-          const r = await fetch("/api/bop/status", {
-            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
-          });
-          const d = await r.json();
-          if(info){
-            if(d.ok){
-              const ts = d.updatedAt ? new Date(d.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
-              info.innerHTML = "✅ <b>Server online</b><br>Database: PostgreSQL (Railway)<br>Punya data: " + (d.hasData?"Ya":"Tidak") + "<br>Versi: " + (d.version||0) + "<br>Terakhir update: " + ts + "<br>Riwayat: " + (d.historyCount||0) + " entri";
-              info.style.color = "#15803d";
-            } else {
-              info.innerHTML = "❌ <b>Server error:</b> " + (d.error||"Tidak diketahui") + "<br><small>Pastikan DATABASE_URL sudah diset di Railway dan klik <b>🛠 Init Database</b>.</small>";
-              info.style.color = "#b91c1c";
-            }
-          }
-          setTopbarStatus(d.ok);
-        } catch(e){
-          if(info){
-            info.innerHTML = "❌ <b>Tidak bisa reach server:</b> " + e.message +
-              "<br><small>Pastikan URL Railway sudah benar di kolom di atas, dan Railway sedang berjalan.</small>";
-            info.style.color = "#b91c1c";
-          }
-          setTopbarStatus(false);
-        }
-      };
-    }
-
-    const initBtn = document.getElementById("syncInitDbBtn");
-    if(initBtn && !initBtn._bound){
-      initBtn._bound = true;
-      initBtn.onclick = async () => {
-        const info = document.getElementById("syncServerInfo");
-        if(info){ info.style.display = "block"; info.textContent = "⏳ Menginisialisasi database..."; info.style.color = "#475569"; }
-        try{
-          const r = await fetch("/api/bop/init-db", {
-            method: "GET",
-            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : {}),
-          });
-          const d = await r.json();
-          if(info){
-            if(d.ok){
-              info.innerHTML = "✅ <b>Database berhasil diinisialisasi!</b><br>" + (d.message||"") + "<br><small>Klik <b>🔍 Cek Server</b> untuk verifikasi, lalu <b>☁️ Simpan ke Server</b> untuk upload data.</small>";
-              info.style.color = "#15803d";
-            } else {
-              info.innerHTML = "❌ <b>Inisialisasi gagal:</b> " + (d.error||"") + "<br><small>Pastikan DATABASE_URL sudah diset di Railway.</small>";
-              info.style.color = "#b91c1c";
-            }
-          }
-        } catch(e){
-          if(info){ info.innerHTML = "❌ <b>Gagal:</b> " + e.message + "<br><small>Pastikan URL Railway sudah benar dan Railway sedang berjalan.</small>"; info.style.color = "#b91c1c"; }
-        }
-      };
-    }
   }
 
   /* ─── Push data ke server ───────────────────────────────────── */
@@ -5513,13 +4525,18 @@ async function goPage(page){
     if(e.key === TS_KEY) updateSidebarNote();
   });
 
+  /* ─── Expose retrigger agar auto-discovery bisa panggil bootLoad ── */
+  window.__bopRetriggerSync = function(){
+    bootLoad();
+  };
+
   /* ─── Init ──────────────────────────────────────────────────── */
   function init(){
     injectBadge();
     updateSyncPanel();
     updateSidebarNote();
     bootLoad();
-    setInterval(silentPoll, 15000);
+    setInterval(silentPoll, 8000);
   }
 
   if(document.readyState === "loading")
@@ -5625,73 +4642,83 @@ function printCssV22(){
   }
 
   .official .kop,.kop{
-    display:block!important;
-    position:relative!important;
+    display:flex!important;
+    align-items:center!important;
     width:100%!important;
-    min-height:0!important;
+    box-sizing:border-box!important;
     border-bottom:3px double #000!important;
-    padding:0 0 6px 0!important;
-    margin:0 0 8px 0!important;
-    text-align:center!important;
+    padding:4px 0 8px 0!important;
+    margin:0 0 10px 0!important;
+    position:static!important;
     break-after:avoid!important;
     page-break-after:avoid!important;
   }
 
-  .official .kop table,.kop table{
-    width:100%!important;
-    max-width:100%!important;
-    table-layout:auto!important;
-    border-collapse:collapse!important;
-    border:0!important;
-    margin:0!important;
-    padding:0!important;
-  }
-
-  .official .kop td,.official .kop th,.kop td,.kop th{
-    border:0!important;
-    padding:0!important;
-    vertical-align:middle!important;
+  .kop-logo-wrap{
+    width:54px!important;
+    min-width:54px!important;
+    flex-shrink:0!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
   }
 
   .official .kop-logo,.kop-logo{
     width:50px!important;
     max-width:50px!important;
-    max-height:60px!important;
+    height:auto!important;
+    max-height:62px!important;
     object-fit:contain!important;
     display:block!important;
+    position:static!important;
+    transform:none!important;
+  }
+
+  .kop-logo-spacer{
+    width:54px!important;
+    min-width:54px!important;
+    flex-shrink:0!important;
   }
 
   .official .kop-text,.kop-text{
-    width:100%!important;
+    flex:1!important;
     text-align:center!important;
+    padding:0 4px!important;
+    width:auto!important;
   }
 
-  .official .kop h1,.official .kop-text h1{
+  .kop-b1{
+    font-family:"Times New Roman",serif!important;
     font-size:15pt!important;
-    line-height:1.05!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
     margin:0!important;
     padding:0!important;
-    white-space:nowrap!important;
-    text-align:center!important;
-    text-transform:uppercase!important;
   }
 
-  .official .kop h2,.official .kop-text h2{
-    font-size:12.8pt!important;
-    line-height:1.05!important;
+  .kop-b2{
+    font-family:"Times New Roman",serif!important;
+    font-size:12.5pt!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
     margin:1px 0!important;
     padding:0!important;
-    white-space:nowrap!important;
-    text-align:center!important;
-    text-transform:uppercase!important;
   }
 
-  .official .kop p,.official .kop-text p{
+  .kop-addr{
+    font-family:"Times New Roman",serif!important;
     font-size:8.8pt!important;
-    line-height:1.05!important;
-    margin:1px 0!important;
-    padding:0!important;
+    font-weight:normal!important;
     text-align:center!important;
+    margin-top:3px!important;
+    line-height:1.2!important;
+    white-space:normal!important;
   }
 
   .official .title{
@@ -5799,46 +4826,79 @@ function printCssV22(){
 }
 
 
-/* PATCH 011 - Force KOP center on print/preview */
-(function kopCenterPatch011(){
+/* PATCH 011 - KOP Surat Flex Layout (v2) */
+(function kopFlexPatch011(){
   const css = `
-  .official .kop,
   .kop{
-    display:block!important;
-    position:relative!important;
+    display:flex!important;
+    align-items:center!important;
+    border-bottom:3px double #000!important;
+    padding:4px 0 8px 0!important;
+    margin-bottom:14px!important;
     width:100%!important;
-    min-height:78px!important;
-    text-align:center!important;
     box-sizing:border-box!important;
+    position:static!important;
+    min-height:0!important;
   }
-  .official .kop-logo,
+  .kop-logo-wrap{
+    width:60px!important;
+    min-width:60px!important;
+    flex-shrink:0!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+  }
   .kop-logo{
-    position:absolute!important;
-    left:0!important;
-    top:50%!important;
-    transform:translateY(-50%)!important;
-    width:58px!important;
-    max-width:58px!important;
-    max-height:70px!important;
+    width:54px!important;
+    max-width:54px!important;
     height:auto!important;
+    max-height:66px!important;
     object-fit:contain!important;
-  }
-  .official .kop-text,
-  .kop-text{
     display:block!important;
-    width:100%!important;
-    box-sizing:border-box!important;
-    padding-left:76px!important;
-    padding-right:76px!important;
-    text-align:center!important;
+    position:static!important;
+    transform:none!important;
   }
-  .official .kop h1,
-  .official .kop h2,
-  .official .kop p,
-  .kop h1,
-  .kop h2,
-  .kop p{
+  .kop-logo-spacer{
+    width:60px!important;
+    min-width:60px!important;
+    flex-shrink:0!important;
+  }
+  .kop-text{
+    flex:1!important;
     text-align:center!important;
+    padding:0 4px!important;
+    width:auto!important;
+  }
+  .kop-b1{
+    font-family:"Times New Roman",serif!important;
+    font-size:17px!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
+    margin:0!important;
+    padding:0!important;
+  }
+  .kop-b2{
+    font-family:"Times New Roman",serif!important;
+    font-size:15px!important;
+    font-weight:bold!important;
+    text-transform:uppercase!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+    line-height:1.1!important;
+    margin:1px 0!important;
+    padding:0!important;
+  }
+  .kop-addr{
+    font-family:"Times New Roman",serif!important;
+    font-size:12px!important;
+    font-weight:normal!important;
+    text-align:center!important;
+    margin-top:3px!important;
+    line-height:1.2!important;
+    white-space:normal!important;
   }`;
   const style=document.createElement("style");
   style.id="kop-center-patch-011";
@@ -6093,3 +5153,5665 @@ function insertAiNotulenPanelsV25(){
     }
   }
 }
+
+/* PATCH v1.43 — Biometrik Login (WebAuthn Platform Authenticator) */
+(function bopBiometricV43(){
+  const CRED_KEY  = "bop_biometric_cred_v43";
+  const LAST_PAGE = "bop_last_page_v43";
+
+  function isSupported(){
+    return !!(window.PublicKeyCredential &&
+      typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function");
+  }
+
+  function toB64(arr){
+    return btoa(String.fromCharCode(...new Uint8Array(arr)));
+  }
+
+  function fromB64(s){
+    const bin = atob(s);
+    const arr = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return arr.buffer;
+  }
+
+  function setHint(msg, color){
+    const el = document.getElementById("biometricHintV43");
+    if(el){ el.textContent = msg; el.style.color = color||"#64748b"; }
+  }
+
+  function setLabel(txt){
+    const el = document.getElementById("biometricBtnLabel");
+    if(el) el.textContent = txt;
+  }
+
+  async function registerBiometric(){
+    setLabel("Mendaftarkan...");
+    setHint("Ikuti petunjuk autentikator perangkat Anda...", "#1d4ed8");
+    try{
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      const userId = new Uint8Array(16);
+      crypto.getRandomValues(userId);
+
+      const cred = await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: "BOP RT 005", id: window.location.hostname },
+          user: { id: userId, name: "Pengurus RT 005", displayName: "BOP RT 005" },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 },
+            { type: "public-key", alg: -257 }
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+            residentKey: "preferred"
+          },
+          timeout: 60000,
+          attestation: "none"
+        }
+      });
+
+      if(!cred) throw new Error("Tidak ada kredensial");
+
+      localStorage.setItem(CRED_KEY, JSON.stringify({
+        id: cred.id,
+        rawId: toB64(cred.rawId),
+        type: cred.type
+      }));
+
+      setLabel("Masuk dengan Biometrik");
+      setHint("✅ Biometrik berhasil didaftarkan! Klik lagi untuk masuk.", "#15803d");
+    } catch(e){
+      setLabel("Masuk dengan Biometrik");
+      if(e.name === "NotAllowedError"){
+        setHint("Dibatalkan. Coba lagi untuk mendaftar biometrik.", "#b45309");
+      } else if(e.name === "NotSupportedError"){
+        setHint("Perangkat tidak mendukung biometrik platform.", "#b91c1c");
+      } else {
+        setHint("Gagal: " + e.message, "#b91c1c");
+      }
+    }
+  }
+
+  async function authBiometric(){
+    const stored = localStorage.getItem(CRED_KEY);
+    if(!stored){ await registerBiometric(); return; }
+
+    setLabel("Verifikasi...");
+    setHint("Konfirmasi identitas Anda...", "#1d4ed8");
+    try{
+      const credData = JSON.parse(stored);
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+
+      const assertion = await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          rpId: window.location.hostname,
+          allowCredentials: [{ type: "public-key", id: fromB64(credData.rawId) }],
+          userVerification: "required",
+          timeout: 60000
+        }
+      });
+
+      if(!assertion) throw new Error("Autentikasi gagal");
+
+      setLabel("Masuk dengan Biometrik");
+      setHint("✅ Berhasil!", "#15803d");
+
+      const lastPage = localStorage.getItem(LAST_PAGE) || "dashboard";
+      if(typeof goPage === "function"){
+        setTimeout(() => {
+          goPage(lastPage);
+          if(typeof bopToast === "function") bopToast("Selamat Datang","Masuk via biometrik berhasil.","success");
+        }, 300);
+      }
+    } catch(e){
+      setLabel("Masuk dengan Biometrik");
+      if(e.name === "NotAllowedError"){
+        setHint("Dibatalkan. Coba lagi.", "#b45309");
+      } else if(e.name === "InvalidStateError"){
+        localStorage.removeItem(CRED_KEY);
+        setHint("Kredensial tidak valid, dihapus. Klik lagi untuk daftar ulang.", "#b45309");
+      } else {
+        setHint("Gagal: " + e.message, "#b91c1c");
+      }
+    }
+  }
+
+  function recordLastPage(){
+    document.querySelectorAll(".nav button[data-page]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const pg = btn.dataset.page;
+        if(pg && pg !== "akses") localStorage.setItem(LAST_PAGE, pg);
+      });
+    });
+    document.querySelectorAll("[data-go]").forEach(el => {
+      el.addEventListener("click", () => {
+        const pg = el.dataset.go;
+        if(pg && pg !== "akses") localStorage.setItem(LAST_PAGE, pg);
+      });
+    });
+  }
+
+  async function init(){
+    const row = document.getElementById("biometricRowV43");
+    const btn = document.getElementById("biometricBtnV43");
+    if(!row || !btn) return;
+
+    const supported = await (isSupported()
+      ? PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false)
+      : Promise.resolve(false));
+
+    if(!supported){
+      row.style.display = "none";
+      return;
+    }
+
+    const hasCred = !!localStorage.getItem(CRED_KEY);
+    setLabel(hasCred ? "Masuk dengan Biometrik" : "Daftarkan Biometrik");
+    setHint(hasCred ? "Sidik jari / wajah terdaftar" : "Tap untuk mendaftarkan biometrik perangkat ini", "#64748b");
+
+    btn.addEventListener("click", () => {
+      const c = localStorage.getItem(CRED_KEY);
+      if(c) authBiometric(); else registerBiometric();
+    });
+
+    recordLastPage();
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 800));
+  else
+    setTimeout(init, 800);
+})();
+
+
+/* PATCH v1.43B — Dropdown Generate Dokumen di Document Studio */
+(function bopDocDropdownV43(){
+  function init(){
+    const sel = document.getElementById("dsDocSelectV43");
+    const btn = document.getElementById("dsDocGenBtnV43");
+    if(!sel || !btn) return;
+
+    btn.addEventListener("click", () => {
+      const type = sel.value;
+      if(!type) return;
+      if(typeof previewDoc === "function"){
+        previewDoc(type);
+      } else {
+        const hiddenBtn = document.querySelector(`.doc-btn[data-doc="${type}"]`);
+        if(hiddenBtn) hiddenBtn.click();
+      }
+    });
+
+    sel.addEventListener("change", () => {
+      if(typeof previewDoc === "function") previewDoc(sel.value);
+    });
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1200));
+  else
+    setTimeout(init, 1200);
+})();
+
+
+/* PATCH v1.43C — Fix Multi-device Sync: Force Push setelah Restore JSON */
+(function bopRestoreSyncFixV43(){
+  function init(){
+    const input = document.getElementById("restoreData");
+    if(!input) return;
+    const origOnchange = input.onchange;
+    input.onchange = function(e){
+      if(origOnchange) origOnchange.call(this, e);
+      if(!e.target.files[0]) return;
+      setTimeout(() => {
+        try{
+          const STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+          const VER_KEY_  = "bop_pg_version_v40";
+          const raw = localStorage.getItem(STORE_KEY);
+          if(!raw) return;
+          localStorage.removeItem(VER_KEY_);
+          fetch("/api/bop/data", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: JSON.parse(raw), clientVersion: Date.now() }),
+            ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {})
+          }).then(r => r.json()).then(res => {
+            if(res.ok){
+              localStorage.setItem(VER_KEY_, String(res.version));
+              localStorage.setItem("bop_pg_ts_v40", res.updatedAt || new Date().toISOString());
+              if(typeof bopToast === "function")
+                bopToast("Restore + Sync OK","Data lokal berhasil dipulihkan dan disimpan ke server.","success");
+            }
+          }).catch(()=>{});
+        } catch(err){ console.warn("[BOP RestoreSyncFix]", err); }
+      }, 2500);
+    };
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1000));
+  else
+    setTimeout(init, 1000);
+})();
+
+
+/* PATCH v1.43D — Auto-populate Dokumen: refresh data master sebelum generate */
+(function bopAutoFillDocV43(){
+  const _origPreviewDoc = window.previewDoc;
+  function wrappedPreview(type){
+    try{ if(typeof collectAll === "function") collectAll(); } catch(e){}
+    if(typeof _origPreviewDoc === "function") return _origPreviewDoc(type);
+    if(typeof previewDoc === "function") return previewDoc(type);
+  }
+  window.previewDoc = wrappedPreview;
+})();
+
+
+/* PATCH v1.44 — Card Hub Landing untuk Pengajuan / LPJ / Persiapan */
+(function bopCardHubV44(){
+  if(window.__bopCardHubV44) return;
+  window.__bopCardHubV44 = true;
+
+  const HUB_DEFS = {
+    'pengajuan': [
+      { tab:'data-pengajuan', icon:'📋', color:'#3b82f6', label:'Data Pengajuan',        desc:'Surat permohonan, rekening, nama Lurah dan Ketua RW' },
+      { tab:'rap',            icon:'📊', color:'#10b981', label:'RAP 1 Tahun',            desc:'Rencana Anggaran Penggunaan BOP RT selama satu tahun' },
+      { tab:'rap-bulanan',    icon:'📅', color:'#8b5cf6', label:'RAP Bulanan Otomatis',   desc:'Breakdown anggaran per bulan otomatis dari RAP Tahunan' },
+      { tab:'rapat',          icon:'📝', color:'#f59e0b', label:'BA & Daftar Hadir RAP',  desc:'Berita acara dan daftar hadir rapat pengajuan dana BOP' },
+      { tab:'undangan-notulen',icon:'📨',color:'#ef4444', label:'Undangan & Notulen RAP', desc:'Undangan dan notulen rapat khusus pengajuan dana BOP' },
+      { tab:'dokumen',        icon:'🗂', color:'#d5a83f', label:'Generate 7 Dokumen',     desc:'Cetak semua dokumen syarat pengajuan dana operasional' },
+      { tab:'riwayat-pengajuan',icon:'🕐',color:'#64748b',label:'Riwayat',               desc:'Arsip semua pengajuan dan surat yang pernah dibuat' },
+    ],
+    'lpj': [
+      { tab:'lpj-data',        icon:'📋', color:'#3b82f6', label:'Data Laporan',     desc:'Identitas laporan, periode, saldo awal dan petugas' },
+      { tab:'lpj-pengeluaran', icon:'💰', color:'#ef4444', label:'Pengeluaran',       desc:'Rincian setiap item pengeluaran dana operasional' },
+      { tab:'lpj-preview',     icon:'👁', color:'#10b981', label:'Preview & Cetak',  desc:'Pratinjau laporan pertanggungjawaban dan export PDF' },
+      { tab:'lpj-riwayat',     icon:'🕐', color:'#64748b', label:'Riwayat LPJ',      desc:'Arsip laporan pertanggungjawaban yang sudah tersimpan' },
+    ],
+    'persiapan': [
+      { tab:'pk-data',         icon:'📅', color:'#3b82f6', label:'Data Kegiatan',           desc:'Jenis, nama, tanggal, waktu, tempat dan agenda kegiatan' },
+      { tab:'pk-daftar-hadir', icon:'👥', color:'#10b981', label:'Daftar Hadir',             desc:'Data peserta yang hadir dalam kegiatan operasional' },
+      { tab:'pk-notulen',      icon:'📝', color:'#8b5cf6', label:'Notulen',                  desc:'Pimpinan rapat, notulis, pembahasan dan keputusan' },
+      { tab:'pk-kuitansi',     icon:'🧾', color:'#f59e0b', label:'Tanda Terima / Kuitansi', desc:'Nominal, penerima, keperluan pembayaran dan pajak' },
+      { tab:'pk-generate',     icon:'⚙', color:'#d5a83f', label:'Generate Bukti SPJ',       desc:'Cetak semua dokumen bukti kelengkapan SPJ kegiatan' },
+      { tab:'pk-riwayat',      icon:'🕐', color:'#64748b', label:'Riwayat',                  desc:'Arsip kegiatan operasional yang sudah tersimpan' },
+    ],
+  };
+
+  function buildHub(pageKey, cards){
+    const wrap = document.createElement('div');
+    wrap.className = 'bop-hub-wrap';
+    wrap.id = 'bop-hub-' + pageKey;
+    wrap.innerHTML = '<div class="bop-hub-grid">' + cards.map((c,i) => `
+      <button class="bop-hub-card" data-page="${pageKey}" data-tab="${c.tab}" type="button">
+        <div class="bop-hub-card-top">
+          <span class="bop-hub-icon" style="background:${c.color}22;color:${c.color}">${c.icon}</span>
+          <span class="bop-hub-step">${String(i+1).padStart(2,'0')}</span>
+        </div>
+        <h3 class="bop-hub-title">${c.label}</h3>
+        <p class="bop-hub-desc">${c.desc}</p>
+        <span class="bop-hub-arrow">→</span>
+      </button>`).join('') + '</div>';
+    return wrap;
+  }
+
+  function showHub(pageKey){
+    const page = document.getElementById('page-' + pageKey);
+    if(!page) return;
+    const hub  = document.getElementById('bop-hub-' + pageKey);
+    const nav  = page.querySelector('.subnav');
+    page.querySelectorAll('.module-guide-v20').forEach(g => g.style.display = 'none');
+    page.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+    if(nav)  nav.style.display  = 'none';
+    if(hub)  hub.style.display  = '';
+  }
+
+  function openTab(pageKey, tabId){
+    const page = document.getElementById('page-' + pageKey);
+    if(!page) return;
+    const hub  = document.getElementById('bop-hub-' + pageKey);
+    const nav  = page.querySelector('.subnav');
+    page.querySelectorAll('.module-guide-v20').forEach(g => g.style.display = '');
+    page.querySelectorAll('.tab-content').forEach(c => c.style.display = '');
+    if(hub) hub.style.display = 'none';
+    if(nav) nav.style.display = '';
+    if(typeof activateTab === 'function') activateTab(tabId);
+  }
+
+  function init(){
+    Object.keys(HUB_DEFS).forEach(pageKey => {
+      const page = document.getElementById('page-' + pageKey);
+      if(!page) return;
+      const nav = page.querySelector('.subnav');
+      if(!nav) return;
+
+      /* Sisipkan hub sebelum subnav */
+      const hub = buildHub(pageKey, HUB_DEFS[pageKey]);
+      nav.parentNode.insertBefore(hub, nav);
+
+      /* Tambah tombol kembali di subnav */
+      const back = document.createElement('button');
+      back.className = 'bop-hub-back subtab';
+      back.type = 'button';
+      back.textContent = '‹ Menu';
+      back.onclick = () => showHub(pageKey);
+      nav.insertBefore(back, nav.firstChild);
+
+      /* Tampilkan hub saat pertama kali */
+      showHub(pageKey);
+    });
+
+    /* Klik card */
+    document.addEventListener('click', e => {
+      const card = e.target.closest('.bop-hub-card');
+      if(!card) return;
+      openTab(card.dataset.page, card.dataset.tab);
+    });
+
+    /* Patch goPage agar kembali ke hub saat navigasi sidebar */
+    const _origGoPage = window.goPage;
+    window.goPage = async function(page){
+      const r = _origGoPage ? await _origGoPage(page) : undefined;
+      if(HUB_DEFS[page]) setTimeout(() => showHub(page), 60);
+      return r;
+    };
+
+    /* Patch activateTab agar bisa dipanggil dari riwayat/deep-link */
+    const _origActivate = window.activateTab;
+    window.activateTab = function(id){
+      const el = document.getElementById('tab-' + id);
+      if(el){
+        const page = el.closest('.page');
+        if(page){
+          const key = page.id.replace('page-','');
+          if(HUB_DEFS[key]){
+            const hub = document.getElementById('bop-hub-' + key);
+            const nav = page.querySelector('.subnav');
+            page.querySelectorAll('.module-guide-v20').forEach(g => g.style.display = '');
+            page.querySelectorAll('.tab-content').forEach(c => c.style.display = '');
+            if(hub) hub.style.display = 'none';
+            if(nav) nav.style.display = '';
+          }
+        }
+      }
+      if(_origActivate) _origActivate(id);
+    };
+
+    /* Hook sidebar nav buttons */
+    document.querySelectorAll('.nav button[data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pg = btn.dataset.page;
+        if(HUB_DEFS[pg]) setTimeout(() => showHub(pg), 70);
+      });
+    });
+  }
+
+  /* Tunggu setelah semua patch lain selesai */
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', () => setTimeout(init, 700));
+  } else {
+    setTimeout(init, 700);
+  }
+})();
+
+/* ── PATCH v1.45 — CSS-class hub control + biometric direct BOP ── */
+(function bopFixV45(){
+  if(window.__bopFixV45) return;
+  window.__bopFixV45 = true;
+
+  const HUB_KEYS = ['pengajuan','lpj','persiapan'];
+
+  /* CSS-class based hub toggle — removes inline styles so CSS !important takes over */
+  function hubShow(pageKey){
+    const page = document.getElementById('page-'+pageKey);
+    if(!page) return;
+    page.classList.add('has-hub');
+    page.classList.remove('hub-active');
+    const hub = document.getElementById('bop-hub-'+pageKey);
+    const nav = page.querySelector('.subnav');
+    page.querySelectorAll('.tab-content').forEach(c=>c.style.display='');
+    page.querySelectorAll('.module-guide-v20').forEach(g=>g.style.display='');
+    if(hub) hub.style.display='';
+    if(nav) nav.style.display='';
+  }
+
+  function hubOpenTab(pageKey, tabId){
+    const page = document.getElementById('page-'+pageKey);
+    if(!page) return;
+    page.classList.add('has-hub','hub-active');
+    const hub = document.getElementById('bop-hub-'+pageKey);
+    const nav = page.querySelector('.subnav');
+    page.querySelectorAll('.tab-content').forEach(c=>c.style.display='');
+    page.querySelectorAll('.module-guide-v20').forEach(g=>g.style.display='');
+    if(hub) hub.style.display='';
+    if(nav) nav.style.display='';
+    if(typeof activateTab === 'function') activateTab(tabId);
+  }
+
+  window.bopHubShow    = hubShow;
+  window.bopHubOpenTab = hubOpenTab;
+
+  /* Override hub-card click to use class-based version (fires after old listener) */
+  document.addEventListener('click', e => {
+    const card = e.target.closest('.bop-hub-card');
+    if(!card) return;
+    hubOpenTab(card.dataset.page, card.dataset.tab);
+  });
+
+  /* Override back button to use class-based hub show */
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.bop-hub-back');
+    if(!btn) return;
+    const page = btn.closest('.page');
+    if(!page) return;
+    hubShow(page.id.replace('page-',''));
+  });
+
+  /* Wrap goPage — auto BOP access mode for biometric, then CSS hub show */
+  const _gp45 = window.goPage;
+  window.goPage = async function(page){
+    if(page && page !== 'akses' && window.__bopBioAuth){
+      window.__bopBioAuth = false;
+      if(typeof setAccessModeV31 === 'function') setAccessModeV31('bop');
+    }
+    const r = _gp45 ? await _gp45(page) : undefined;
+    if(HUB_KEYS.includes(page)) setTimeout(()=>hubShow(page), 80);
+    return r;
+  };
+
+  /* Biometric success detector via MutationObserver on hint element */
+  function hookBiometric(){
+    const hint = document.getElementById('biometricHintV43');
+    if(!hint) return;
+    new MutationObserver(()=>{
+      if(hint.textContent.includes('✅ Berhasil')) window.__bopBioAuth = true;
+    }).observe(hint, {childList:true, characterData:true, subtree:true});
+  }
+
+  /* Init — add has-hub class + hubShow all hub pages + hook biometric + nav buttons */
+  function init(){
+    HUB_KEYS.forEach(key => {
+      const page = document.getElementById('page-'+key);
+      if(page) hubShow(key);
+    });
+    hookBiometric();
+    document.querySelectorAll('.nav button[data-page]').forEach(btn => {
+      btn.addEventListener('click', ()=>{
+        const pg = btn.dataset.page;
+        if(HUB_KEYS.includes(pg)) setTimeout(()=>hubShow(pg), 80);
+      });
+    });
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', ()=>setTimeout(init, 780));
+  } else {
+    setTimeout(init, 780);
+  }
+})();
+
+
+/* ================================================================
+   PATCH v1.46 — KOP Uniformity + Data Sync Fix (docHadir/SK/Rekening)
+   Tujuan:
+   1. Override kopHTML() → pakai tag h1/h2/p + class agar PDF CSS &
+      print CSS sama-sama bekerja.
+   2. docHadir, docSK, docRekening → rebuild pakai wrapper official-v37
+      (class="official official-v36 official-v37") sehingga styling
+      cetak & PDF identik dengan 4 dokumen V37 lainnya.
+   3. Sinkronisasi data: semua dokumen baca dari window.data via
+      collectAll() yang sudah dijalankan oleh previewDocV37.
+   ================================================================ */
+(function bopKopFixV46(){
+  if(window.__bopKopFixV46) return;
+  window.__bopKopFixV46 = true;
+
+  /* ── 1. Override kopHTML() — backward-compatible dengan PDF & print CSS ── */
+
+  /* ── 2. Helper: official wrapper V37 (sama persis dengan officialV37 di IIFE) ── */
+  function officialWrap46(body){
+    const kop = (typeof kopHTML === "function") ? kopHTML() : "";
+    return `<div class="official official-v36 official-v37">${kop}<div class="official-body-v37">${body}</div></div>`;
+  }
+
+  /* ── 3. Helper data access ── */
+  function d46(){ return window.data || {}; }
+  function m46(){ return d46().master || {}; }
+  function p46(){ return d46().pengajuan || {}; }
+  function esc46(s){
+    return String(s == null ? "" : s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function safe46(v, fb){ return String(v == null ? "" : v).trim() || (fb != null ? fb : ".................."); }
+  function rupiah46(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+  function terbilang46(n){
+    try{ if(typeof terbilang==="function") return String(terbilang(Number(n||0))).replace(/\s+/g," ").trim(); }catch(e){}
+    return "..................";
+  }
+  function tanggalSurat46(){
+    const p=p46();
+    return String(p.tanggalSurat||p.undTanggalSurat||"Semarang, tanggal bulan tahun").trim() || "Semarang, tanggal bulan tahun";
+  }
+
+  /* Normalisasi RAP rows — sama persis dengan normalizeRapRowV37 */
+  function normalizeRapRow46(row, i){
+    if(Array.isArray(row)){
+      return {no:i+1,uraian:row[0]||"",volume:row[1]||"",jumlah:Number(row[2]||0),keterangan:row[3]||""};
+    }
+    row = row || {};
+    return {
+      no:i+1,
+      uraian: row.uraian||row.kegiatan||row.nama||"",
+      volume: row.volume||row.satuan||row.satuanVolume||"",
+      jumlah: Number(row.jumlah != null ? row.jumlah : (row.anggaran != null ? row.anggaran : (row.rencanaAnggaran||0))),
+      keterangan: row.keterangan||row.ket||""
+    };
+  }
+  function rapRows46(){
+    const rows = Array.isArray(p46().rap) ? p46().rap : [];
+    return rows.map(normalizeRapRow46).filter(r=>r.uraian||r.jumlah||r.volume);
+  }
+  function totalRap46(){ return rapRows46().reduce((s,r)=>s+Number(r.jumlah||0),0); }
+
+  /* Normalisasi peserta — handles array atau object format */
+  function pesertaRows46(){
+    const raw = Array.isArray(p46().peserta) ? p46().peserta : [];
+    return raw.map((r,i)=>{
+      if(Array.isArray(r)) return {no:i+1,nama:r[0]||"",jabatan:r[1]||"",alamat:r[2]||""};
+      return {no:i+1,nama:r?.nama||"",jabatan:r?.jabatan||r?.status||"",alamat:r?.alamat||r?.rt||""};
+    }).filter(r=>r.nama||r.jabatan||r.alamat);
+  }
+
+  /* ── 4. docHadir V46 — Daftar Hadir dengan format V37 ── */
+  function docHadirV46(){
+    const m=m46(), p=p46();
+    let peserta = pesertaRows46();
+    const hadirRows = Math.max(Number(p.hadirRows||20), peserta.length);
+    // Lengkapi hingga hadirRows baris
+    while(peserta.length < hadirRows) peserta.push({no:peserta.length+1,nama:"",jabatan:"",alamat:""});
+
+    const rows = peserta.map((r,i)=>
+      `<tr><td class="col-no-v37">${i+1}</td><td>${esc46(r.nama)}</td><td>${esc46(r.jabatan)}</td><td>${esc46(r.alamat)}</td><td style="min-width:70px">${i+1}.</td></tr>`
+    ).join("");
+
+    const tanggal = safe46(p.hadirTanggal||p.tanggalSurat,"Semarang, tanggal bulan tahun");
+    const waktu   = safe46(p.hadirWaktu,"..................");
+    const tempat  = safe46(p.hadirTempat||m.sekretariat,"Sekretariat RT 005 RW 012");
+    const agenda  = safe46(p.hadirAgenda||p.hadirKegiatan||p.perihal,"Rapat Koordinasi Operasional RT");
+
+    const body =
+      `<div class="title">DAFTAR HADIR</div>` +
+      `<table class="no-border identity-table-v37"><tbody>` +
+        `<tr><td>Nama Kegiatan</td><td>:</td><td>${esc46(safe46(p.hadirKegiatan||p.perihal||p.undJudul,"Kegiatan Operasional RT"))}</td></tr>` +
+        `<tr><td>Hari / Tanggal</td><td>:</td><td>${esc46(tanggal)}</td></tr>` +
+        `<tr><td>Waktu</td><td>:</td><td>${esc46(waktu)}</td></tr>` +
+        `<tr><td>Tempat</td><td>:</td><td>${esc46(tempat)}</td></tr>` +
+        `<tr><td>Agenda</td><td>:</td><td>${esc46(agenda)}</td></tr>` +
+      `</tbody></table>` +
+      `<table><thead><tr>` +
+        `<th class="col-no-v37">No.</th>` +
+        `<th>Nama</th>` +
+        `<th>Jabatan / Status</th>` +
+        `<th>Alamat / RT</th>` +
+        `<th>Tanda Tangan</th>` +
+      `</tr></thead><tbody>${rows}</tbody></table>` +
+      `<table class="no-border sign-right-v37" style="margin-top:16px"><tbody><tr>` +
+        `<td style="width:60%"></td>` +
+        `<td style="text-align:center">` +
+          `${esc46(tanggal)}<br>` +
+          `Ketua RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")},<br>` +
+          `<div class="sign-space-v37"></div>` +
+          `<b>${esc46(safe46(m.ketua,"Nama Ketua RT"))}</b>` +
+        `</td>` +
+      `</tr></tbody></table>`;
+    return officialWrap46(body);
+  }
+
+  /* ── 5. docSK V46 — SK Lurah Pembentukan Pengurus RT dengan format V37 ── */
+  function docSKV46(){
+    const m=m46(), p=p46();
+    const nomorSK   = safe46(p.nomorSK,"................................");
+    const tanggalSK = safe46(p.tanggalSK,"................................");
+    const masaBerlaku = safe46(p.masaBerlakuSK,"................................");
+    const noKtpKetua  = safe46(m.noKtpKetua||p.noKtpKetua,"................................");
+
+    const body =
+      `<div class="title">SURAT KEPUTUSAN LURAH ${esc46((m.kelurahan||"").toUpperCase())}<br>` +
+        `PEMBENTUKAN PENGURUS RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}</div>` +
+      `<table class="no-border identity-table-v37"><tbody>` +
+        `<tr><td>Nomor SK</td><td>:</td><td><b>${esc46(nomorSK)}</b></td></tr>` +
+        `<tr><td>Tanggal SK</td><td>:</td><td>${esc46(tanggalSK)}</td></tr>` +
+        `<tr><td>Perihal</td><td>:</td><td>Pembentukan Pengurus RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")} Kel. ${esc46(m.kelurahan||"")}</td></tr>` +
+        `<tr><td>Masa Berlaku</td><td>:</td><td>${esc46(masaBerlaku)}</td></tr>` +
+      `</tbody></table>` +
+      `<table style="margin-top:10px"><thead>` +
+        `<tr><th class="col-no-v37">No.</th><th>Jabatan</th><th>Nama</th><th>No. KTP / NIK</th></tr>` +
+      `</thead><tbody>` +
+        `<tr><td class="col-no-v37">1</td><td>Ketua RT ${esc46(m.rt||"005")}</td><td>${esc46(safe46(m.ketua,"................................"))}</td><td>${esc46(noKtpKetua)}</td></tr>` +
+        `<tr><td class="col-no-v37">2</td><td>Sekretaris</td><td>${esc46(safe46(m.sekretaris,"................................"))}</td><td>................................</td></tr>` +
+        `<tr><td class="col-no-v37">3</td><td>Bendahara</td><td>${esc46(safe46(m.bendahara,"................................"))}</td><td>................................</td></tr>` +
+      `</tbody></table>` +
+      `<p class="center-v37" style="border:1px solid #bbb;padding:8px;font-style:italic;color:#555;margin-top:10px">` +
+        `&#9888; Lampirkan fotokopi SK Lurah asli yang telah dilegalisir bersama berkas pengajuan ini.` +
+      `</p>` +
+      `<table class="no-border sign-two-v37 mengetahui-v37"><tbody><tr>` +
+        `<td style="text-align:center">Ketua RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}<br><div class="sign-space-v37"></div><b>${esc46(safe46(m.ketua,"Nama Jelas"))}</b></td>` +
+        `<td style="text-align:center">Lurah ${esc46(m.kelurahan||"")}<br><div class="sign-space-v37"></div>NIP. ................................</td>` +
+      `</tr></tbody></table>`;
+    return officialWrap46(body);
+  }
+
+  /* ── 6. docRekening V46 — Informasi Rekening Bank dengan format V37 ── */
+  function docRekeningV46(){
+    const m=m46(), p=p46();
+    const namaBank        = safe46(p.namaBank,"Bank Pembangunan Daerah (BPD) Jateng");
+    const nomorRekening   = safe46(p.nomorRekening,"................................");
+    const namaPemilik     = safe46(p.namaPemilikRekening||m.ketua,"................................");
+    const cabangBank      = safe46(p.cabangBank,"................................");
+
+    const body =
+      `<div class="title">INFORMASI REKENING BANK<br>` +
+        `RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")} ${esc46((m.kelurahan||"").toUpperCase())}</div>` +
+      `<p class="center-v37">Data rekening bank untuk keperluan pencairan BOP RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}, ` +
+        `${esc46(m.kelurahan||"")}, Kota ${esc46(m.kota||"Semarang")}</p>` +
+      `<table class="no-border identity-table-v37"><tbody>` +
+        `<tr><td><b>Nama Bank</b></td><td>:</td><td><b>${esc46(namaBank)}</b></td></tr>` +
+        `<tr><td><b>Nomor Rekening</b></td><td>:</td><td><b>${esc46(nomorRekening)}</b></td></tr>` +
+        `<tr><td><b>Nama Pemilik Rekening</b></td><td>:</td><td>${esc46(namaPemilik)}</td></tr>` +
+        `<tr><td><b>Cabang</b></td><td>:</td><td>${esc46(cabangBank)}</td></tr>` +
+      `</tbody></table>` +
+      `<table class="no-border identity-table-v37" style="margin-top:8px"><tbody>` +
+        `<tr><td>Atas Nama Lembaga</td><td>:</td><td>RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")} ${esc46(m.kelurahan||"")}</td></tr>` +
+        `<tr><td>Kelurahan</td><td>:</td><td>${esc46(m.kelurahan||"")}</td></tr>` +
+        `<tr><td>Kecamatan</td><td>:</td><td>${esc46(m.kecamatan||"Candisari")}</td></tr>` +
+        `<tr><td>Kota</td><td>:</td><td>Kota ${esc46(m.kota||"Semarang")}</td></tr>` +
+      `</tbody></table>` +
+      `<p class="center-v37" style="border:1px solid #bbb;padding:8px;font-style:italic;color:#555;margin-top:10px">` +
+        `&#9888; Lampirkan fotokopi Buku Rekening BPD/Bank Jateng (halaman depan) bersama berkas pengajuan ini.` +
+      `</p>` +
+      `<table class="no-border sign-two-v37 mengetahui-v37"><tbody><tr>` +
+        `<td style="text-align:center">Ketua RT ${esc46(m.rt||"005")} RW ${esc46(m.rw||"012")}<br><div class="sign-space-v37"></div><b>${esc46(safe46(m.ketua,"Nama Jelas"))}</b></td>` +
+        `<td style="text-align:center">Mengetahui<br>Lurah ${esc46(m.kelurahan||"")}<br><div class="sign-space-v37"></div>NIP. ................................</td>` +
+      `</tr></tbody></table>`;
+    return officialWrap46(body);
+  }
+
+  /* ── 7. Override globals — previewDocV37 & docMapV37 akan auto-pickup ── */
+  window.docHadir    = docHadirV46;
+  window.docSK       = docSKV46;
+  window.docRekening = docRekeningV46;
+
+  /* ── 8. Fix CSS untuk kop-b1/b2/addr di print CSS V37 & PDF export ──
+     Inject style ke <head> saat DOM ready agar screen preview juga benar */
+  function injectKopCssV46(){
+    if(document.getElementById("kopCssFixV46")) return;
+    const style = document.createElement("style");
+    style.id = "kopCssFixV46";
+    style.textContent = `
+      /* V46 — KOP semantic tag fix: h1/h2/p inside .kop-text */
+      .kop h1.kop-b1, .kop .kop-b1 { font-family:"Times New Roman",serif; font-size:15pt; font-weight:bold; text-transform:uppercase; text-align:center; white-space:nowrap; line-height:1.1; margin:0; padding:0; display:block; }
+      .kop h2.kop-b2, .kop .kop-b2 { font-family:"Times New Roman",serif; font-size:12.5pt; font-weight:bold; text-transform:uppercase; text-align:center; white-space:nowrap; line-height:1.1; margin:1px 0; padding:0; display:block; }
+      .kop p.kop-addr, .kop .kop-addr { font-family:"Times New Roman",serif; font-size:9pt; font-weight:normal; text-align:center; margin-top:3px; line-height:1.2; white-space:normal; display:block; }
+      .kop h1, .kop h2 { margin:0; padding:0; border:none; }
+      /* Ensure official-body-v37 on new docs fills width */
+      .official-body-v37 { width:100%; display:block; }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /* ── 9. Patch exportPdfDocV38 — inject KOP CSS fix ke popup PDF ── */
+  const KOP_PDF_CSS = `
+    .kop{display:flex!important;align-items:center!important;border-bottom:3px double #000!important;padding:4px 0 8px 0!important;margin-bottom:14px!important;width:100%!important;box-sizing:border-box!important}
+    .kop-logo-wrap{width:60px;min-width:60px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+    .kop-logo{width:54px!important;max-width:54px!important;height:auto!important;max-height:66px!important;object-fit:contain!important;display:block!important}
+    .kop-logo-spacer{width:60px;min-width:60px;flex-shrink:0}
+    .kop-text{flex:1!important;text-align:center!important;padding:0 4px!important}
+    .kop h1,.kop-b1{font-family:"Times New Roman",serif!important;font-size:15pt!important;font-weight:bold!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;line-height:1.1!important;margin:0!important;padding:0!important;display:block!important}
+    .kop h2,.kop-b2{font-family:"Times New Roman",serif!important;font-size:12.5pt!important;font-weight:bold!important;text-transform:uppercase!important;text-align:center!important;white-space:nowrap!important;line-height:1.1!important;margin:1px 0!important;padding:0!important;display:block!important}
+    .kop p,.kop-addr{font-family:"Times New Roman",serif!important;font-size:9pt!important;font-weight:normal!important;text-align:center!important;margin-top:3px!important;line-height:1.2!important;white-space:normal!important;display:block!important}
+    .official-body-v37{width:100%;display:block}
+  `;
+
+  const _origExportPdfDoc = window.exportPdfDocV38;
+  window.exportPdfDocV38 = async function exportPdfDocV46(){
+    if(typeof collectAll==="function") collectAll();
+    const type=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+    if(typeof previewDoc==="function") previewDoc(type);
+    await new Promise(r=>setTimeout(r,180));
+    const el=document.getElementById("docOutput");
+    if(!el||!el.innerHTML.trim()){
+      if(typeof bopAlert==="function") bopAlert("Export PDF","Pilih dokumen terlebih dahulu sebelum export PDF.","warning");
+      return;
+    }
+    const inner=el.innerHTML;
+    const printWin=window.open("","_blank","width=920,height=1150");
+    if(!printWin){
+      if(typeof bopAlert==="function") bopAlert("Popup Diblokir","Izinkan popup untuk halaman ini di browser, lalu coba lagi.","warning");
+      return;
+    }
+    const title="Dokumen BOP RT 005 — "+type;
+    printWin.document.write(`<!doctype html><html lang="id"><head>
+<meta charset="UTF-8"><title>${title}</title>
+<style>
+@page{size:A4;margin:14mm}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;font-family:"Times New Roman",serif;font-size:12pt;color:#000;background:#fff}
+.official,.official-v36,.official-v37{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26;color:#000}
+.official .title,.official-v36 .title,.official-v37 .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 16px}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid #000;padding:5px 8px;font-size:11pt}
+.no-border td,.no-border th,.no-border{border:none!important}
+.col-no-v37{width:8mm!important;text-align:center!important}
+.money-cell-v37{text-align:right!important;white-space:nowrap}
+.identity-table-v37 td:first-child{width:36mm;white-space:nowrap}
+.sign-two-v37 td{width:50%;text-align:center!important;vertical-align:top;border:none!important}
+.sign-right-v37 td{border:none!important}
+.sign-space-v37{height:54px;display:block}
+.center-v37{text-align:center!important}
+.date-right-v37{text-align:right!important}
+.mengetahui-v37{margin-top:14px!important}
+p{margin:7px 0}
+ol{margin:5px 0 8px 22px;padding:0}
+li{margin:4px 0}
+.page-break-v37{page-break-after:always;break-after:page;height:0;border:none}
+${KOP_PDF_CSS}
+</style>
+</head><body>${inner}</body></html>`);
+    printWin.document.close();
+    printWin.focus();
+    setTimeout(()=>printWin.print(),650);
+  };
+
+  /* ── Init ── */
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded",()=>{
+      injectKopCssV46();
+      /* Re-render dokumen aktif setelah patch selesai */
+      setTimeout(()=>{
+        if(typeof previewDoc==="function"){
+          const t=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+          try{ previewDoc(t); }catch(e){}
+        }
+      },300);
+    });
+  } else {
+    injectKopCssV46();
+    setTimeout(()=>{
+      if(typeof previewDoc==="function"){
+        const t=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+        try{ previewDoc(t); }catch(e){}
+      }
+    },300);
+  }
+
+  console.log("[BOP KOP Fix v1.46] kopHTML, docHadir/SK/Rekening, dan PDF CSS diperbarui.");
+})();
+
+
+/* ================================================================
+   PATCH v1.47 — Auto-simpan form values sebelum fillInputs() overwrite
+   Masalah: render() → fillInputs() bisa menimpa nilai yang sudah
+   diketik user sebelum collectAll() sempat menyimpannya.
+   Fix: override fillInputs() untuk panggil collectAll() terlebih
+   dahulu (skip pada render pertama agar localStorage tidak kosong).
+   ================================================================ */
+(function bopFillInputsFixV47(){
+  if(window.__bopFillInputsFixV47) return;
+  window.__bopFillInputsFixV47 = true;
+
+  let _initDone = false;
+  const _origFillInputs = window.fillInputs;
+
+  window.fillInputs = function fillInputsSafe(){
+    if(_initDone){
+      /* Setelah render pertama: simpan nilai form saat ini sebelum di-overwrite */
+      if(typeof collectAll === 'function'){
+        try { collectAll(); } catch(e) { console.warn('[BOP v1.47] collectAll error:', e); }
+      }
+      try { localStorage.setItem('bop_rt005_data_v1_25', JSON.stringify(window.data)); } catch(e) {}
+    }
+    _initDone = true;
+    if(typeof _origFillInputs === 'function') return _origFillInputs();
+  };
+
+  /* Juga perbaiki save otomatis saat user PINDAH halaman (nav click) */
+  document.addEventListener('click', function(e){
+    const navBtn = e.target.closest('[data-page]');
+    if(navBtn && typeof collectAll === 'function'){
+      try {
+        collectAll();
+        localStorage.setItem('bop_rt005_data_v1_25', JSON.stringify(window.data));
+      } catch(_e) {}
+    }
+  }, true /* capture phase: sebelum event handler lain */);
+
+  /* Update document.title */
+  try {
+    document.title = 'LaKu Warga — Laporan & Dokumentasi Online Warga';
+  } catch(_e) {}
+
+  console.log('[BOP Form Fix v1.47] fillInputs() auto-simpan & nav-save aktif.');
+})();
+
+
+/* ==========================================================
+   PATCH v1.48 — Fix RAP Bulanan di tab Generate 7 Dokumen
+   Masalah: monthlyDocMonth hanya ada di tab RAP Bulanan,
+   bukan di tab-dokumen. Saat generate RAP Bulanan dari
+   tab Dokumen, bulan tidak tersinkron → hasil selalu sama.
+   Fix: inject selector bulan di panel generate dokumen,
+   sinkronkan ke data.pengajuan.selectedMonth & monthlyDocMonth
+   sebelum memanggil previewDoc.
+   ========================================================== */
+(function bopFixRapBulananDokTabV48(){
+  const RAP_MONTHS_V48 = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+
+  function init(){
+    const docSel  = document.getElementById("dsDocSelectV43");
+    const genBtn  = document.getElementById("dsDocGenBtnV43");
+    if(!docSel || !genBtn) return;
+
+    /* -- 1. Buat selector bulan & inject setelah dsDocSelectV43 -- */
+    const wrapper = document.createElement("div");
+    wrapper.id = "v48RapBulanWrap";
+    wrapper.style.cssText = "display:none;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;";
+
+    const lbl = document.createElement("label");
+    lbl.style.cssText = "font-size:0.82rem;font-weight:600;color:#64748b;white-space:nowrap;";
+    lbl.textContent = "Bulan RAP:";
+
+    const msel = document.createElement("select");
+    msel.id = "v48RapBulanSel";
+    msel.className = "ds-doc-select-v43";
+    msel.style.cssText = "min-width:150px;";
+    RAP_MONTHS_V48.forEach(m => {
+      const opt = document.createElement("option");
+      opt.value = m;
+      opt.textContent = m;
+      msel.appendChild(opt);
+    });
+
+    wrapper.appendChild(lbl);
+    wrapper.appendChild(msel);
+
+    /* Sisipkan setelah grup select+button */
+    const grp = document.querySelector(".ds-doc-select-group-v43");
+    if(grp) grp.insertAdjacentElement("afterend", wrapper);
+    else {
+      const left = document.querySelector(".ds-gen-left");
+      if(left) left.appendChild(wrapper);
+    }
+
+    /* -- 2. Set nilai awal dari data tersimpan -- */
+    function syncInitialMonth(){
+      try {
+        const saved = (typeof data !== "undefined" && data?.pengajuan?.selectedMonth)
+          ? data.pengajuan.selectedMonth
+          : (document.getElementById("monthlyDocMonth")?.value || "Januari 2026");
+        if(RAP_MONTHS_V48.includes(saved)) msel.value = saved;
+      } catch(e){}
+    }
+    syncInitialMonth();
+
+    /* -- 3. Tampilkan/sembunyikan selector bulan sesuai pilihan -- */
+    function toggleMonthSel(){
+      const show = docSel.value === "rapbulanan";
+      wrapper.style.display = show ? "flex" : "none";
+    }
+    docSel.addEventListener("change", toggleMonthSel);
+    toggleMonthSel();
+
+    /* -- 4. Sync bulan ke data sebelum generate -- */
+    function syncMonth(){
+      const month = msel.value;
+      /* tulis ke data.pengajuan.selectedMonth */
+      try {
+        if(typeof data !== "undefined" && data.pengajuan) {
+          data.pengajuan.selectedMonth = month;
+        }
+        if(window.data?.pengajuan) window.data.pengajuan.selectedMonth = month;
+      } catch(e){}
+      /* juga sync ke monthlyDocMonth di tab-rap-bulanan */
+      const globalSel = document.getElementById("monthlyDocMonth");
+      if(globalSel) globalSel.value = month;
+      /* simpan ke localStorage */
+      try {
+        const STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+        localStorage.setItem(STORE_KEY, JSON.stringify(window.data));
+      } catch(e){}
+    }
+
+    /* -- 5. Override tombol Generate agar sync bulan dulu -- */
+    /* Hapus semua listener lama dengan clone */
+    const newBtn = genBtn.cloneNode(true);
+    genBtn.parentNode.replaceChild(newBtn, genBtn);
+
+    newBtn.addEventListener("click", () => {
+      const type = docSel.value;
+      if(!type) return;
+      /* Jika RAP Bulanan, sync bulan sebelum generate */
+      if(type === "rapbulanan") syncMonth();
+      if(typeof previewDoc === "function"){
+        previewDoc(type);
+      } else {
+        const hiddenBtn = document.querySelector(`.doc-btn[data-doc="${type}"]`);
+        if(hiddenBtn) hiddenBtn.click();
+      }
+    });
+
+    /* -- 6. Auto-preview on month change -- */
+    msel.addEventListener("change", () => {
+      if(docSel.value === "rapbulanan"){
+        syncMonth();
+        if(typeof previewDoc === "function") previewDoc("rapbulanan");
+      }
+    });
+
+    console.log("[BOP Fix v1.48] Selector bulan RAP Bulanan di tab Dokumen aktif.");
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1500));
+  else
+    setTimeout(init, 1500);
+})();
+
+
+/* ================================================================
+   PATCH v1.49 — Persiapan Kegiatan: RAP Auto-Detect & SPJ KOP V37
+
+   Fitur:
+   1. Panel pemilih kegiatan dari RAP Bulanan di atas form pk-data
+   2. Auto-fill form saat kartu kegiatan diklik
+   3. Indikator kegiatan aktif (badge breadcrumb)
+   4. Override docPkUndangan/Hadir/Notulen/Kuitansi → KOP V37
+   5. Auto-navigate ke pk-generate + preview dokumen relevan
+   ================================================================ */
+(function bopRapAutoDetectV49(){
+  if(window.__bopRapAutoDetectV49) return;
+  window.__bopRapAutoDetectV49 = true;
+
+  const MONTHS_V49 = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+  const MONTH_ALL_V49 = "Januari-Desember 2026";
+  const STORE_V49 = "bop_rt005_data_v1_25";
+
+  /* ── Helpers ── */
+  function esc49(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function safe49(v,fb){ var s=String(v==null?"":v).trim(); return s||(fb!=null?fb:".........."); }
+  function rupiah49(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+  function terbilang49(n){
+    try{ if(typeof terbilang==="function") return String(terbilang(Number(n||0))).replace(/\s+/g," ").trim(); }catch(e){}
+    return "..........";
+  }
+  function d49(){ return window.data||{}; }
+  function m49(){ return d49().master||{}; }
+  function p49(){ return d49().persiapan||{}; }
+  function rap49(){ var r=d49().pengajuan; return Array.isArray(r&&r.rap)?r.rap:[]; }
+
+  /* Official wrapper KOP V37 */
+  function pkOfficial49(body){
+    var kop = typeof kopHTML==="function" ? kopHTML() : "";
+    return '<div class="official official-v36 official-v37">'+kop+'<div class="official-body-v37">'+body+'</div></div>';
+  }
+
+  /* ── Normalize RAP row ── */
+  function normalizeRow49(r){
+    if(!r) return {uraian:"",volume:"1 Paket",jumlah:0,keterangan:"",tipe:"Lainnya",kategori:"",subKategori:"",bulan:MONTHS_V49[0]};
+    if(Array.isArray(r)) return {uraian:r[0]||"",volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||"",tipe:"Lainnya",kategori:"",subKategori:"",bulan:MONTHS_V49[0]};
+    return {
+      uraian:r.uraian||r.kegiatan||r.nama||"",
+      volume:r.volume||r.satuan||"1 Paket",
+      jumlah:Number(r.jumlah!=null?r.jumlah:(r.anggaran!=null?r.anggaran:(r.rencanaAnggaran||0))),
+      keterangan:r.keterangan||r.ket||"",
+      tipe:r.tipe||"Lainnya",
+      kategori:r.kategori||"",
+      subKategori:r.subKategori||"",
+      bulan:r.bulan||MONTHS_V49[0]
+    };
+  }
+
+  /* ── Get filtered rows for a month ── */
+  function getRowsForMonth49(month){
+    var rows=[];
+    rap49().forEach(function(r,idx){
+      var n=normalizeRow49(r);
+      if(!n.uraian) return;
+      if(n.bulan===month){
+        rows.push(Object.assign({},n,{jumlahBulanan:n.jumlah,sumber:"Langsung",annualIndex:idx}));
+      } else if(n.bulan===MONTH_ALL_V49 && MONTHS_V49.indexOf(month)>=0){
+        rows.push(Object.assign({},n,{jumlahBulanan:Math.round(n.jumlah/MONTHS_V49.length),sumber:"Bagi rata",annualIndex:idx}));
+      }
+    });
+    return rows;
+  }
+
+  /* ── Map RAP tipe/subKategori → pkJenis select value ── */
+  function mapJenis49(row){
+    var tipe=(row.tipe||"").toLowerCase();
+    var kat=(row.kategori||"").toLowerCase();
+    var sub=(row.subKategori||"").toLowerCase();
+    var ur=(row.uraian||"").toLowerCase();
+    if(tipe.indexOf("makan")>=0||tipe.indexOf("konsumsi")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(tipe.indexOf("jasa")>=0||tipe.indexOf("tukang")>=0||tipe.indexOf("honor")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(tipe.indexOf("sewa")>=0) return "Sewa Peralatan / Tempat";
+    if(tipe.indexOf("barang")>=0||tipe.indexOf("material")>=0) return "Belanja Barang / Material";
+    if(sub.indexOf("kerja bakti")>=0||sub.indexOf("gotong")>=0||ur.indexOf("kerja bakti")>=0||ur.indexOf("gotong")>=0) return "Kerja Bakti / Gotong Royong";
+    if(sub.indexOf("hari besar")>=0||sub.indexOf("hut")>=0||ur.indexOf("hut ri")>=0||ur.indexOf("17 agustus")>=0) return "HUT RI / Kegiatan Sosial Budaya";
+    if(sub.indexOf("sampah")>=0||ur.indexOf("sampah")>=0||kat.indexOf("sampah")>=0) return "Pengelolaan Sampah / Kebersihan Lingkungan";
+    if(sub.indexOf("rapat")>=0||sub.indexOf("pertemuan")>=0||ur.indexOf("rapat")>=0||ur.indexOf("pertemuan")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(kat.indexOf("penataan")>=0||kat.indexOf("lingkungan")>=0||kat.indexOf("pemeliharaan")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    return "Lainnya";
+  }
+
+  /* ── Auto-select doc type after load ── */
+  function autoDocType49(jenis){
+    var j=(jenis||"").toLowerCase();
+    if(j.indexOf("konsumsi")>=0||j.indexOf("rapat")>=0||j.indexOf("gotong")>=0||j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("bakti")>=0) return "pk-undangan";
+    return "pk-kuitansi";
+  }
+
+  /* ── Form hint based on jenis ── */
+  function formHint49(jenis){
+    var j=(jenis||"").toLowerCase();
+    if(j.indexOf("rapat")>=0||j.indexOf("konsumsi")>=0) return "&#128204; Tipe <b>Rapat/Pertemuan</b> — lengkapi tab <b>Notulen</b>, <b>Daftar Hadir</b>, dan nominal di tab <b>Kuitansi</b>.";
+    if(j.indexOf("sampah")>=0||j.indexOf("jasa")>=0||j.indexOf("tukang")>=0) return "&#128204; Tipe <b>Jasa/Honorarium</b> — lengkapi <b>Penerima</b>, <b>Nominal</b>, dan <b>Keperluan Pembayaran</b>.";
+    if(j.indexOf("barang")>=0||j.indexOf("material")>=0||j.indexOf("sewa")>=0) return "&#128204; Tipe <b>Pengadaan/Belanja</b> — lengkapi <b>Deskripsi Barang</b> di Keperluan dan Nominal Kuitansi.";
+    if(j.indexOf("gotong")>=0||j.indexOf("bakti")>=0) return "&#128204; Tipe <b>Gotong Royong</b> — lengkapi <b>Agenda</b> dan <b>Daftar Hadir</b> warga.";
+    if(j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("budaya")>=0) return "&#128204; Tipe <b>Kegiatan Sosial/Budaya</b> — lengkapi <b>Agenda</b>, <b>Notulen</b>, dan dokumentasi.";
+    return "&#128204; Lengkapi data kegiatan di bawah, lalu generate dokumen di tab <b>Generate Bukti SPJ</b>.";
+  }
+
+  /* ── Category badge style ── */
+  function katBadge49(kategori){
+    var k=(kategori||"").toLowerCase();
+    if(k.indexOf("administratif")>=0||k.indexOf("administrasi")>=0) return {label:"Administratif",color:"#3b82f6"};
+    if(k.indexOf("sosial")>=0||k.indexOf("budaya")>=0) return {label:"Sosial & Budaya",color:"#10b981"};
+    if(k.indexOf("penataan")>=0||k.indexOf("lingkungan")>=0||k.indexOf("pemeliharaan")>=0) return {label:"Lingkungan",color:"#f59e0b"};
+    return {label:"Operasional",color:"#6b7280"};
+  }
+
+  /* ── Render card grid ── */
+  function renderCardGrid49(month){
+    var el=document.getElementById("pkRapCardGridV49");
+    if(!el) return;
+    var activeIdx=(d49().persiapan||{}).rapAutoIdx;
+    var rows=getRowsForMonth49(month);
+    if(!rows.length){
+      el.innerHTML='<div class="pk-rap-empty-v49">Belum ada kegiatan di RAP untuk bulan <b>'+esc49(month)+'</b>.<br><small>Tambahkan kegiatan di menu <b>Pengajuan Dana Operasional → RAP 1 Tahun</b>.</small></div>';
+      return;
+    }
+    /* Group by kategori */
+    var groups={};
+    var groupOrder=[];
+    rows.forEach(function(r){
+      var k=r.kategori||"Lainnya";
+      if(!groups[k]){ groups[k]=[]; groupOrder.push(k); }
+      groups[k].push(r);
+    });
+    var html="";
+    groupOrder.forEach(function(kat){
+      var items=groups[kat];
+      var badge=katBadge49(kat);
+      html+='<div class="pk-rap-kategori-v49">';
+      html+='<div class="pk-rap-kat-label-v49" style="color:'+badge.color+'">'+esc49(badge.label)+'</div>';
+      html+='<div class="pk-rap-cards-row-v49">';
+      items.forEach(function(r){
+        var isActive=(r.annualIndex===activeIdx);
+        html+='<div class="pk-rap-card-v49'+(isActive?" active":"")+'" onclick="window._pkLoadRap49('+r.annualIndex+',\''+esc49(month)+'\')" title="'+esc49(r.uraian)+'">';
+        html+='<div class="pk-rap-card-nama-v49">'+esc49(r.uraian)+'</div>';
+        html+='<div class="pk-rap-card-meta-v49">'+esc49(r.volume)+' &bull; '+esc49(r.sumber)+'</div>';
+        html+='<div class="pk-rap-card-jumlah-v49">'+rupiah49(r.jumlahBulanan)+'</div>';
+        html+='</div>';
+      });
+      html+='</div></div>';
+    });
+    el.innerHTML=html;
+  }
+
+  /* ── Load kegiatan into form ── */
+
+  /* ── Month selector change ── */
+
+  /* ── Clear active kegiatan ── */
+  window._pkClearRap49 = function(){
+    if(window.data && window.data.persiapan){
+      delete window.data.persiapan.rapAutoIdx;
+      delete window.data.persiapan.rapAutoMonth;
+    }
+    var badge=document.getElementById("pkActiveKegiatanBadgeV49");
+    var hint=document.getElementById("pkFormHintV49");
+    if(badge) badge.style.display="none";
+    if(hint) hint.innerHTML="";
+    var sel=document.getElementById("pkRapMonthV49");
+    renderCardGrid49(sel?sel.value:MONTHS_V49[5]);
+  };
+
+  /* ── Inject panel into #tab-pk-data ── */
+  function injectPanel49(){
+    var tabPkData=document.getElementById("tab-pk-data");
+    if(!tabPkData || document.getElementById("pkRapAutoDetectPanel")) return;
+
+    /* Determine default month */
+    var selMonth = (d49().pengajuan && MONTHS_V49.indexOf(d49().pengajuan.selectedMonth)>=0)
+      ? d49().pengajuan.selectedMonth
+      : (MONTHS_V49[new Date().getMonth()] || MONTHS_V49[5]);
+
+    /* Month selector options */
+    var monthOpts = MONTHS_V49.map(function(mo){
+      return '<option value="'+mo+'"'+(mo===selMonth?" selected":"")+'>'+mo+'</option>';
+    }).join("");
+
+    /* Build RAP panel */
+    var rapPanel=document.createElement("div");
+    rapPanel.id="pkRapAutoDetectPanel";
+    rapPanel.className="panel pk-rap-panel-v49";
+    rapPanel.innerHTML=
+      '<div class="pk-rap-header-v49">'+
+        '<div>'+
+          '<h3>Pilih Kegiatan dari RAP Bulanan</h3>'+
+          '<p class="hint" style="margin:0">Klik kartu kegiatan &rarr; form terisi otomatis.</p>'+
+        '</div>'+
+        '<div>'+
+          '<label style="display:grid;gap:5px;font-size:0.81rem;font-weight:600;color:var(--muted)">Bulan Kegiatan'+
+            '<select id="pkRapMonthV49" onchange="window._pkRapMonthChange49()" style="min-width:150px;padding:8px 10px;border-radius:10px;border:1px solid var(--line)">'+
+              monthOpts+
+            '</select>'+
+          '</label>'+
+        '</div>'+
+      '</div>'+
+      '<div id="pkRapCardGridV49" class="pk-rap-card-grid-v49"></div>';
+
+    /* Build active badge */
+    var badge=document.createElement("div");
+    badge.id="pkActiveKegiatanBadgeV49";
+    badge.className="pk-active-badge-v49";
+    badge.style.display="none";
+    badge.innerHTML=
+      '<span>&#9989; Kegiatan Aktif: <strong id="pkActiveKegiatanNameV49"></strong></span>'+
+      '<button onclick="window._pkClearRap49()" class="pk-clear-btn-v49">&#10005; Kosongkan</button>';
+
+    /* Build form hint */
+    var hint=document.createElement("div");
+    hint.id="pkFormHintV49";
+    hint.className="pk-form-hint-v49";
+
+    /* Insert all before the first .panel in tab-pk-data */
+    var firstPanel=tabPkData.querySelector(".panel");
+    if(firstPanel){
+      tabPkData.insertBefore(hint, firstPanel);
+      tabPkData.insertBefore(badge, hint);
+      tabPkData.insertBefore(rapPanel, badge);
+    } else {
+      tabPkData.insertBefore(hint, tabPkData.firstChild);
+      tabPkData.insertBefore(badge, hint);
+      tabPkData.insertBefore(rapPanel, badge);
+    }
+
+    /* Initial card render */
+    renderCardGrid49(selMonth);
+
+    /* Restore saved state */
+    var savedIdx=(d49().persiapan||{}).rapAutoIdx;
+    var savedMonth=(d49().persiapan||{}).rapAutoMonth;
+    if(savedIdx!==undefined && savedMonth && MONTHS_V49.indexOf(savedMonth)>=0){
+      var rawRow=rap49()[savedIdx];
+      if(rawRow){
+        var n=normalizeRow49(rawRow);
+        var badgeEl=document.getElementById("pkActiveKegiatanBadgeV49");
+        var nameEl=document.getElementById("pkActiveKegiatanNameV49");
+        var hintEl=document.getElementById("pkFormHintV49");
+        if(badgeEl) badgeEl.style.display="flex";
+        if(nameEl) nameEl.textContent=n.uraian;
+        if(hintEl) hintEl.innerHTML=formHint49(mapJenis49(n));
+        /* Sync month selector */
+        var selEl=document.getElementById("pkRapMonthV49");
+        if(selEl) selEl.value=savedMonth;
+        renderCardGrid49(savedMonth);
+      }
+    }
+  }
+
+  /* ================================================================
+     PK Doc Generators V49 — pakai KOP V37 via pkOfficial49()
+     Override: docPkUndangan, docPkHadir, docPkNotulen, docPkKuitansi
+     ================================================================ */
+
+  function docPkUndanganV49(){
+    if(typeof collectPersiapan==="function") collectPersiapan();
+    var m=m49(), p=p49();
+    var rt=m.rt||"005", rw=m.rw||"012";
+    var noUnd=safe49(p.nomorKuitansi,".../UND/RT"+rt+"/.../2026");
+    var tgl=safe49(p.tanggalTerima,"Semarang, ................. 2026");
+    var body=
+      '<p class="date-right-v37">'+esc49(tgl)+'</p>'+
+      '<table class="no-border identity-table-v37"><tbody>'+
+        '<tr><td>Nomor</td><td>:</td><td>'+esc49(noUnd)+'</td></tr>'+
+        '<tr><td>Lampiran</td><td>:</td><td>-</td></tr>'+
+        '<tr><td>Perihal</td><td>:</td><td>Undangan '+esc49(p.nama||"Kegiatan Operasional RT")+'</td></tr>'+
+      '</tbody></table>'+
+      '<p>Kepada Yth.<br>Warga / Peserta Kegiatan<br>RT '+esc49(rt)+' RW '+esc49(rw)+'<br>di Tempat</p>'+
+      '<p>Dengan hormat,</p>'+
+      '<p>Dalam rangka pelaksanaan kegiatan operasional RT, kami mengundang Bapak/Ibu/Saudara/i untuk hadir pada:</p>'+
+      '<table class="no-border identity-table-v37"><tbody>'+
+        '<tr><td>Jenis Kegiatan</td><td>:</td><td>'+esc49(p.jenis||"-")+'</td></tr>'+
+        '<tr><td>Nama Kegiatan</td><td>:</td><td><b>'+esc49(p.nama||"-")+'</b></td></tr>'+
+        '<tr><td>Hari / Tanggal</td><td>:</td><td>'+esc49(p.hariTanggal||"-")+'</td></tr>'+
+        '<tr><td>Waktu</td><td>:</td><td>'+esc49(p.waktu||"-")+'</td></tr>'+
+        '<tr><td>Tempat</td><td>:</td><td>'+esc49(p.tempat||"-")+'</td></tr>'+
+        '<tr><td>Agenda</td><td>:</td><td>'+esc49(p.agenda||"-").replace(/\n/g,"<br>")+'</td></tr>'+
+      '</tbody></table>'+
+      '<p>Mengingat pentingnya acara tersebut, kami mengharapkan kehadiran Bapak/Ibu/Saudara/i tepat waktu. Atas perhatian dan kehadirannya, kami ucapkan terima kasih.</p>'+
+      '<table class="no-border sign-right-v37" style="margin-top:20px"><tbody><tr>'+
+        '<td style="width:60%"></td>'+
+        '<td style="text-align:center">'+esc49(tgl)+'<br>Ketua RT '+esc49(rt)+' RW '+esc49(rw)+',<br><div class="sign-space-v37"></div><b>'+esc49(safe49(m.ketua,"Nama Jelas"))+'</b></td>'+
+      '</tr></tbody></table>';
+    return pkOfficial49(body);
+  }
+
+  function docPkHadirV49(){
+    if(typeof collectPersiapan==="function") collectPersiapan();
+    var m=m49(), p=p49();
+    var rt=m.rt||"005", rw=m.rw||"012";
+    var peserta=Array.isArray(p.peserta)?p.peserta:[];
+    var rows49=Math.max(Number(p.rows||30), peserta.length);
+    var list=peserta.map(function(r){
+      if(Array.isArray(r)) return {nama:r[0]||"",jabatan:r[1]||"",alamat:r[2]||""};
+      return {nama:(r&&r.nama)||"",jabatan:(r&&r.jabatan)||"",alamat:(r&&r.alamat)||""};
+    });
+    while(list.length<rows49) list.push({nama:"",jabatan:"",alamat:""});
+    var rowsHtml=list.map(function(r,i){
+      return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc49(r.nama)+'</td><td>'+esc49(r.jabatan)+'</td><td>'+esc49(r.alamat)+'</td><td>'+(i+1)+'.</td></tr>';
+    }).join("");
+    var tgl=safe49(p.tanggalTerima,"Semarang, ................. 2026");
+    var body=
+      '<div class="title">DAFTAR HADIR KEGIATAN OPERASIONAL</div>'+
+      '<table class="no-border identity-table-v37"><tbody>'+
+        '<tr><td>Jenis Kegiatan</td><td>:</td><td>'+esc49(p.jenis||"-")+'</td></tr>'+
+        '<tr><td>Nama Kegiatan</td><td>:</td><td><b>'+esc49(p.nama||"-")+'</b></td></tr>'+
+        '<tr><td>Hari / Tanggal</td><td>:</td><td>'+esc49(p.hariTanggal||"-")+'</td></tr>'+
+        '<tr><td>Waktu</td><td>:</td><td>'+esc49(p.waktu||"-")+'</td></tr>'+
+        '<tr><td>Tempat</td><td>:</td><td>'+esc49(p.tempat||"-")+'</td></tr>'+
+        '<tr><td>Agenda</td><td>:</td><td>'+esc49(p.agenda||"-").replace(/\n/g,"<br>")+'</td></tr>'+
+      '</tbody></table>'+
+      '<table style="margin-top:12px"><thead><tr>'+
+        '<th class="col-no-v37">No.</th><th>Nama</th><th>Jabatan / Status</th><th>Alamat / RT</th><th style="min-width:60px">Tanda Tangan</th>'+
+      '</tr></thead><tbody>'+rowsHtml+'</tbody></table>'+
+      '<table class="no-border sign-right-v37" style="margin-top:16px"><tbody><tr>'+
+        '<td style="width:60%"></td>'+
+        '<td style="text-align:center">'+esc49(tgl)+'<br>Ketua RT '+esc49(rt)+' RW '+esc49(rw)+',<br><div class="sign-space-v37"></div><b>'+esc49(safe49(m.ketua,"Nama Jelas"))+'</b></td>'+
+      '</tr></tbody></table>';
+    return pkOfficial49(body);
+  }
+
+  function docPkNotulenV49(){
+    if(typeof collectPersiapan==="function") collectPersiapan();
+    var m=m49(), p=p49();
+    var rt=m.rt||"005", rw=m.rw||"012";
+    var actionRows=(Array.isArray(p.action)?p.action:[]).map(function(r,i){
+      var a=Array.isArray(r)?{tugas:r[0]||"",waktu:r[1]||"",pic:r[2]||""}:{tugas:r.tugas||"",waktu:r.waktu||"",pic:r.pic||""};
+      return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc49(a.tugas)+'</td><td>'+esc49(a.waktu)+'</td><td>'+esc49(a.pic)+'</td></tr>';
+    }).join("");
+    var pesertaRows=(Array.isArray(p.peserta)?p.peserta:[]).filter(function(r){ return Array.isArray(r)?(r[0]||r[1]):(r&&(r.nama||r.jabatan)); }).map(function(r,i){
+      if(Array.isArray(r)) return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc49(r[0])+'</td><td>'+esc49(r[1])+'</td><td>'+esc49(r[2])+'</td></tr>';
+      return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc49(r.nama||"")+'</td><td>'+esc49(r.jabatan||"")+'</td><td>'+esc49(r.alamat||"")+'</td></tr>';
+    }).join("");
+    var tgl=safe49(p.tanggalTerima,"Semarang, ................. 2026");
+    var pimpinan=esc49(p.pimpinan||safe49(m.ketua,".................."));
+    var notulis=esc49(p.notulis||"..................");
+    var body=
+      '<div class="title">NOTULEN KEGIATAN OPERASIONAL</div>'+
+      '<table class="no-border identity-table-v37"><tbody>'+
+        '<tr><td>Jenis Kegiatan</td><td>:</td><td>'+esc49(p.jenis||"-")+'</td></tr>'+
+        '<tr><td>Judul / Tema</td><td>:</td><td><b>'+esc49(p.nama||"-")+'</b></td></tr>'+
+        '<tr><td>Hari / Tanggal</td><td>:</td><td>'+esc49(p.hariTanggal||"-")+'</td></tr>'+
+        '<tr><td>Waktu</td><td>:</td><td>'+esc49(p.waktu||"-")+'</td></tr>'+
+        '<tr><td>Tempat</td><td>:</td><td>'+esc49(p.tempat||"-")+'</td></tr>'+
+        '<tr><td>Pimpinan</td><td>:</td><td>'+pimpinan+'</td></tr>'+
+        '<tr><td>Notulis</td><td>:</td><td>'+notulis+'</td></tr>'+
+        '<tr><td>Kehadiran</td><td>:</td><td>Hadir '+Number(p.hadir||0)+' orang, Tidak Hadir '+Number(p.tidakHadir||0)+' orang</td></tr>'+
+      '</tbody></table>'+
+      '<p><b>Agenda:</b><br>'+esc49(p.agenda||"-").replace(/\n/g,"<br>")+'</p>'+
+      '<p><b>Pembahasan / Diskusi:</b><br>'+esc49(p.pembahasan||"-").replace(/\n/g,"<br>")+'</p>'+
+      '<p><b>Hasil Keputusan:</b><br>'+esc49(p.keputusan||"-").replace(/\n/g,"<br>")+'</p>'+
+      (actionRows?'<p><b>Rencana Tindak Lanjut / Action Plan:</b></p><table><thead><tr><th class="col-no-v37">No.</th><th>Task/Tugas</th><th>Target Waktu</th><th>PIC</th></tr></thead><tbody>'+actionRows+'</tbody></table>':'')+
+      (p.rapatBerikutnya?'<p><b>Jadwal Kegiatan Berikutnya:</b> '+esc49(p.rapatBerikutnya)+'</p>':'')+
+      (pesertaRows?'<p><b>Daftar Peserta:</b></p><table><thead><tr><th class="col-no-v37">No.</th><th>Nama</th><th>Jabatan/Status</th><th>Alamat/RT</th></tr></thead><tbody>'+pesertaRows+'</tbody></table>':'')+
+      '<p>Demikian notulen ini dibuat sebagai bukti kelengkapan administrasi kegiatan operasional dan laporan pertanggungjawaban BOP RT '+esc49(rt)+' RW '+esc49(rw)+'.</p>'+
+      '<table class="no-border sign-two-v37" style="margin-top:20px"><tbody><tr>'+
+        '<td style="text-align:center">Mengetahui,<br>Pimpinan Kegiatan<br><div class="sign-space-v37"></div><b>'+pimpinan+'</b></td>'+
+        '<td style="text-align:center">'+esc49(tgl)+'<br>Notulis,<br><div class="sign-space-v37"></div><b>'+notulis+'</b></td>'+
+      '</tr></tbody></table>';
+    return pkOfficial49(body);
+  }
+
+  function docPkKuitansiV49(){
+    if(typeof collectPersiapan==="function") collectPersiapan();
+    var m=m49(), p=p49();
+    var rt=m.rt||"005", rw=m.rw||"012";
+    var nominal=Number(p.nominal||0);
+    var noKuit=safe49(p.nomorKuitansi,".../TT/RT"+rt+"/.../2026");
+    var tgl=safe49(p.tanggalTerima,"Semarang, ................. 2026");
+    var nikRow=p.nikPenerima?'<tr><td>NPWP / NIK Penerima</td><td>:</td><td>'+esc49(p.nikPenerima)+'</td></tr>':"";
+    var pajakRow=p.pajak?'<tr><td>Keterangan Pajak</td><td>:</td><td>'+esc49(p.pajak)+'</td></tr>':"";
+    var body=
+      '<div class="title">TANDA TERIMA / KUITANSI</div>'+
+      '<table class="no-border identity-table-v37"><tbody>'+
+        '<tr><td>Nomor</td><td>:</td><td>'+esc49(noKuit)+'</td></tr>'+
+        '<tr><td>Telah diterima dari</td><td>:</td><td>Ketua RT '+esc49(rt)+' RW '+esc49(rw)+' Kelurahan '+esc49(m.kelurahan||"Tegalsari")+'</td></tr>'+
+        '<tr><td>Uang sebesar</td><td>:</td><td><b>'+rupiah49(nominal)+'</b></td></tr>'+
+        '<tr><td>Terbilang</td><td>:</td><td>'+terbilang49(nominal)+' Rupiah</td></tr>'+
+        '<tr><td>Untuk pembayaran</td><td>:</td><td>'+esc49(p.keperluan||"-")+'</td></tr>'+
+        '<tr><td>Jenis kegiatan</td><td>:</td><td>'+esc49(p.jenis||"-")+'</td></tr>'+
+        '<tr><td>Nama kegiatan</td><td>:</td><td>'+esc49(p.nama||"-")+'</td></tr>'+
+        '<tr><td>Metode pembayaran</td><td>:</td><td>'+esc49(p.metode||"Tunai")+'</td></tr>'+
+        nikRow+pajakRow+
+      '</tbody></table>'+
+      '<table class="no-border" style="width:100%;margin-top:20px"><tbody><tr>'+
+        '<td style="text-align:center;width:34%;border:none">Yang Membayar<br>Ketua RT '+esc49(rt)+' RW '+esc49(rw)+'<br><div class="sign-space-v37"></div><b>'+esc49(safe49(m.ketua,"Nama Jelas"))+'</b></td>'+
+        '<td style="text-align:center;width:32%;border:none">Mengetahui<br>Bendahara RT '+esc49(rt)+' RW '+esc49(rw)+'<br><div class="sign-space-v37"></div><b>'+esc49(safe49(m.bendahara,"Nama Jelas"))+'</b></td>'+
+        '<td style="text-align:center;width:34%;border:none">'+esc49(tgl)+'<br>Yang Menerima,<br>'+esc49(p.jabatanPenerima||"Penerima")+' <br><div class="sign-space-v37"></div><b>'+esc49(p.penerima||"Nama Jelas")+'</b></td>'+
+      '</tr></tbody></table>';
+    return pkOfficial49(body);
+  }
+
+  /* ── Override global PK doc functions ── */
+  window.docPkUndangan = docPkUndanganV49;
+  window.docPkHadir    = docPkHadirV49;
+  window.docPkNotulen  = docPkNotulenV49;
+  window.docPkKuitansi = docPkKuitansiV49;
+
+  /* ── Init ── */
+  function init49(){
+    injectPanel49();
+    /* Re-render currently visible pk doc with new KOP V37 */
+    if(typeof previewPkDoc==="function"){
+      try{ previewPkDoc(window.currentPkDoc||"pk-hadir"); }catch(e){}
+    }
+  }
+
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(init49, 1700); });
+  } else {
+    setTimeout(init49, 1700);
+  }
+
+  console.log("[BOP v1.49] RAP Auto-Detect Panel + SPJ KOP V37 aktif.");
+})();
+
+
+/* ================================================================
+   PATCH v1.48b — Fix RAP Bulanan: selector readable + docRapBulanan
+   Masalah 1: v48RapBulanSel pakai class ds-doc-select-v43 (dark navy
+              background) tapi berada di panel putih → teks putih
+              tidak terlihat.
+   Masalah 2: docRapBulanan (line 2394, global) pakai
+              getMonthlyFlattenedRows yang butuh breakdown data.
+              Jika breakdown kosong → "Belum ada rencana kegiatan".
+   Masalah 3: change-event pada dsDocSelectV43 (v1.43B) langsung
+              call previewDoc tanpa sync bulan dahulu.
+   Fix:
+     1. Inject CSS khusus #v48RapBulanSel → white bg + dark text
+     2. Override window.docRapBulanan → pakai getMonthlyRapRows
+     3. Clone dsDocSelectV43 & dsDocGenBtnV43 dengan handler baru
+        yang selalu sync bulan sebelum render rapbulanan
+   ================================================================ */
+(function bopFixRapBulananV48b(){
+  if(window.__bopFixRapBulananV48b) return;
+  window.__bopFixRapBulananV48b = true;
+
+  /* ── 1. CSS fix: selector bulan readable ── */
+  function injectCss48b(){
+    if(document.getElementById("css48b")) return;
+    var s=document.createElement("style");
+    s.id="css48b";
+    s.textContent=
+      '#v48RapBulanSel{'+
+        'background:#fff!important;'+
+        'color:#06142b!important;'+
+        'border:1px solid #d9e2ee!important;'+
+        'background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23334155\' stroke-width=\'2.5\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")!important;'+
+        'background-repeat:no-repeat!important;'+
+        'background-position:right 10px center!important;'+
+        'background-size:14px!important;'+
+        'padding:8px 32px 8px 12px!important;'+
+      '}'+
+      '#v48RapBulanSel option{background:#fff!important;color:#06142b!important;}'+
+      '#v48RapBulanWrap label{color:#667085!important;}';
+    document.head.appendChild(s);
+  }
+
+  /* ── 2. Override window.docRapBulanan ── */
+  window.docRapBulanan = function docRapBulananV48b(){
+    /* Prioritas: v48RapBulanSel → monthlyDocMonth → data.selectedMonth */
+    var v48sel=document.getElementById("v48RapBulanSel");
+    var globalSel=document.getElementById("monthlyDocMonth");
+    var month=(v48sel&&v48sel.value)||
+              (globalSel&&globalSel.value)||
+              (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+              "Januari 2026";
+
+    /* Sync ke semua sumber agar konsisten */
+    try{
+      if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month;
+      if(globalSel) globalSel.value=month;
+      if(v48sel&&v48sel.value!==month) v48sel.value=month;
+    }catch(e){}
+
+    /* Ambil baris dari getMonthlyRapRows (sederhana, tidak perlu breakdown) */
+    var rows=[];
+    try{ rows=getMonthlyRapRows(month); }catch(e){}
+    var total=rows.reduce(function(s,r){return s+Number(r.jumlahBulanan||r.jumlah||0);},0);
+
+    var m=(window.data&&window.data.master)||{};
+    var p=(window.data&&window.data.pengajuan)||{};
+
+    var rowsHtml=rows.length
+      ? rows.map(function(r,i){
+          var kat=esc(r.kategori||"");
+          var sub=r.subKategori?(' &bull; '+esc(r.subKategori)):"";
+          var tipe=r.tipe?(' | Tipe: '+esc(r.tipe)):"";
+          return '<tr>'+
+            '<td>'+(i+1)+'</td>'+
+            '<td>'+esc(r.uraian||"")+'<br><small>'+kat+sub+tipe+'</small></td>'+
+            '<td>'+esc(r.volume||"")+'</td>'+
+            '<td class="money-cell-v37">'+rupiah(r.jumlahBulanan||r.jumlah||0)+'</td>'+
+            '<td>'+esc(r.keterangan||"")+'</td>'+
+          '</tr>';
+        }).join("")
+      : '<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">'+
+          'Belum ada rencana kegiatan untuk bulan '+esc(month)+'.'+
+          '</td></tr>';
+
+    var body=
+      '<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>'+
+      'BANTUAN OPERASIONAL RT<br>'+
+      'BULAN '+esc(month).toUpperCase()+'</div>'+
+      '<table><thead><tr>'+
+        '<th>No</th>'+
+        '<th>Kegiatan / Tipe Operasional</th>'+
+        '<th>Satuan/Volume Bulanan</th>'+
+        '<th>Rencana Anggaran</th>'+
+        '<th>Keterangan</th>'+
+      '</tr></thead><tbody>'+
+        rowsHtml+
+        '<tr>'+
+          '<td colspan="3"><b>Jumlah RAP Bulanan</b></td>'+
+          '<td class="money-cell-v37"><b>'+rupiah(total)+'</b></td>'+
+          '<td></td>'+
+        '</tr>'+
+      '</tbody></table>'+
+      '<p style="text-align:right;margin-top:20px">Semarang, '+esc(month)+'</p>'+
+      '<div class="ttd-4">'+
+        '<div>Ketua RT '+(m.rt||"005")+'<div class="signature-space"></div>'+(m.ketua||"Nama Jelas")+'</div>'+
+        '<div>Bendahara RT '+(m.rt||"005")+'<div class="signature-space"></div>'+(m.bendahara||"Nama Jelas")+'</div>'+
+        '<div>Lurah '+(m.kelurahan||"Tegalsari")+'<div class="signature-space"></div>'+(p.namaLurah||"Nama Jelas")+'</div>'+
+        '<div>Ketua RW '+(m.rw||"012")+'<div class="signature-space"></div>'+(p.namaKetuaRw||"Nama Jelas")+'</div>'+
+      '</div>';
+
+    if(typeof official==="function") return official(body);
+    return '<div class="official">'+body+'</div>';
+  };
+
+  /* ── Helper: sync bulan dari v48RapBulanSel ke semua target ── */
+  function syncRapBulan(){
+    var v48sel=document.getElementById("v48RapBulanSel");
+    var globalSel=document.getElementById("monthlyDocMonth");
+    if(!v48sel) return;
+    var month=v48sel.value;
+    try{
+      if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month;
+      if(globalSel) globalSel.value=month;
+    }catch(e){}
+  }
+
+  /* ── 3. Re-wire dsDocSelectV43 & dsDocGenBtnV43 ── */
+  function rewireDocControls(){
+    var origSel=document.getElementById("dsDocSelectV43");
+    if(!origSel) return;
+
+    /* Clone select untuk hapus semua listener lama */
+    var newSel=origSel.cloneNode(true);
+    origSel.parentNode.replaceChild(newSel, origSel);
+
+    /* Toggle v48RapBulanWrap + sync month + preview on change */
+    newSel.addEventListener("change", function(){
+      var type=newSel.value;
+      var wrap=document.getElementById("v48RapBulanWrap");
+      if(wrap) wrap.style.display=(type==="rapbulanan")?"flex":"none";
+      if(type==="rapbulanan") syncRapBulan();
+      if(typeof previewDoc==="function") previewDoc(type);
+    });
+
+    /* Clone Generate button untuk hapus semua listener lama */
+    var origBtn=document.getElementById("dsDocGenBtnV43");
+    if(!origBtn) return;
+    var newBtn=origBtn.cloneNode(true);
+    origBtn.parentNode.replaceChild(newBtn, origBtn);
+
+    newBtn.addEventListener("click", function(){
+      var type=newSel.value;
+      if(!type) return;
+      if(type==="rapbulanan") syncRapBulan();
+      if(typeof previewDoc==="function") previewDoc(type);
+    });
+
+    /* Juga wire v48RapBulanSel change → sync + auto-preview */
+    var v48sel=document.getElementById("v48RapBulanSel");
+    if(v48sel){
+      v48sel.addEventListener("change", function(){
+        try{syncRapBulan();}catch(e){}
+        if(typeof previewDoc==="function") previewDoc("rapbulanan");
+      });
+    }
+  }
+
+  function init48b(){
+    injectCss48b();
+    rewireDocControls();
+    console.log("[BOP v1.48b] Fix RAP Bulanan selector + docRapBulanan aktif.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(init48b,2200);});
+  else
+    setTimeout(init48b,2200);
+})();
+
+
+/* ================================================================
+   PATCH v1.49b — Fix RAP Auto-Detect: pakai getMonthlyRapRows v1.19
+   Masalah: renderCardGrid49 pakai getRowsForMonth49 kustom yang
+            cek r.bulan===month (format lama). Versi aktif app
+            (v1.19) pakai monthsScheduledV19 + bulanMulai/bulanSelesai
+            sehingga selalu kosong.
+   Fix:
+     1. Override renderCardGrid49 → pakai global getMonthlyRapRows
+     2. Override _pkLoadRap49 → ambil jumlahBulanan dari monthly rows
+     3. Patch activateTab agar re-render kartu saat masuk Persiapan
+     4. Default month = data.pengajuan.selectedMonth (bulan aktif RAP)
+   ================================================================ */
+(function bopRapAutoDetectFixV49b(){
+  if(window.__bopRapAutoDetectFixV49b) return;
+  window.__bopRapAutoDetectFixV49b = true;
+
+  /* ── Helpers ── */
+  function esc49b(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function rupiah49b(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+
+  /* ── Ambil rows untuk bulan via getMonthlyRapRows global ── */
+  function getRowsV49b(month){
+    try{
+      if(typeof getMonthlyRapRows==="function") return getMonthlyRapRows(month)||[];
+    }catch(e){}
+    return [];
+  }
+
+  /* ── Mapping tipe/kategori → pkJenis options ── */
+  function mapJenis49b(r){
+    var tipe=((r.tipe)||"").toLowerCase();
+    var kat=((r.kategori)||"").toLowerCase();
+    var sub=((r.subKategori)||"").toLowerCase();
+    var ur=((r.uraian)||"").toLowerCase();
+    if(tipe.indexOf("makan")>=0||tipe.indexOf("konsumsi")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(tipe.indexOf("jasa")>=0||tipe.indexOf("tukang")>=0||tipe.indexOf("honor")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(tipe.indexOf("sewa")>=0) return "Sewa Peralatan / Tempat";
+    if(tipe.indexOf("barang")>=0||tipe.indexOf("material")>=0) return "Belanja Barang / Material";
+    if(sub.indexOf("kerja bakti")>=0||sub.indexOf("gotong")>=0||ur.indexOf("kerja bakti")>=0||ur.indexOf("gotong")>=0) return "Kerja Bakti / Gotong Royong";
+    if(sub.indexOf("hari besar")>=0||sub.indexOf("hut")>=0||ur.indexOf("hut ri")>=0||ur.indexOf("17 agustus")>=0) return "HUT RI / Kegiatan Sosial Budaya";
+    if(sub.indexOf("sampah")>=0||ur.indexOf("sampah")>=0||kat.indexOf("sampah")>=0) return "Pengelolaan Sampah / Kebersihan Lingkungan";
+    if(sub.indexOf("rapat")>=0||sub.indexOf("pertemuan")>=0||ur.indexOf("rapat")>=0||ur.indexOf("pertemuan")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(kat.indexOf("penataan")>=0||kat.indexOf("lingkungan")>=0||kat.indexOf("pemeliharaan")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    return "Lainnya";
+  }
+
+  function autoDocType49b(jenis){
+    var j=(jenis||"").toLowerCase();
+    if(j.indexOf("konsumsi")>=0||j.indexOf("rapat")>=0||j.indexOf("gotong")>=0||
+       j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("bakti")>=0) return "pk-undangan";
+    return "pk-kuitansi";
+  }
+
+  function formHint49b(jenis){
+    var j=(jenis||"").toLowerCase();
+    if(j.indexOf("rapat")>=0||j.indexOf("konsumsi")>=0) return "&#128204; Tipe <b>Rapat/Pertemuan</b> \u2014 lengkapi tab <b>Notulen</b>, <b>Daftar Hadir</b>, dan nominal Kuitansi.";
+    if(j.indexOf("sampah")>=0||j.indexOf("jasa")>=0||j.indexOf("tukang")>=0) return "&#128204; Tipe <b>Jasa/Honorarium</b> \u2014 lengkapi <b>Penerima</b>, <b>Nominal</b>, dan <b>Keperluan Pembayaran</b>.";
+    if(j.indexOf("barang")>=0||j.indexOf("material")>=0||j.indexOf("sewa")>=0) return "&#128204; Tipe <b>Pengadaan/Belanja</b> \u2014 lengkapi <b>Deskripsi Barang</b> di Keperluan dan Nominal Kuitansi.";
+    if(j.indexOf("gotong")>=0||j.indexOf("bakti")>=0) return "&#128204; Tipe <b>Gotong Royong</b> \u2014 lengkapi <b>Agenda</b> dan <b>Daftar Hadir</b> warga.";
+    if(j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("budaya")>=0) return "&#128204; Tipe <b>Kegiatan Sosial/Budaya</b> \u2014 lengkapi <b>Agenda</b>, <b>Notulen</b>, dan dokumentasi.";
+    return "&#128204; Lengkapi data kegiatan di bawah, lalu generate dokumen di tab <b>Generate Bukti SPJ</b>.";
+  }
+
+  function katBadge49b(kategori){
+    var k=(kategori||"").toLowerCase();
+    if(k.indexOf("administratif")>=0||k.indexOf("administrasi")>=0) return {label:"Administratif",color:"#3b82f6"};
+    if(k.indexOf("sosial")>=0||k.indexOf("budaya")>=0) return {label:"Sosial & Budaya",color:"#10b981"};
+    if(k.indexOf("penataan")>=0||k.indexOf("lingkungan")>=0||k.indexOf("pemeliharaan")>=0) return {label:"Lingkungan",color:"#f59e0b"};
+    return {label:"Operasional",color:"#6b7280"};
+  }
+
+  /* ── Render kartu: pakai getMonthlyRapRows global ── */
+
+  /* ── Load kegiatan ke form ── */
+
+  /* ── Re-render kartu saat navigasi ke Persiapan Kegiatan ── */
+  (function patchActivateTabV49b(){
+    var _origActivateTab = window.activateTab;
+    window.activateTab = function(id){
+      if(typeof _origActivateTab==="function") _origActivateTab(id);
+      /* Saat user masuk ke halaman Persiapan Kegiatan */
+      if(id==="persiapan"){
+        setTimeout(function(){
+          var panel=document.getElementById("pkRapAutoDetectPanel");
+          if(!panel){
+            /* Panel belum diinject — jalankan ulang inject */
+            if(typeof injectPanel49==="function") injectPanel49();
+          }
+          /* Re-render kartu dengan bulan aktif */
+          var sel=document.getElementById("pkRapMonthV49");
+          var month=(sel&&sel.value)||
+                    (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+                    "Juni 2026";
+          if(sel&&!sel.value) sel.value=month;
+          window.renderCardGrid49(month);
+          /* Restore breadcrumb jika ada active */
+          var savedIdx=((window.data&&window.data.persiapan)||{}).rapAutoIdx;
+          var savedMonth=((window.data&&window.data.persiapan)||{}).rapAutoMonth;
+          if(savedIdx!==undefined&&savedMonth){
+            var rows=getRowsV49b(savedMonth);
+            var activeRow=null;
+            for(var i=0;i<rows.length;i++){if(rows[i].annualIndex===savedIdx){activeRow=rows[i];break;}}
+            if(!activeRow){
+              var rapArr=(window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))?window.data.pengajuan.rap:[];
+              if(rapArr[savedIdx]) activeRow={uraian:rapArr[savedIdx].uraian||"",tipe:rapArr[savedIdx].tipe||""};
+            }
+            if(activeRow){
+              var b=document.getElementById("pkActiveKegiatanBadgeV49");
+              var n=document.getElementById("pkActiveKegiatanNameV49");
+              var h=document.getElementById("pkFormHintV49");
+              if(b) b.style.display="flex";
+              if(n) n.textContent=activeRow.uraian;
+              if(h) h.innerHTML=formHint49b(mapJenis49b(activeRow));
+            }
+          }
+        },200);
+      }
+    };
+  })();
+
+  /* ── Patch month change handler ── */
+
+  /* ── Initial re-render jika panel sudah ada ── */
+  function initV49b(){
+    var panel=document.getElementById("pkRapAutoDetectPanel");
+    if(panel){
+      var sel=document.getElementById("pkRapMonthV49");
+      var month=(sel&&sel.value)||
+                (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+                "Juni 2026";
+      if(sel&&month) sel.value=month;
+      window.renderCardGrid49(month);
+    }
+    console.log("[BOP v1.49b] RAP Auto-Detect fix aktif (getMonthlyRapRows v1.19).");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(initV49b,2400);});
+  else
+    setTimeout(initV49b,2400);
+})();
+
+
+/* ================================================================
+   PATCH v1.50 — Fix RAP Bulanan + Persiapan Kartu + Validasi Anggaran
+   ================================================================
+   Fix 1: Document Studio template cache override untuk rapbulanan
+           → Hapus bop_rt005_ds_template_rapbulanan sebelum generate
+           sehingga DS selalu tampilkan fresh content
+   Fix 2: Persiapan Kegiatan panel — getRowsV49b dengan fallback
+           langsung ke data.pengajuan.rap (support format lama)
+   Fix 3: Validasi anggaran RAP Bulanan — warning panel di Generate
+           Dokumen jika total bulan melebihi batas BOP tersedia
+   ================================================================ */
+(function bopFixComprehensiveV50(){
+  if(window.__bopFixComprehensiveV50) return;
+  window.__bopFixComprehensiveV50 = true;
+
+  /* ═══════════════════════════════════════════════════════════
+     FIX 1: HAPUS TEMPLATE CACHE rapbulanan SEBELUM GENERATE
+  ═══════════════════════════════════════════════════════════ */
+  var DS_TMPL_PREFIX = "bop_rt005_ds_template_";
+
+  function clearRapBulananDsTemplate(){
+    try{
+      /* Via DocumentStudio public API jika tersedia */
+      if(window.DocumentStudio && typeof window.DocumentStudio.tplDelete === "function"){
+        window.DocumentStudio.tplDelete("rapbulanan");
+      }
+      /* Juga hapus langsung dari localStorage */
+      localStorage.removeItem(DS_TMPL_PREFIX + "rapbulanan");
+      localStorage.removeItem(DS_TMPL_PREFIX + "draft_rapbulanan");
+    }catch(e){}
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     FIX 2: getRowsV49b DENGAN FALLBACK MANUAL
+  ═══════════════════════════════════════════════════════════ */
+  var FULL_MONTHS = window.RAP_MONTHS ||
+    ["Januari 2026","Februari 2026","Maret 2026","April 2026",
+     "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+     "September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  function getRowsV50(month){
+    /* Coba getMonthlyRapRows global (v1.19 / v1.18) */
+    var rows = [];
+    try{ rows = getMonthlyRapRows(month) || []; }catch(e){}
+
+    /* Fallback: iterasi langsung data.pengajuan.rap */
+    if(!rows.length){
+      var rap = (window.data && window.data.pengajuan && Array.isArray(window.data.pengajuan.rap))
+                 ? window.data.pengajuan.rap : [];
+      var curIdx = FULL_MONTHS.indexOf(month);
+
+      rap.forEach(function(r, annualIndex){
+        if(!r || !r.uraian) return;
+        var jumlahBulanan = 0;
+        var vol = r.volumeBulanan || r.volume || "1 Paket";
+        var sumber = "";
+
+        /* Format baru: bulanMulai – bulanSelesai */
+        if(r.bulanMulai && r.bulanSelesai){
+          var s = FULL_MONTHS.indexOf(r.bulanMulai);
+          var e = FULL_MONTHS.indexOf(r.bulanSelesai);
+          if(curIdx >= 0 && s >= 0 && e >= 0 && curIdx >= s && curIdx <= e){
+            var cnt = Math.max(1, e - s + 1);
+            jumlahBulanan = Math.round(Number(r.jumlah||0) / cnt);
+            sumber = "Bulanan ("+cnt+" bln)";
+          }
+        }
+
+        /* Format lama: bulan = bulan spesifik */
+        if(!jumlahBulanan && r.bulan === month){
+          jumlahBulanan = Number(r.jumlah||0);
+          sumber = "Langsung";
+        }
+
+        /* Format lama: bulan = Januari-Desember (semua bulan) */
+        if(!jumlahBulanan){
+          var b = String(r.bulan||"");
+          var isAllYear = b.indexOf("Januari")>=0 && b.indexOf("Desember")>=0;
+          var isAllYearKey = b.indexOf("-")>0 && !b.match(/^\w+ \d{4}$/);
+          if(isAllYear || isAllYearKey){
+            jumlahBulanan = Math.round(Number(r.jumlah||0) / 12);
+            sumber = "Rata 12 bln";
+          }
+        }
+
+        if(jumlahBulanan > 0){
+          rows.push(Object.assign({}, r, {
+            annualIndex: annualIndex,
+            jumlahBulanan: jumlahBulanan,
+            volumeBulanan: vol,
+            sumber: sumber
+          }));
+        }
+      });
+    }
+    return rows;
+  }
+  window._getRowsV50 = getRowsV50; /* expose for tests */
+
+  /* ═══════════════════════════════════════════════════════════
+     PATCH renderCardGrid49 — pakai getRowsV50
+  ═══════════════════════════════════════════════════════════ */
+  function esc50(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s)
+      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+  }
+  function rp50(n){
+    try{ if(typeof rupiah==="function") return rupiah(Number(n||0)); }catch(e){}
+    return "Rp\u202f"+Number(n||0).toLocaleString("id-ID");
+  }
+
+  function katBadge50(r){
+    var k = String(r.kategori||"").toLowerCase();
+    if(k.indexOf("administratif")>=0||k.indexOf("administrasi")>=0) return {l:"Administratif",c:"#3b82f6"};
+    if(k.indexOf("sosial")>=0||k.indexOf("budaya")>=0) return {l:"Sosial & Budaya",c:"#10b981"};
+    if(k.indexOf("penataan")>=0||k.indexOf("lingkungan")>=0||k.indexOf("pemeliharaan")>=0) return {l:"Lingkungan",c:"#f59e0b"};
+    if(k.indexOf("sampah")>=0) return {l:"Kebersihan",c:"#06b6d4"};
+    return {l:"Operasional",c:"#6b7280"};
+  }
+
+  function mapJenis50(r){
+    var tipe=String(r.tipe||"").toLowerCase();
+    var kat=String(r.kategori||"").toLowerCase();
+    var sub=String(r.subKategori||"").toLowerCase();
+    var ur=String(r.uraian||"").toLowerCase();
+    if(tipe.indexOf("makan")>=0||tipe.indexOf("konsumsi")>=0||sub.indexOf("rapat")>=0||ur.indexOf("rapat")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(tipe.indexOf("jasa")>=0||tipe.indexOf("honor")>=0||tipe.indexOf("tukang")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(tipe.indexOf("sewa")>=0) return "Sewa Peralatan / Tempat";
+    if(tipe.indexOf("barang")>=0||tipe.indexOf("material")>=0) return "Belanja Barang / Material";
+    if(sub.indexOf("kerja bakti")>=0||ur.indexOf("kerja bakti")>=0||sub.indexOf("gotong")>=0||ur.indexOf("gotong")>=0) return "Kerja Bakti / Gotong Royong";
+    if(sub.indexOf("sampah")>=0||ur.indexOf("sampah")>=0) return "Pengelolaan Sampah / Kebersihan";
+    if(kat.indexOf("penataan")>=0||kat.indexOf("lingkungan")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(sub.indexOf("hari besar")>=0||ur.indexOf("hut")>=0||ur.indexOf("17 agustus")>=0) return "HUT RI / Kegiatan Sosial Budaya";
+    return "Lainnya";
+  }
+
+  function formHint50(jenis){
+    var j = jenis.toLowerCase();
+    if(j.indexOf("rapat")>=0||j.indexOf("konsumsi")>=0) return "&#128204; Tipe <b>Rapat/Pertemuan</b> — lengkapi tab <b>Notulen</b>, <b>Daftar Hadir</b>, dan nominal Kuitansi.";
+    if(j.indexOf("sampah")>=0||j.indexOf("jasa")>=0||j.indexOf("tukang")>=0) return "&#128204; Tipe <b>Jasa/Honorarium</b> — lengkapi <b>Penerima</b>, <b>Nominal</b>, dan <b>Keperluan</b>.";
+    if(j.indexOf("barang")>=0||j.indexOf("material")>=0||j.indexOf("sewa")>=0) return "&#128204; Tipe <b>Pengadaan/Belanja</b> — lengkapi <b>Deskripsi Barang</b> dan Nominal Kuitansi.";
+    if(j.indexOf("gotong")>=0||j.indexOf("bakti")>=0||j.indexOf("kebersihan")>=0) return "&#128204; Tipe <b>Gotong Royong</b> — lengkapi <b>Agenda</b> dan <b>Daftar Hadir</b> warga.";
+    if(j.indexOf("hut")>=0||j.indexOf("sosial")>=0||j.indexOf("budaya")>=0) return "&#128204; Tipe <b>Kegiatan Sosial/Budaya</b> — lengkapi <b>Agenda</b>, <b>Notulen</b>, dan dokumentasi.";
+    return "&#128204; Lengkapi data kegiatan di bawah, lalu generate dokumen di tab <b>Generate Bukti SPJ</b>.";
+  }
+
+  window.renderCardGrid49 = function(month){
+    var el = document.getElementById("pkRapCardGridV49");
+    if(!el) return;
+    var activeIdx = ((window.data && window.data.persiapan)||{}).rapAutoIdx;
+    var rows = getRowsV50(month);
+    var totalItems = (window.data && window.data.pengajuan && Array.isArray(window.data.pengajuan.rap))
+                      ? window.data.pengajuan.rap.filter(function(r){ return r && r.uraian; }).length : 0;
+
+    if(!rows.length){
+      el.innerHTML =
+        '<div class="pk-rap-empty-v49">'+
+        (totalItems > 0
+          ? 'Tidak ada kegiatan terjadwal untuk bulan <b>'+esc50(month)+'</b>.<br>'+
+            '<small>RAP berisi '+totalItems+' mata anggaran, namun tidak ada yang dijadwalkan bulan ini.<br>'+
+            'Cek tab <b>Pengajuan → RAP 1 Tahun</b> dan pastikan rentang bulan mencakup '+esc50(month)+'.</small>'
+          : 'Belum ada data RAP.<br><small>Buat RAP dulu di <b>Pengajuan Dana Operasional → RAP 1 Tahun</b>.</small>'
+        )+
+        '</div>';
+      return;
+    }
+
+    /* Group by kategori */
+    var groups = {}, order = [];
+    rows.forEach(function(r){
+      var k = r.kategori || "Lainnya";
+      if(!groups[k]){ groups[k]=[]; order.push(k); }
+      groups[k].push(r);
+    });
+
+    var html = "";
+    order.forEach(function(kat){
+      var items = groups[kat];
+      var badge = katBadge50({kategori:kat});
+      html += '<div class="pk-rap-kategori-v49">';
+      html += '<div class="pk-rap-kat-label-v49" style="color:'+badge.c+'">'+esc50(badge.l)+'</div>';
+      html += '<div class="pk-rap-cards-row-v49">';
+      items.forEach(function(r){
+        var isActive = (r.annualIndex === activeIdx);
+        var vol = r.volumeBulanan || r.volume || "";
+        var src = r.sumber ? (" &bull; "+esc50(r.sumber)) : "";
+        html += '<div class="pk-rap-card-v49'+(isActive?" active":"")+'"'+
+          ' onclick="window._pkLoadRap49('+r.annualIndex+',\''+esc50(month)+'\')"'+
+          ' title="'+esc50(r.uraian)+'">';
+        html += '<div class="pk-rap-card-nama-v49">'+esc50(r.uraian)+'</div>';
+        html += '<div class="pk-rap-card-meta-v49">'+esc50(vol)+src+'</div>';
+        html += '<div class="pk-rap-card-jumlah-v49">'+rp50(r.jumlahBulanan||0)+'</div>';
+        html += '</div>';
+      });
+      html += '</div></div>';
+    });
+    el.innerHTML = html;
+  };
+
+  /* ─ Override _pkLoadRap49 pakai getRowsV50 ─ */
+  window._pkLoadRap49 = function(annualIndex, month){
+    var rows = getRowsV50(month);
+    var r = null;
+    for(var i=0;i<rows.length;i++){
+      if(rows[i].annualIndex===annualIndex){ r=rows[i]; break; }
+    }
+    if(!r){
+      var raw = (window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))
+                 ? window.data.pengajuan.rap[annualIndex] : null;
+      if(!raw) return;
+      r = Object.assign({},raw,{annualIndex:annualIndex,jumlahBulanan:Number(raw.jumlah||0),volumeBulanan:raw.volume||"1 Paket",sumber:"Langsung"});
+    }
+
+    var jenis = mapJenis50(r);
+    var vol = r.volumeBulanan || r.volume || "1 Paket";
+    var agenda = r.uraian + (r.keterangan ? ". " + r.keterangan : "") +
+      ". Kegiatan operasional RT 005 RW 012 bulan "+month+".";
+    var keperluan = "Pembayaran "+r.uraian+" ("+vol+") — Bulan "+month+
+      ". "+(r.keterangan||"Sesuai mata belanja dalam RAP BOP RT.");
+
+    if(typeof ensurePersiapan==="function") ensurePersiapan();
+    if(!window.data || !window.data.persiapan) return;
+
+    window.data.persiapan.jenis      = jenis;
+    window.data.persiapan.nama       = r.uraian || "Kegiatan Operasional RT";
+    window.data.persiapan.agenda     = agenda;
+    window.data.persiapan.keperluan  = keperluan;
+    window.data.persiapan.nominal    = r.jumlahBulanan || 0;
+    window.data.persiapan.rapAutoIdx   = annualIndex;
+    window.data.persiapan.rapAutoMonth = month;
+
+    if(typeof fillPersiapan==="function") fillPersiapan();
+    try{ localStorage.setItem("bop_rt005_data_v1_25",JSON.stringify(window.data)); }catch(e){}
+
+    window.renderCardGrid49(month);
+
+    var badge = document.getElementById("pkActiveKegiatanBadgeV49");
+    var name  = document.getElementById("pkActiveKegiatanNameV49");
+    var hint  = document.getElementById("pkFormHintV49");
+    if(badge) badge.style.display="flex";
+    if(name)  name.textContent = r.uraian;
+    if(hint)  hint.innerHTML   = formHint50(jenis);
+
+    if(typeof activateTab==="function") activateTab("pk-generate");
+    setTimeout(function(){
+      if(typeof collectPersiapan==="function") collectPersiapan();
+      var dt = (jenis.indexOf("Rapat")>=0||jenis.indexOf("Gotong")>=0||jenis.indexOf("HUT")>=0)
+               ? "pk-undangan" : "pk-kuitansi";
+      window.currentPkDoc = dt;
+      if(typeof previewPkDoc==="function") previewPkDoc(dt);
+    }, 100);
+  };
+
+  /* ─ Patch activateTab untuk trigger renderCardGrid49 saat masuk Persiapan ─ */
+  (function(){
+    var _orig = window.activateTab;
+    window.activateTab = function(id){
+      if(typeof _orig==="function") _orig(id);
+      if(id==="persiapan"){
+        setTimeout(function(){
+          var panel = document.getElementById("pkRapAutoDetectPanel");
+          if(!panel && typeof injectPanel49==="function") injectPanel49();
+          var sel = document.getElementById("pkRapMonthV49");
+          var month = (sel&&sel.value)||
+            (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+            "Juni 2026";
+          if(sel && FULL_MONTHS.indexOf(sel.value)<0) sel.value=month;
+          window.renderCardGrid49(month||"Juni 2026");
+
+          /* Restore active badge */
+          var ai = ((window.data&&window.data.persiapan)||{}).rapAutoIdx;
+          var am = ((window.data&&window.data.persiapan)||{}).rapAutoMonth;
+          if(ai!==undefined&&am){
+            var rs = getRowsV50(am), ar=null;
+            for(var i=0;i<rs.length;i++){if(rs[i].annualIndex===ai){ar=rs[i];break;}}
+            if(!ar){var rp2=(window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))?window.data.pengajuan.rap:[];if(rp2[ai]) ar={uraian:rp2[ai].uraian||"",tipe:rp2[ai].tipe||""};}
+            if(ar){
+              var b2=document.getElementById("pkActiveKegiatanBadgeV49");
+              var n2=document.getElementById("pkActiveKegiatanNameV49");
+              var h2=document.getElementById("pkFormHintV49");
+              if(b2) b2.style.display="flex";
+              if(n2) n2.textContent=ar.uraian;
+              if(h2) h2.innerHTML=formHint50(mapJenis50(ar));
+            }
+          }
+        }, 200);
+      }
+    };
+  })();
+
+  /* ─ Patch month change ─ */
+  window._pkRapMonthChange49 = function(){
+    var s = document.getElementById("pkRapMonthV49");
+    if(s) window.renderCardGrid49(s.value);
+  };
+
+  /* ═══════════════════════════════════════════════════════════
+     FIX 3: VALIDASI ANGGARAN RAP BULANAN
+  ═══════════════════════════════════════════════════════════ */
+  var ANNUAL_LIMIT_BOP = 25000000; /* Rp 25 juta / tahun */
+  var MONTHLY_LIMIT    = Math.round(ANNUAL_LIMIT_BOP / 12); /* ≈ Rp 2.083.333 */
+
+  function getAnnualTotal(){
+    try{
+      var rap = (window.data&&window.data.pengajuan&&Array.isArray(window.data.pengajuan.rap))
+                 ? window.data.pengajuan.rap : [];
+      return rap.reduce(function(s,r){ return s+Number(r&&r.jumlah||0); }, 0);
+    }catch(e){ return 0; }
+  }
+
+  function getMonthlyTotalV50(month){
+    var rows = getRowsV50(month);
+    return rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); }, 0);
+  }
+
+  function rp50f(n){ return "Rp\u202f"+Math.round(Number(n||0)).toLocaleString("id-ID"); }
+
+  function renderValidationBanner(month){
+    var el = document.getElementById("rapBulananValidationV50");
+    if(!el) return;
+
+    var monthly  = getMonthlyTotalV50(month);
+    var annual   = getAnnualTotal();
+    var annLimit = ANNUAL_LIMIT_BOP;
+    var annSisa  = annLimit - annual;
+    var pct      = annLimit > 0 ? Math.round(monthly / (annLimit/12) * 100) : 0;
+
+    /* Tentukan status */
+    var status, icon, barColor, borderColor, bgColor, msg;
+    if(annual > annLimit){
+      status = "danger";
+      icon = "&#9888;&#65039;";
+      barColor = "#ef4444";
+      borderColor = "#fecaca";
+      bgColor = "#fff1f2";
+      msg = "Total RAP Tahunan <b>"+rp50f(annual)+"</b> melebihi batas BOP <b>"+rp50f(annLimit)+"</b>. "+
+            "Kurangi mata anggaran sebesar <b>"+rp50f(annual-annLimit)+"</b>.";
+    } else if(monthly > MONTHLY_LIMIT * 2){
+      status = "warn";
+      icon = "&#128308;";
+      barColor = "#f59e0b";
+      borderColor = "#fde68a";
+      bgColor = "#fffbeb";
+      msg = "Anggaran bulan <b>"+month+"</b> sebesar <b>"+rp50f(monthly)+"</b> jauh di atas rata-rata bulanan "+
+            "(<b>"+rp50f(MONTHLY_LIMIT)+"</b>). Pastikan ini sesuai kebutuhan kegiatan.";
+    } else if(monthly > 0){
+      status = "ok";
+      icon = "&#10003;";
+      barColor = "#10b981";
+      borderColor = "#a7f3d0";
+      bgColor = "#f0fdf4";
+      msg = "Anggaran bulan <b>"+month+"</b>: <b>"+rp50f(monthly)+"</b> — "+
+            "Sisa BOP tahunan: <b>"+rp50f(annSisa)+"</b> dari total <b>"+rp50f(annLimit)+"</b>.";
+    } else {
+      status = "empty";
+      icon = "&#8212;";
+      barColor = "#d1d5db";
+      borderColor = "#e5e7eb";
+      bgColor = "#f9fafb";
+      msg = "Belum ada mata anggaran terjadwal untuk bulan <b>"+month+"</b>.";
+    }
+
+    var barW = Math.min(100, pct)+"%";
+
+    el.innerHTML =
+      '<div style="background:'+bgColor+';border:1px solid '+borderColor+';border-radius:10px;padding:12px 14px;margin-top:8px;font-size:0.85rem;">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'+
+        '<span style="font-size:1.1rem;">'+icon+'</span>'+
+        '<span style="font-weight:700;color:'+barColor+'">Validasi Anggaran RAP Bulanan</span>'+
+        '<span style="margin-left:auto;font-size:0.78rem;color:#64748b;">BOP Tahunan: '+rp50f(annLimit)+'</span>'+
+      '</div>'+
+      '<div style="background:#e5e7eb;border-radius:4px;height:6px;margin-bottom:8px;overflow:hidden;">'+
+        '<div style="width:'+barW+';background:'+barColor+';height:100%;border-radius:4px;transition:width 0.4s;"></div>'+
+      '</div>'+
+      '<p style="margin:0;color:#374151;line-height:1.5;">'+msg+'</p>'+
+      (status==="danger" ? '<p style="margin:6px 0 0;color:#dc2626;font-size:0.8rem;font-weight:600;">&#9888; Dokumen RAP tidak dapat diajukan jika total melebihi batas BOP. Harap revisi RAP tahunan.</p>' : '')+
+      (status==="warn"   ? '<p style="margin:6px 0 0;color:#92400e;font-size:0.8rem;">&#128161; Tips: pastikan kegiatan besar tersebar merata atau ada justifikasi khusus untuk bulan ini.</p>' : '')+
+      '</div>';
+
+    el.style.display = "block";
+  }
+
+  function hideValidationBanner(){
+    var el = document.getElementById("rapBulananValidationV50");
+    if(el) el.style.display = "none";
+  }
+
+  /* ─ Inject container validasi ─ */
+  function injectValidationContainer(){
+    if(document.getElementById("rapBulananValidationV50")) return;
+    var wrap = document.getElementById("v48RapBulanWrap");
+    if(!wrap) return;
+    var el = document.createElement("div");
+    el.id = "rapBulananValidationV50";
+    el.style.cssText = "display:none;";
+    wrap.insertAdjacentElement("afterend", el);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     HOOK: INTERCEPT previewDoc UNTUK rapbulanan
+  ═══════════════════════════════════════════════════════════ */
+  (function hookPreviewDocV50(){
+    var _prev = window.previewDoc;
+    window.previewDoc = function(type){
+      if(type === "rapbulanan"){
+        /* 1. Hapus DS template cache supaya fresh content tampil */
+        clearRapBulananDsTemplate();
+
+        /* 2. Sync bulan dari v48RapBulanSel */
+        var v48sel = document.getElementById("v48RapBulanSel");
+        var gsel   = document.getElementById("monthlyDocMonth");
+        var month  = (v48sel&&v48sel.value) || (gsel&&gsel.value) ||
+                     (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth) ||
+                     "Januari 2026";
+        if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth = month;
+        if(gsel) gsel.value = month;
+        if(v48sel&&v48sel.value!==month) v48sel.value = month;
+
+        /* 3. Tampilkan validasi */
+        injectValidationContainer();
+        renderValidationBanner(month);
+
+        /* 4. Show bulan wrap */
+        var wrap = document.getElementById("v48RapBulanWrap");
+        if(wrap) wrap.style.display = "flex";
+      } else {
+        hideValidationBanner();
+      }
+      if(typeof _prev==="function") _prev(type);
+    };
+  })();
+
+  /* Juga hook dsDocSelectV43 change untuk show/hide validasi */
+  function patchDocSelForValidation(){
+    var origSel = document.getElementById("dsDocSelectV43");
+    if(!origSel) return;
+    var newSel = origSel.cloneNode(true);
+    origSel.parentNode.replaceChild(newSel, origSel);
+    newSel.addEventListener("change", function(){
+      if(typeof window.previewDoc==="function") window.previewDoc(newSel.value);
+    });
+    /* Patch generate button */
+    var origBtn = document.getElementById("dsDocGenBtnV43");
+    if(!origBtn) return;
+    var newBtn = origBtn.cloneNode(true);
+    origBtn.parentNode.replaceChild(newBtn, origBtn);
+    newBtn.addEventListener("click", function(){
+      var t = newSel.value;
+      if(!t) return;
+      if(typeof window.previewDoc==="function") window.previewDoc(t);
+    });
+    /* Wire v48RapBulanSel change */
+    var msel = document.getElementById("v48RapBulanSel");
+    if(msel){
+      msel.addEventListener("change", function(){
+        if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+      });
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     INIT
+  ═══════════════════════════════════════════════════════════ */
+  function initV50(){
+    injectValidationContainer();
+    patchDocSelForValidation();
+
+    /* Re-render panel persiapan jika sudah terbuka */
+    var panel = document.getElementById("pkRapAutoDetectPanel");
+    if(panel){
+      var sel = document.getElementById("pkRapMonthV49");
+      var month = (sel&&sel.value)||
+                  (window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth)||
+                  "Juni 2026";
+      window.renderCardGrid49(month);
+    }
+
+    /* Jika rapbulanan sedang ditampilkan, refresh */
+    if(window.currentDoc === "rapbulanan"){
+      if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+    }
+
+    console.log("[BOP v1.50] Fix DS-cache + Persiapan fallback + Validasi Anggaran aktif.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(initV50,2600); });
+  else
+    setTimeout(initV50,2600);
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.52 - Fix RAP Bulanan: getMonthlyRapRows definitif
+═══════════════════════════════════════════════════════════════ */
+(function bopFixRapBulananV52(){
+  if(window.__bopFixRapBulananV52) return;
+  window.__bopFixRapBulananV52 = true;
+
+  var MONTHS = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+
+  function getData(){ return (typeof window.data!=="undefined"&&window.data)||{}; }
+  function getRap(){
+    var d=getData();
+    return (d.pengajuan&&Array.isArray(d.pengajuan.rap))?d.pengajuan.rap:[];
+  }
+  function getMonth(){
+    var sel=document.getElementById("monthlyDocMonth");
+    if(sel&&sel.value&&MONTHS.indexOf(sel.value)>=0) return sel.value;
+    var v48=document.getElementById("v48RapBulanSel");
+    if(v48&&v48.value&&MONTHS.indexOf(v48.value)>=0) return v48.value;
+    var d=getData();
+    if(d.pengajuan&&d.pengajuan.selectedMonth&&MONTHS.indexOf(d.pengajuan.selectedMonth)>=0)
+      return d.pengajuan.selectedMonth;
+    return "Januari 2026";
+  }
+
+  function getMonthlyRapRowsFinal(month){
+    if(!month||MONTHS.indexOf(month)<0) month=getMonth();
+    var curIdx=MONTHS.indexOf(month);
+    var rows=[];
+    getRap().forEach(function(r,origIdx){
+      if(!r||!r.uraian) return;
+      var jumlahBulanan=0;
+      var vol=r.volumeBulanan||r.volume||"1 Paket";
+      var sumber="";
+
+      if(r.bulanMulai&&r.bulanSelesai){
+        var s=MONTHS.indexOf(r.bulanMulai);
+        var e=MONTHS.indexOf(r.bulanSelesai);
+        if(s>=0&&e>=s&&curIdx>=s&&curIdx<=e){
+          var cnt=e-s+1;
+          jumlahBulanan=Math.round(Number(r.jumlah||0)/cnt);
+          sumber="Range "+r.bulanMulai+"-"+r.bulanSelesai;
+        }
+      }
+      if(!jumlahBulanan&&r.bulan&&r.bulan===month){
+        jumlahBulanan=Number(r.jumlah||0);
+        sumber="Langsung";
+      }
+      if(!jumlahBulanan&&(!r.bulan||r.bulan===""||r.bulan==="Semua Bulan"||r.bulan==="ALL")){
+        jumlahBulanan=Math.round(Number(r.jumlah||0)/12);
+        sumber="Bagi rata 12 bln";
+      }
+      if(!jumlahBulanan&&typeof RAP_MONTH_ALL!=="undefined"&&r.bulan===RAP_MONTH_ALL){
+        jumlahBulanan=Math.round(Number(r.jumlah||0)/MONTHS.length);
+        sumber="Bagi rata";
+      }
+      if(jumlahBulanan>0){
+        rows.push({
+          uraian:r.uraian||"",kategori:r.kategori||"Operasional",
+          subKategori:r.subKategori||"",tipe:r.tipe||"",
+          volume:vol,volumeBulanan:vol,
+          jumlah:Number(r.jumlah||0),jumlahBulanan:jumlahBulanan,
+          keterangan:r.keterangan||"",bulan:r.bulan||"",
+          bulanMulai:r.bulanMulai||"",bulanSelesai:r.bulanSelesai||"",
+          sumber:sumber,annualIndex:origIdx
+        });
+      }
+    });
+    return rows;
+  }
+
+  window.getMonthlyRapRows = getMonthlyRapRowsFinal;
+
+  function _rp(n){ return typeof rupiah==="function"?rupiah(n):"Rp"+Number(n||0).toLocaleString("id-ID"); }
+  function _esc(s){ return typeof esc==="function"?esc(s):String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function _terbilang(n){ return typeof terbilang==="function"?terbilang(n):String(n); }
+  function _official(body){
+    if(typeof officialWrap46==="function") return officialWrap46(body);
+    /* Bangun manual seperti officialV37 */
+    var kop="";
+    try{ kop=kopHTML(); }catch(e){
+      kop="<div class='kop'><div class='kop-text'><h1 class='kop-b1'>PEMERINTAH KOTA SEMARANG</h1></div></div>";
+    }
+    return "<div class='official official-v36 official-v37'>"+kop+
+           "<div class='kop-rule'></div>"+body+"</div>";
+  }
+
+  window.docRapBulanan = function(){
+    var month=getMonth();
+    var d=getData();
+    if(d.pengajuan) d.pengajuan.selectedMonth=month;
+    try{ localStorage.removeItem("bop_rt005_ds_template_rapbulanan"); }catch(e){}
+
+    var rows=getMonthlyRapRowsFinal(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+    var m=d.master||{};
+
+    var tbody="";
+    if(rows.length){
+      rows.forEach(function(r,i){
+        tbody+="<tr><td>"+(i+1)+"</td><td>"+_esc(r.uraian)+
+          "<br><small>"+_esc(r.kategori)+" - "+_esc(r.subKategori)+
+          "<br>Tipe: "+_esc(r.tipe)+" | Sumber: "+_esc(r.sumber)+"</small></td>"+
+          "<td>"+_esc(r.volume)+"</td><td>"+_rp(r.jumlahBulanan)+"</td>"+
+          "<td>"+_esc(r.keterangan)+"</td></tr>";
+      });
+    } else {
+      tbody="<tr><td colspan='5' style='text-align:center;color:#888'>"+
+            "Belum ada rencana kegiatan untuk bulan "+_esc(month)+".</td></tr>";
+    }
+
+    var tgl=d.pengajuan&&d.pengajuan.tanggalSurat
+      ? d.pengajuan.tanggalSurat
+      : "Semarang, _______________";
+
+    return _official(
+      "<div class='title'>RENCANA ANGGARAN PENGGUNAAN BULANAN<br>"+
+      "BANTUAN OPERASIONAL RT<br>BULAN "+_esc(month).toUpperCase()+"</div>"+
+      "<table><thead><tr><th>No</th><th>Uraian Kegiatan</th>"+
+      "<th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead>"+
+      "<tbody>"+tbody+
+      "<tr><td colspan='3'><b>Jumlah</b></td><td><b>"+_rp(total)+"</b></td><td></td></tr>"+
+      "</tbody></table>"+
+      "<p style='text-align:right;margin-top:20px'>"+_esc(tgl)+"</p>"+
+      "<div class='ttd-4'>"+
+      "<div>Ketua RT "+_esc(m.rt||"")+"<div class='signature-space'></div>"+_esc(m.ketua||"Nama Jelas")+"</div>"+
+      "<div>Bendahara RT "+_esc(m.rt||"")+"<div class='signature-space'></div>"+_esc(m.bendahara||"Nama Jelas")+"</div>"+
+      "<div>Lurah "+_esc(m.kelurahan||"")+"<div class='signature-space'></div>"+
+        _esc((d.pengajuan&&d.pengajuan.namaLurah)||"Nama Jelas")+"</div>"+
+      "<div>Ketua RW "+_esc(m.rw||"")+"<div class='signature-space'></div>"+
+        _esc((d.pengajuan&&d.pengajuan.namaKetuaRw)||"Nama Jelas")+"</div>"+
+      "</div>"
+    );
+  };
+
+
+  function initV52(){
+    var sel=document.getElementById("monthlyDocMonth");
+    var v48=document.getElementById("v48RapBulanSel");
+    var d=getData();
+    var cur=(d.pengajuan&&d.pengajuan.selectedMonth)||"Januari 2026";
+    if(sel&&!sel.value) sel.value=cur;
+    if(v48&&!v48.value) v48.value=cur;
+    if(sel&&!sel.__v52){
+      sel.__v52=true;
+      sel.addEventListener("change",function(){
+        if(v48) v48.value=sel.value;
+        var d2=getData(); if(d2.pengajuan) d2.pengajuan.selectedMonth=sel.value;
+        if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+      });
+    }
+    if(v48&&!v48.__v52){
+      v48.__v52=true;
+      v48.addEventListener("change",function(){
+        if(sel) sel.value=v48.value;
+        var d2=getData(); if(d2.pengajuan) d2.pengajuan.selectedMonth=v48.value;
+        if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+      });
+    }
+    console.log("[BOP v1.52] RAP Bulanan fix aktif");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(initV52,3000); });
+  else
+    setTimeout(initV52,3000);
+})();
+/* END PATCH v1.52 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.53 - Fix docMapV37: hadir/sk/rekening pakai window.*
+   docHadirV46/docSKV46/docRekeningV46 sudah di-set ke window.*
+   tapi docMapV37() dipanggil sebelum override selesai.
+   Solusi: override docMapV37 agar selalu baca window.docHadir dll
+═══════════════════════════════════════════════════════════════ */
+(function bopFixDocMapV53(){
+  if(window.__bopFixDocMapV53) return;
+  window.__bopFixDocMapV53 = true;
+
+  var _origDocMapV37 = window.docMapV37;
+
+  window.docMapV37 = function(){
+    var base = (typeof _origDocMapV37 === "function") ? _origDocMapV37() : {};
+    /* Override dengan window.* yang sudah di-patch V46 */
+    if(typeof window.docHadir    === "function") base.hadir    = window.docHadir;
+    if(typeof window.docSK       === "function") base.sk       = window.docSK;
+    if(typeof window.docRekening === "function") base.rekening = window.docRekening;
+    if(typeof window.docRapBulanan === "function") base.rapbulanan = window.docRapBulanan;
+    if(typeof window.docRbb      === "function") base.rbb      = window.docRbb;
+    if(typeof window.docUndangan === "function") base.undangan = window.docUndangan;
+    if(typeof window.docNotulen  === "function") base.notulen  = window.docNotulen;
+    return base;
+  };
+
+  /* Patch juga previewDocV37 agar pakai docMapV37 terbaru */
+  var _origPreview = window.previewDoc;
+  window.previewDoc = function(type){
+    /* collectAll dulu */
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+
+    var nextType = type || window.currentDoc || "permohonan";
+    window.currentDoc = nextType;
+    try{ currentDoc = nextType; }catch(e){}
+
+    /* Update active button */
+    document.querySelectorAll(".doc-btn").forEach(function(b){
+      b.classList.toggle("active", b.dataset.doc === nextType);
+    });
+
+    /* Pakai docMapV37 yang sudah di-patch */
+    var map = window.docMapV37();
+    var fn  = map[nextType];
+    if(typeof fn !== "function"){
+      /* Fallback ke original preview */
+      if(typeof _origPreview === "function"){
+        _origPreview(type); return;
+      }
+      fn = map["permohonan"];
+    }
+
+    var out = document.getElementById("docOutput");
+    if(out){
+      try{ out.innerHTML = fn(); }
+      catch(e){
+        console.error("[BOP v1.53] Error render", nextType, e);
+        out.innerHTML = "<p style='color:red'>Error: "+e.message+"</p>";
+      }
+    }
+  };
+
+  console.log("[BOP v1.53] docMapV37 fix aktif - hadir/sk/rekening pakai window.*");
+})();
+/* END PATCH v1.53 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.54 - Fix konflik dropdown bulan RAP Bulanan
+   Masalah: v1.48 + v1.48b + v1.52 saling clone & override
+   Fix: 1 IIFE definitif, tidak clone dsDocSelectV43, 
+        re-inject v48RapBulanWrap jika hilang dari DOM
+═══════════════════════════════════════════════════════════════ */
+(function bopFixRapBulanDropdownV54(){
+  if(window.__bopFixRapBulanDropdownV54) return;
+  window.__bopFixRapBulanDropdownV54 = true;
+
+  var MONTHS_V54 = [
+    "Januari 2026","Februari 2026","Maret 2026","April 2026",
+    "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+    "September 2026","Oktober 2026","November 2026","Desember 2026"
+  ];
+
+  /* ── Helper ── */
+  function getStoredMonth(){
+    try{
+      if(window.data&&window.data.pengajuan&&window.data.pengajuan.selectedMonth){
+        var m=window.data.pengajuan.selectedMonth;
+        if(MONTHS_V54.indexOf(m)>=0) return m;
+      }
+    }catch(e){}
+    var sel=document.getElementById("monthlyDocMonth");
+    if(sel&&MONTHS_V54.indexOf(sel.value)>=0) return sel.value;
+    return "Januari 2026";
+  }
+
+  function saveMonth(month){
+    try{
+      if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month;
+      var globalSel=document.getElementById("monthlyDocMonth");
+      if(globalSel) globalSel.value=month;
+      var STORE_KEY="bop_rt005_data_v1_25";
+      if(typeof STORE!=="undefined") STORE_KEY=STORE;
+      localStorage.setItem(STORE_KEY,JSON.stringify(window.data));
+    }catch(e){}
+  }
+
+  /* ── Inject atau re-inject v48RapBulanWrap ── */
+  function ensureWrap(){
+    /* Cek apakah wrap sudah ada dan masih di DOM */
+    var existing=document.getElementById("v48RapBulanWrap");
+    if(existing && existing.isConnected) return existing;
+
+    /* Buat wrapper baru */
+    var wrap=document.createElement("div");
+    wrap.id="v48RapBulanWrap";
+    wrap.style.cssText="display:none;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;padding:4px 0;";
+
+    var lbl=document.createElement("label");
+    lbl.style.cssText="font-size:0.82rem;font-weight:600;color:#64748b;white-space:nowrap;";
+    lbl.textContent="Bulan RAP:";
+
+    var msel=document.createElement("select");
+    msel.id="v48RapBulanSel";
+    msel.className="ds-doc-select-v43";
+    msel.style.cssText="min-width:150px;";
+    MONTHS_V54.forEach(function(m){
+      var opt=document.createElement("option");
+      opt.value=m; opt.textContent=m;
+      msel.appendChild(opt);
+    });
+    msel.value=getStoredMonth();
+
+    wrap.appendChild(lbl);
+    wrap.appendChild(msel);
+
+    /* Inject setelah .ds-doc-select-group-v43 atau .ds-gen-left */
+    var grp=document.querySelector(".ds-doc-select-group-v43");
+    var left=document.querySelector(".ds-gen-left");
+    if(grp) grp.insertAdjacentElement("afterend",wrap);
+    else if(left) left.appendChild(wrap);
+    else return null;
+
+    return wrap;
+  }
+
+  /* ── Main init ── */
+  function initV54(){
+    var wrap=ensureWrap();
+    if(!wrap){ setTimeout(initV54,500); return; }
+
+    var msel=document.getElementById("v48RapBulanSel");
+    var docSel=document.getElementById("dsDocSelectV43");
+    if(!msel||!docSel){ setTimeout(initV54,500); return; }
+
+    /* Tampilkan/sembunyikan wrap sesuai pilihan dokumen */
+    function toggleWrap(){
+      wrap.style.display=(docSel.value==="rapbulanan")?"flex":"none";
+    }
+
+    /* Pasang listener ke docSel — cek dulu jangan double */
+    if(!docSel.__v54change){
+      docSel.__v54change=true;
+      docSel.addEventListener("change",function(){
+        toggleWrap();
+        if(docSel.value==="rapbulanan"){
+          saveMonth(msel.value);
+          if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+        } else {
+          if(typeof window.previewDoc==="function") window.previewDoc(docSel.value);
+        }
+      });
+    }
+
+    /* Pasang listener ke msel bulan */
+    if(!msel.__v54change){
+      msel.__v54change=true;
+      msel.addEventListener("change",function(){
+        saveMonth(msel.value);
+        if(docSel.value==="rapbulanan"){
+          if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+        }
+      });
+    }
+
+    /* Override tombol Generate — clone sekali */
+    var genBtn=document.getElementById("dsDocGenBtnV43");
+    if(genBtn && !genBtn.__v54){
+      genBtn.__v54=true;
+      var newBtn=genBtn.cloneNode(true);
+      genBtn.parentNode.replaceChild(newBtn,genBtn);
+      newBtn.__v54=true;
+      newBtn.addEventListener("click",function(){
+        var type=docSel.value;
+        if(!type) return;
+        if(type==="rapbulanan") saveMonth(msel.value);
+        if(typeof window.previewDoc==="function") window.previewDoc(type);
+      });
+    }
+
+    /* Override syncRapBulan global agar selalu ambil dari v48RapBulanSel */
+    window.syncRapBulan=function(){
+      var v48=document.getElementById("v48RapBulanSel");
+      if(!v48) return;
+      saveMonth(v48.value);
+    };
+
+    /* Set initial state */
+    toggleWrap();
+    msel.value=getStoredMonth();
+
+    /* MutationObserver: jika wrap hilang dari DOM (karena clone), re-inject */
+    if(!window.__v54Observer){
+      window.__v54Observer=true;
+      var observer=new MutationObserver(function(){
+        var w=document.getElementById("v48RapBulanWrap");
+        if(!w || !w.isConnected){
+          var newWrap=ensureWrap();
+          if(newWrap){
+            var ds=document.getElementById("dsDocSelectV43");
+            if(ds) newWrap.style.display=(ds.value==="rapbulanan")?"flex":"none";
+            var ms=document.getElementById("v48RapBulanSel");
+            if(ms){
+              ms.value=getStoredMonth();
+              if(!ms.__v54change){
+                ms.__v54change=true;
+                ms.addEventListener("change",function(){
+                  saveMonth(ms.value);
+                  var dSel=document.getElementById("dsDocSelectV43");
+                  if(dSel&&dSel.value==="rapbulanan"){
+                    if(typeof window.previewDoc==="function") window.previewDoc("rapbulanan");
+                  }
+                });
+              }
+            }
+          }
+        }
+      });
+      var genPanel=document.getElementById("dsGenPanel")||document.querySelector(".ds-gen-left");
+      if(genPanel) observer.observe(genPanel,{childList:true,subtree:true});
+    }
+
+    console.log("[BOP v1.54] Dropdown bulan RAP Bulanan fix aktif");
+  }
+
+  /* Init dengan delay lebih panjang dari semua patch sebelumnya (v1.52=3000ms) */
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(initV54,3500); });
+  else
+    setTimeout(initV54,3500);
+
+})();
+/* END PATCH v1.54 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.55 - Fix docRapBulanan ambil bulan dari v48RapBulanSel
+   + getMonthlyRapRows handle ARRAY & OBJECT format
+═══════════════════════════════════════════════════════════════ */
+(function bopFixDocRapBulananV55(){
+  if(window.__bopFixDocRapBulananV55) return;
+  window.__bopFixDocRapBulananV55 = true;
+  var MO=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+  function getM(){
+    var a=document.getElementById("v48RapBulanSel");
+    if(a&&a.value&&MO.indexOf(a.value)>=0) return a.value;
+    var b=document.getElementById("monthlyDocMonth");
+    if(b&&b.value&&MO.indexOf(b.value)>=0) return b.value;
+    try{var m=window.data.pengajuan.selectedMonth;if(MO.indexOf(m)>=0)return m;}catch(e){}
+    return "Januari 2026";
+  }
+  function getR(month){
+    if(!month||MO.indexOf(month)<0) month=getM();
+    var ci=MO.indexOf(month),rap=[],rows=[];
+    try{rap=(window.data.pengajuan.rap)||[];}catch(e){return [];}
+    rap.forEach(function(r,idx){
+      if(Array.isArray(r)) r={uraian:r[0]||"",volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||"",bulan:r[4]||"",kategori:r[5]||"Operasional",subKategori:"",tipe:"",bulanMulai:"",bulanSelesai:""};
+      if(!r||!r.uraian) return;
+      var jb=0,sb="",bl=r.bulan||"";
+
+      /* Parse "Juli 2026 s.d Desember 2026" → bulanMulai + bulanSelesai */
+      var bMulai=r.bulanMulai||"", bSelesai=r.bulanSelesai||"";
+      if(!bMulai||!bSelesai){
+        var sdMatch=bl.match(/^(.+?)\s+s\.d\.?\s+(.+)$/i);
+        if(sdMatch){
+          bMulai=sdMatch[1].trim();
+          bSelesai=sdMatch[2].trim();
+        }
+      }
+
+      /* Cek range bulanMulai - bulanSelesai */
+      if(bMulai&&bSelesai){
+        var s=MO.indexOf(bMulai),e=MO.indexOf(bSelesai);
+        if(s>=0&&e>=s&&ci>=s&&ci<=e){
+          jb=Math.round(Number(r.jumlah||0)/(e-s+1));
+          sb="Range "+bMulai+" s.d "+bSelesai;
+        }
+      }
+
+      /* Bulan spesifik langsung */
+      if(!jb&&bl===month){jb=Number(r.jumlah||0);sb="Langsung";}
+
+      /* RAP_MONTH_ALL */
+      var RA=(typeof RAP_MONTH_ALL!=="undefined")?RAP_MONTH_ALL:"Januari-Desember 2026";
+      if(!jb&&(bl===RA||bl==="Semua Bulan"||bl==="ALL")){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata 12 bln";}
+
+      /* Bulan kosong → bagi rata */
+      if(!jb&&bl===""){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata";}
+
+      if(jb>0) rows.push({uraian:r.uraian||"",kategori:r.kategori||"Operasional",volume:r.volume||"1 Paket",jumlah:Number(r.jumlah||0),jumlahBulanan:jb,keterangan:r.keterangan||"",bulan:bl,sumber:sb});
+    });
+    return rows;
+  }
+  window.getMonthlyRapRows=getR;
+  function rp(n){try{if(typeof rupiah==="function")return rupiah(Number(n||0));}catch(e){}return "Rp"+Number(n||0).toLocaleString("id-ID");}
+  function es(s){try{if(typeof esc==="function")return esc(String(s==null?"":s));}catch(e){}return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function of(b){try{if(typeof officialWrap46==="function")return officialWrap46(b);}catch(e){} var kop="";try{kop=kopHTML();}catch(e){kop="<div class='kop'><div class='kop-text'><h1 class='kop-b1'>PEMERINTAH KOTA SEMARANG</h1></div></div>";} return "<div class='official official-v36 official-v37'>"+kop+"<div class='kop-rule'></div>"+b+"</div>";}
+  function tb(n){try{if(typeof terbilang==="function")return String(terbilang(Number(n||0))).replace(/\s+/g," ").trim();}catch(e){}return String(n||0);}
+  window.docRapBulanan=function(){
+    /* Selalu baca fresh dari DOM saat generate */
+    var _v48=document.getElementById("v48RapBulanSel");
+    var _sel=document.getElementById("monthlyDocMonth");
+    var month=(_v48&&_v48.value&&MO.indexOf(_v48.value)>=0)?_v48.value:
+              (_sel&&_sel.value&&MO.indexOf(_sel.value)>=0)?_sel.value:"Januari 2026";
+    try{window.data.pengajuan.selectedMonth=month;}catch(e){}
+    var rows=getR(month),total=rows.reduce(function(s,r){return s+r.jumlahBulanan;},0);
+    var m={},p={};try{m=window.data.master||{};}catch(e){}try{p=window.data.pengajuan||{};}catch(e){}
+    var tb2="";
+    if(rows.length){rows.forEach(function(r,i){tb2+="<tr><td>"+(i+1)+"</td><td>"+es(r.uraian)+"<br><small>"+es(r.kategori)+" | "+es(r.sumber)+"</small></td><td>"+es(r.volume)+"</td><td>"+rp(r.jumlahBulanan)+"</td><td>"+es(r.keterangan)+"</td></tr>";});}
+    else{tb2="<tr><td colspan='5' style='text-align:center;color:#888;padding:16px'>Belum ada kegiatan bulan "+es(month)+".</td></tr>";}
+    return of("<div class='title'>RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN "+es(month).toUpperCase()+"</div>"+"<table><thead><tr><th>No</th><th>Uraian Kegiatan</th><th>Satuan/Volume</th><th>Rencana Anggaran</th><th>Keterangan</th></tr></thead><tbody>"+tb2+"<tr><td colspan='3'><b>Jumlah</b></td><td><b>"+rp(total)+"</b></td><td></td></tr></tbody></table>"+"<p style='text-align:right;margin-top:20px'>"+es(p.tanggalSurat||"Semarang, _______________")+"</p>"+"<div class='ttd-4'><div>Ketua RT "+es(m.rt||"005")+"<div class='sign-space-v37'></div><b>"+es(m.ketua||"................")+"</b></div><div>Bendahara<div class='sign-space-v37'></div><b>"+es(m.bendahara||"................")+"</b></div><div>Lurah "+es(m.kelurahan||"")+"<div class='sign-space-v37'></div><b>"+es(p.namaLurah||"................")+"</b></div><div>Ketua RW "+es(m.rw||"012")+"<div class='sign-space-v37'></div><b>"+es(p.namaKetuaRw||"................")+"</b></div></div>");
+  };
+  window.docRbb=function(){
+    var month=getM();
+    try{window.data.pengajuan.selectedMonth=month;}catch(e){}
+    var rows=getR(month),total=rows.reduce(function(s,r){return s+r.jumlahBulanan;},0);
+    var m={},p={};try{m=window.data.master||{};}catch(e){}try{p=window.data.pengajuan||{};}catch(e){}
+    var tb2="";
+    if(rows.length){rows.forEach(function(r,i){tb2+="<tr><td>"+(i+1)+"</td><td>"+es(r.uraian)+"</td><td>"+es(r.volume)+"</td><td>"+rp(r.jumlahBulanan)+"</td><td>"+es(r.keterangan)+"</td></tr>";});}
+    else{tb2="<tr><td colspan='5' style='text-align:center;color:#888;padding:16px'>Belum ada kegiatan bulan "+es(month)+".</td></tr>";}
+    return of("<div class='title'>Pengambilan Operasional RT Melalui Bank Jawa Tengah</div>"+"<table class='no-border'><tr><td style='width:180px'>Nama Lembaga</td><td>: RT "+es(m.rt||"")+" RW "+es(m.rw||"")+"</td></tr><tr><td>Kelurahan</td><td>: "+es(m.kelurahan||"")+"</td></tr><tr><td>Kecamatan</td><td>: "+es(m.kecamatan||"")+"</td></tr><tr><td>Untuk Kegiatan Bulan</td><td>: "+es(month)+"</td></tr></table><br>"+"<table><thead><tr><th>No</th><th>Uraian</th><th>Volume</th><th>Anggaran</th><th>Keterangan</th></tr></thead><tbody>"+tb2+"<tr><td colspan='3'><b>Jumlah</b></td><td><b>"+rp(total)+"</b></td><td></td></tr></tbody></table>"+"<p>Terbilang: <i>"+tb(total)+" Rupiah</i></p>"+"<div class='ttd-3'><div>Yang Mengambil<br>Ketua RT "+es(m.rt||"")+"<div class='sign-space-v37'></div><b>"+es(m.ketua||"................")+"</b></div><div>Bendahara<div class='sign-space-v37'></div><b>"+es(m.bendahara||"................")+"</b></div><div>Mengetahui<br>Lurah "+es(m.kelurahan||"")+"<div class='sign-space-v37'></div><b>"+es(p.namaLurah||"................")+"</b></div></div>");
+  };
+  if(typeof window.docMapV37==="function"){var _om=window.docMapV37;window.docMapV37=function(){var b=_om();b.rapbulanan=window.docRapBulanan;b.rbb=window.docRbb;return b;};}
+  function initV55(){
+    var month=getM();
+    try{window.data.pengajuan.selectedMonth=month;}catch(e){}
+    var v48=document.getElementById("v48RapBulanSel");
+    var sel=document.getElementById("monthlyDocMonth");
+    if(v48&&!v48.value) v48.value=month;
+    if(sel&&!sel.value) sel.value=month;
+    console.log("[BOP v1.55] aktif - bulan: "+month);
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",function(){setTimeout(initV55,3500);});
+  else setTimeout(initV55,3500);
+})();
+/* END PATCH v1.55 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.56 - Fix definitif RAP Bulanan bulan sync
+   Masalah 1: getElementById("v48RapBulanSel") bisa ambil elemen
+              yg bukan yang visible (ada duplikat dari v1.48+v1.54)
+   Masalah 2: renderMonthlyRapSummary() reset monthlyDocMonth ke
+              "Agustus 2026" (default normalizeRapV17)
+   Fix: event delegation + querySelectorAll cari elemen visible
+        + override previewDoc sync month dulu sebelum render
+═══════════════════════════════════════════════════════════════ */
+(function bopFixV156(){
+  if(window.__bopFixV156) return;
+  window.__bopFixV156 = true;
+
+  var MO = ["Januari 2026","Februari 2026","Maret 2026","April 2026",
+            "Mei 2026","Juni 2026","Juli 2026","Agustus 2026",
+            "September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  /* Cari elemen v48RapBulanSel yang VISIBLE (offsetParent !== null) */
+  function getVisibleRapBulanSel(){
+    var all = document.querySelectorAll('[id="v48RapBulanSel"]');
+    var found = null;
+    all.forEach(function(el){
+      if(!found && el.offsetParent !== null) found = el;
+    });
+    if(!found && all.length > 0) found = all[all.length - 1];
+    return found;
+  }
+
+  /* Baca bulan dari sumber yang paling akurat */
+  function getActiveMonth(){
+    var vis = getVisibleRapBulanSel();
+    if(vis && vis.value && MO.indexOf(vis.value) >= 0) return vis.value;
+    var sel = document.getElementById("monthlyDocMonth");
+    if(sel && sel.value && MO.indexOf(sel.value) >= 0) return sel.value;
+    try{ var m = window.data.pengajuan.selectedMonth; if(MO.indexOf(m)>=0) return m; }catch(e){}
+    return "Januari 2026";
+  }
+
+  /* Sync semua selector bulan ke nilai yang sama */
+  function syncAllTo(month){
+    if(!month || MO.indexOf(month) < 0) return;
+    document.querySelectorAll('[id="v48RapBulanSel"]').forEach(function(el){ el.value = month; });
+    var sel = document.getElementById("monthlyDocMonth");
+    if(sel) sel.value = month;
+    try{
+      if(window.data && window.data.pengajuan) window.data.pengajuan.selectedMonth = month;
+    }catch(e){}
+  }
+
+  /* ── Event delegation: tangkap perubahan SEMUA selector bulan ── */
+  document.addEventListener("change", function(e){
+    var id = e.target && e.target.id;
+    if(id === "v48RapBulanSel" || id === "monthlyDocMonth"){
+      var month = e.target.value;
+      if(MO.indexOf(month) < 0) return;
+      syncAllTo(month);
+      /* Auto-preview di DS jika rapbulanan aktif */
+      var docSel = document.getElementById("dsDocSelectV43");
+      if(docSel && docSel.value === "rapbulanan"){
+        if(typeof window.previewDoc === "function") window.previewDoc("rapbulanan");
+      }
+    }
+  }, true); /* capture phase — runs sebelum listener lain */
+
+  /* ── Override docRapBulanan: selalu sync bulan dulu ── */
+  var _origDocRapBulanan = window.docRapBulanan;
+  window.docRapBulanan = function(){
+    var month = getActiveMonth();
+    syncAllTo(month);
+    /* Pastikan fungsi asal juga pakai bulan yang benar */
+    if(typeof _origDocRapBulanan === "function"){
+      return _origDocRapBulanan();
+    }
+    return "<p>docRapBulanan tidak ditemukan</p>";
+  };
+
+  /* ── Override previewDoc: sync bulan sebelum render rapbulanan ── */
+  var _prevPD = window.previewDoc;
+  window.previewDoc = function(type){
+    if(type === "rapbulanan"){
+      var month = getActiveMonth();
+      syncAllTo(month);
+    }
+    if(typeof _prevPD === "function") return _prevPD(type);
+  };
+
+  /* ── Patch docMapV37 agar pakai window.docRapBulanan terbaru ── */
+  if(typeof window.docMapV37 === "function"){
+    var _om = window.docMapV37;
+    window.docMapV37 = function(){
+      var b = _om();
+      b.rapbulanan = window.docRapBulanan;
+      return b;
+    };
+  }
+
+  /* ── Init: hapus elemen v48RapBulanSel duplikat jika ada ── */
+  function dedupeRapBulanSel(){
+    var all = document.querySelectorAll('[id="v48RapBulanSel"]');
+    if(all.length <= 1) return;
+    /* Pertahankan yang visible, hapus sisanya */
+    var keep = null;
+    all.forEach(function(el){ if(!keep && el.offsetParent !== null) keep = el; });
+    if(!keep) keep = all[all.length - 1];
+    all.forEach(function(el){
+      if(el !== keep && el.parentElement){
+        /* Sembunyikan parent wrap jika jadi kosong */
+        el.parentElement.removeChild(el);
+      }
+    });
+  }
+
+  function initV56(){
+    dedupeRapBulanSel();
+    /* Sync initial state dari data tersimpan */
+    var month = getActiveMonth();
+    syncAllTo(month);
+    console.log("[BOP v1.56] Fix RAP Bulanan sync aktif - bulan: " + month);
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initV56, 4000); });
+  else
+    setTimeout(initV56, 4000);
+})();
+/* END PATCH v1.56 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.57 - RAP Bulanan Breakdown Format KAK
+   Format Excel RAB: No|Uraian|Qty×Sat×Qty×Sat|VolTotal|Hargasat|Jumlah
+   - Upgrade struktur breakdown row ke format KAK pemerintah
+   - UI input: qty1/sat1 x qty2/sat2 x qty3/sat3 = total × harga = jumlah
+   - Dokumen: tabel 6 kolom sesuai template RAB Excel
+   - Backward-compatible: row lama (hanya volume+jumlah) tetap terbaca
+═══════════════════════════════════════════════════════════════ */
+(function bopKakBreakdownV57(){
+  if(window.__bopKakBreakdownV57) return;
+  window.__bopKakBreakdownV57 = true;
+
+  /* ── Helper ── */
+  function rp(n){ try{ return rupiah(Number(n||0)); }catch(e){ return "Rp"+Number(n||0).toLocaleString("id-ID"); } }
+  function es(s){ try{ return esc(String(s==null?"":s)); }catch(e){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); } }
+  function ea(s){ return es(s).replace(/"/g,"&quot;"); }
+  function getData57(){ return (typeof data!=="undefined"?data:window.data)||{}; }
+  function ensureBD(){ var d=getData57(); if(!d.pengajuan) d.pengajuan={}; if(!d.pengajuan.monthlyBreakdowns) d.pengajuan.monthlyBreakdowns={}; }
+  function getBDRows(month, idx){ ensureBD(); var k=encodeURIComponent(month)+"__"+idx; var d=getData57(); if(!Array.isArray(d.pengajuan.monthlyBreakdowns[k])) d.pengajuan.monthlyBreakdowns[k]=[]; return d.pengajuan.monthlyBreakdowns[k]; }
+
+  /* Hitung jumlah dari komponen qty */
+  function calcJml(r){
+    var q1=Number(r.qty1||1), q2=Number(r.qty2||1), q3=r.qty3?Number(r.qty3):1;
+    var hs=Number(r.hargaSatuan||0);
+    return Math.round(q1*q2*q3*hs);
+  }
+
+  /* String volume rincian: "1 Pkt x 2 Bln x 16 PPK" */
+  function volStr(r){
+    var parts=[];
+    if(r.qty1||r.sat1) parts.push((r.qty1||1)+" "+(r.sat1||"Pkt"));
+    if(r.qty2||r.sat2) parts.push((r.qty2||1)+" "+(r.sat2||"Keg"));
+    if(r.qty3&&r.sat3)  parts.push(r.qty3+" "+r.sat3);
+    return parts.length?parts.join(" x "):String(r.volume||"1 Paket");
+  }
+
+  /* Total volume string: "32 OB" */
+  function volTotalStr(r){
+    if(r.satTotal){
+      var q1=Number(r.qty1||1), q2=Number(r.qty2||1), q3=r.qty3?Number(r.qty3):1;
+      return (q1*q2*q3)+" "+(r.satTotal||"Pkt");
+    }
+    return String(r.volume||r.volumeBulanan||"1 Paket");
+  }
+
+  /* Migrate lama → baru jika belum punya qty1 */
+  function migrateRow(r){
+    if(r.qty1!==undefined) return r;
+    var migrated=Object.assign({},r);
+    migrated.qty1=1; migrated.sat1=r.volume||"Paket";
+    migrated.qty2=""; migrated.sat2="";
+    migrated.qty3=""; migrated.sat3="";
+    migrated.qtyTotal="1"; migrated.satTotal=r.volume||"Paket";
+    migrated.hargaSatuan=Number(r.jumlah||0);
+    migrated.jumlah=Number(r.jumlah||0);
+    return migrated;
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE addBreakdownRow — buat row format KAK
+  ════════════════════════════════════════════════════════════ */
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE updateBreakdownFromInputs — baca field bd57
+  ════════════════════════════════════════════════════════════ */
+  window.updateBreakdownFromInputs = function(){
+    ensureBD();
+    document.querySelectorAll("[data-bd57]").forEach(function(inp){
+      var parts=inp.dataset.bd57.split("|");
+      if(parts.length<4) return;
+      var month=decodeURIComponent(parts[0]), idx=Number(parts[1]), rowIdx=Number(parts[2]), field=parts[3];
+      var rows=getBDRows(month,idx);
+      if(!rows[rowIdx]) return;
+      var v=inp.type==="number"?Number(inp.value||0):inp.value;
+      rows[rowIdx][field]=v;
+      /* Auto-calc jumlah ketika hargaSatuan atau qty berubah */
+      if(field==="hargaSatuan"||field==="qty1"||field==="qty2"||field==="qty3"){
+        rows[rowIdx].jumlah=calcJml(rows[rowIdx]);
+        /* Update display */
+        var jmlEl=document.querySelector('[data-bd57="'+parts[0]+"|"+idx+"|"+rowIdx+'|jumlah"]');
+        if(jmlEl) jmlEl.value=rows[rowIdx].jumlah;
+        var jmlTxt=document.querySelector('[data-bd57disp="'+parts[0]+"|"+idx+"|"+rowIdx+'|jumlah"]');
+        if(jmlTxt) jmlTxt.textContent=rp(rows[rowIdx].jumlah);
+      }
+      /* Auto-calc qtyTotal */
+      if(field==="qty1"||field==="qty2"||field==="qty3"){
+        var q1=Number(rows[rowIdx].qty1||1),q2=Number(rows[rowIdx].qty2||1),q3=rows[rowIdx].qty3?Number(rows[rowIdx].qty3):1;
+        var qt=q1*q2*q3;
+        rows[rowIdx].qtyTotal=qt;
+        var qtEl=document.querySelector('[data-bd57="'+parts[0]+"|"+idx+"|"+rowIdx+'|qtyTotal"]');
+        if(qtEl) qtEl.value=qt;
+      }
+    });
+    /* Also read legacy [data-breakdown] if old updateBreakdownFromInputs existed — skip to avoid double */
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE renderBreakdownPanel — UI format KAK
+  ════════════════════════════════════════════════════════════ */
+  window.renderBreakdownPanel = function(month, item){
+    var rawRows=getBDRows(month,item.annualIndex);
+    var rows=rawRows.map(migrateRow);
+    /* Write back migrated rows */
+    var d=getData57(); var k=encodeURIComponent(month)+"__"+item.annualIndex;
+    d.pengajuan.monthlyBreakdowns[k]=rows;
+
+    var enc=encodeURIComponent(month);
+    var total=rows.reduce(function(s,r){return s+Number(r.jumlah||calcJml(r));},0);
+    var target=Number(item.jumlahBulanan||0);
+    var diff=target-total; var ok=diff===0;
+
+    var SATUAN_LIST=["Pkt","Keg","Bln","Org","OK","OB","TPS","PPS","PPK","Unit","Lembar","Buah","Set","Rim","Hari","Jam","Kali","Keg","RT","RW"];
+    function satSel(enc57,idx,rowI,field,val){
+      return '<select class="mini-inp-sm" data-bd57="'+enc57+"|"+idx+"|"+rowI+"|"+field+'" onchange="updateBreakdownFromInputs()">'
+        +SATUAN_LIST.map(function(s){return '<option value="'+s+'"'+(s===val?" selected":"")+">"+s+"</option>";}).join("")
+        +'<option value="'+ea(val||"Pkt")+'" '+(SATUAN_LIST.indexOf(val)<0?"selected":"")+">"+ea(val||"Pkt")+"</option>"
+        +'</select>';
+    }
+
+    var rowsHtml=rows.length?rows.map(function(r,i){
+      var jml=r.jumlah||calcJml(r);
+      return '<tr>'
+        +'<td style="text-align:center;color:#64748b">'+(i+1)+'</td>'
+        +'<td><input class="mini-inp" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|uraian" value="'+ea(r.uraian||'')+'" placeholder="Contoh: Pembelian ATK" oninput="updateBreakdownFromInputs()"></td>'
+        /* Volume komponen 1 */
+        +'<td style="white-space:nowrap">'
+          +'<input class="mini-inp-xs" type="number" min="0" step="any" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qty1" value="'+Number(r.qty1||1)+'" oninput="updateBreakdownFromInputs()">'
+          +' '+satSel(enc,item.annualIndex,i,'sat1',r.sat1||'Pkt')
+          +' <span style="color:#94a3b8;font-weight:700">×</span> '
+          +'<input class="mini-inp-xs" type="number" min="0" step="any" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qty2" value="'+Number(r.qty2||1)+'" oninput="updateBreakdownFromInputs()">'
+          +' '+satSel(enc,item.annualIndex,i,'sat2',r.sat2||'Keg')
+        /* Komponen 3 optional */
+          +' <span style="color:#94a3b8;font-size:0.75rem">× (opt)</span> '
+          +'<input class="mini-inp-xs" type="number" min="0" step="any" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qty3" value="'+(r.qty3||'')+'" placeholder="—" oninput="updateBreakdownFromInputs()">'
+          +' '+satSel(enc,item.annualIndex,i,'sat3',r.sat3||'')
+        +'</td>'
+        /* Total volume */
+        +'<td style="white-space:nowrap">'
+          +'<input class="mini-inp-xs" type="number" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|qtyTotal" value="'+(r.qtyTotal||(Number(r.qty1||1)*Number(r.qty2||1)*(r.qty3?Number(r.qty3):1)))+'" readonly style="background:#f1f5f9;color:#475569">'
+          +' '+satSel(enc,item.annualIndex,i,'satTotal',r.satTotal||'Pkt')
+        +'</td>'
+        /* Harga satuan */
+        +'<td><input class="mini-inp" type="number" min="0" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|hargaSatuan" value="'+Number(r.hargaSatuan||0)+'" placeholder="0" oninput="updateBreakdownFromInputs()" style="text-align:right"></td>'
+        /* Jumlah auto */
+        +'<td><input class="mini-inp" type="number" data-bd57="'+enc+'|'+item.annualIndex+'|'+i+'|jumlah" value="'+Number(jml)+'" readonly style="background:#f0fdf4;font-weight:700;color:#166534;text-align:right"></td>'
+        +'<td><button type="button" class="delete" onclick="deleteBreakdownRow(\''+month+'\','+item.annualIndex+','+i+')">✕</button></td>'
+      +'</tr>';
+    }).join(""):'<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:16px">Belum ada rincian. Klik "+ Tambah Rincian".</td></tr>';
+
+    return '<div class="breakdown-panel">'
+      +'<div class="breakdown-head">'
+        +'<div>'
+          +'<h3 style="margin:0;font-size:1rem">📋 Rincian Anggaran (Format KAK)</h3>'
+          +'<div class="breakdown-subtitle"><b>'+es(item.uraian)+'</b> • '+es(month)+'<br>Target: <b>'+rp(target)+'</b></div>'
+        +'</div>'
+        +'<div class="action-row">'
+          +'<span id="breakdownLiveStatus" class="breakdown-status '+(ok?'ok':'bad')+'">'+(ok?'✓ SESUAI':'✗ BELUM SESUAI')+'</span>'
+          +'<button type="button" class="secondary" onclick="closeMonthlyBreakdown()">✕ Tutup</button>'
+        +'</div>'
+      +'</div>'
+      +'<div class="breakdown-toolbar">'
+        +'<div style="font-size:0.8rem;color:#64748b">Format KAK: <b>Qty×Sat×Qty×Sat</b> → <b>Vol Total</b> × <b>Harga Satuan</b> = <b>Jumlah</b> (otomatis)</div>'
+        +'<div class="action-row">'
+          +'<button type="button" class="primary" onclick="addBreakdownRow(\''+month+'\','+item.annualIndex+')">+ Tambah Rincian</button>'
+          +'<button type="button" class="secondary" onclick="updateBreakdownFromInputs();var d=typeof data!==\'undefined\'?data:window.data;localStorage.setItem((typeof STORE!==\'undefined\'?STORE:\'bop_rt005_data_v1_25\'),JSON.stringify(d));renderMonthlyRapSummary()">💾 Simpan</button>'
+        +'</div>'
+      +'</div>'
+      /* Tabel */
+      +'<div class="table-wrap" style="overflow-x:auto">'
+        +'<table class="breakdown-table" style="min-width:900px">'
+          +'<thead><tr>'
+            +'<th style="width:40px">No</th>'
+            +'<th>Uraian Rincian</th>'
+            +'<th style="min-width:340px">Rincian Volume (Qty × Sat × Qty × Sat × opt)</th>'
+            +'<th style="min-width:130px">Vol Total</th>'
+            +'<th style="min-width:120px">Harga Satuan (Rp)</th>'
+            +'<th style="min-width:110px">Jumlah (Rp)</th>'
+            +'<th style="width:50px"></th>'
+          +'</tr></thead>'
+          +'<tbody>'+rowsHtml+'</tbody>'
+        +'</table>'
+      +'</div>'
+      /* Summary cards */
+      +'<div class="breakdown-summary-cards">'
+        +'<div class="breakdown-summary-card primary"><div class="label">Target RAP Bulanan</div><div class="value">'+rp(target)+'</div></div>'
+        +'<div class="breakdown-summary-card danger"><div class="label">Total Rincian</div><div class="value" id="breakdownLiveTotal">'+rp(total)+'</div></div>'
+        +'<div class="breakdown-summary-card '+(diff===0?'success':'danger')+'"><div class="label">Selisih</div><div class="value" id="breakdownLiveDiff">'+rp(diff)+'</div></div>'
+      +'</div>'
+    +'</div>';
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     OVERRIDE docRapBulanan — dokumen format KAK
+  ════════════════════════════════════════════════════════════ */
+  window.docRapBulanan = function(){
+    /* Sync & collect */
+    if(typeof updateBreakdownFromInputs==="function") try{updateBreakdownFromInputs();}catch(e){}
+    var month="Januari 2026";
+    try{
+      var vis=document.querySelectorAll('[id="v48RapBulanSel"]');
+      var vm=null; vis.forEach(function(el){if(!vm&&el.offsetParent!==null)vm=el;});
+      if(!vm&&vis.length>0)vm=vis[vis.length-1];
+      if(vm&&vm.value)month=vm.value;
+      else{var ms=document.getElementById("monthlyDocMonth");if(ms&&ms.value)month=ms.value;else{var sm=(getData57().pengajuan||{}).selectedMonth;if(sm)month=sm;}}
+    }catch(e){}
+    var MO=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+    if(MO.indexOf(month)<0) month=(getData57().pengajuan||{}).selectedMonth||"Januari 2026";
+    try{if(getData57().pengajuan)getData57().pengajuan.selectedMonth=month;}catch(e){}
+
+    var rapRows=(typeof getMonthlyRapRows==="function")?getMonthlyRapRows(month):[];
+    var m={},p={};try{m=getData57().master||{};}catch(e){}try{p=getData57().pengajuan||{};}catch(e){}
+
+    /* Build table rows */
+    var tbHtml=""; var grandTotal=0; var noIdx=1;
+    if(rapRows.length===0){
+      tbHtml='<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">Belum ada rencana kegiatan untuk bulan '+es(month)+'.</td></tr>';
+    } else {
+      rapRows.forEach(function(item){
+        var bdRows=getBDRows(month,item.annualIndex).map(migrateRow);
+        var hasBD=bdRows.length>0;
+        var itemTotal=hasBD?bdRows.reduce(function(s,r){return s+Number(r.jumlah||calcJml(r));},0):Number(item.jumlahBulanan||0);
+        grandTotal+=itemTotal;
+
+        /* Row parent */
+        tbHtml+='<tr style="background:#f8fafc">'
+          +'<td style="text-align:center;font-weight:700">'+noIdx+'</td>'
+          +'<td style="font-weight:700">'+es(item.uraian)+'<br><small style="font-weight:400;color:#64748b">'+es(item.kategori)+(item.sumber?" · "+es(item.sumber):"")+'</small></td>'
+          +'<td colspan="3" style="color:#64748b;font-style:italic">'+(hasBD?"Lihat rincian di bawah":""+es(item.volumeBulanan||item.volume||"1 Paket"))+'</td>'
+          +'<td style="text-align:right;font-weight:700">'+rp(itemTotal)+'</td>'
+        +'</tr>';
+        noIdx++;
+
+        /* Breakdown rows */
+        if(hasBD){
+          bdRows.forEach(function(r,bi){
+            var jml=Number(r.jumlah||calcJml(r));
+            var vs=volStr(r);
+            var vt=volTotalStr(r);
+            tbHtml+='<tr>'
+              +'<td style="text-align:center;color:#94a3b8">'+(bi+1)+')</td>'
+              +'<td style="padding-left:20px;color:#334155">'+es(r.uraian)+'</td>'
+              +'<td style="color:#475569;font-size:0.88em">'+es(vs)+'</td>'
+              +'<td style="color:#475569;font-size:0.88em;text-align:center">'+es(vt)+'</td>'
+              +'<td style="text-align:right;color:#475569;font-size:0.88em">'+rp(r.hargaSatuan)+'</td>'
+              +'<td style="text-align:right">'+rp(jml)+'</td>'
+            +'</tr>';
+          });
+        }
+      });
+      /* Grand total */
+      tbHtml+='<tr style="background:#1e3a5f;color:#fff">'
+        +'<td colspan="5" style="text-align:right;font-weight:700;padding:10px">JUMLAH</td>'
+        +'<td style="text-align:right;font-weight:700;font-size:1.05em">'+rp(grandTotal)+'</td>'
+      +'</tr>';
+    }
+
+    /* Build full document */
+    var kop="";try{kop=kopHTML();}catch(e){kop='<div class="kop"><div class="kop-text"><h1 class="kop-b1">PEMERINTAH KOTA SEMARANG</h1><h2 class="kop-b2">KELURAHAN '+es(m.kelurahan||"TEGALSARI")+'</h2></div></div>';}
+    var tglSurat=""; try{tglSurat=p.tanggalSurat||"";}catch(e){}
+
+    return '<div class="official official-v36 official-v37">'
+      +kop
+      +'<div class="kop-rule"></div>'
+      +'<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN '+es(month).toUpperCase()+'</div>'
+      +'<table style="margin-top:8px">'
+        +'<thead>'
+          +'<tr style="background:#1e3a5f;color:#fff">'
+            +'<th style="width:40px">No</th>'
+            +'<th style="text-align:left">Uraian Kegiatan / Rincian</th>'
+            +'<th>Rincian Volume</th>'
+            +'<th>Vol. Total</th>'
+            +'<th>Harga Satuan (Rp)</th>'
+            +'<th>Jumlah (Rp)</th>'
+          +'</tr>'
+        +'</thead>'
+        +'<tbody>'+tbHtml+'</tbody>'
+      +'</table>'
+      +'<p style="text-align:right;margin-top:20px">'+es(tglSurat||"Semarang, _______________")+'</p>'
+      +'<div class="ttd-4">'
+        +'<div>Ketua RT '+es(m.rt||"005")+'<div class="sign-space-v37"></div><b>'+es(m.ketua||"................")+'</b></div>'
+        +'<div>Bendahara<div class="sign-space-v37"></div><b>'+es(m.bendahara||"................")+'</b></div>'
+        +'<div>Lurah '+es(m.kelurahan||"")+'<div class="sign-space-v37"></div><b>'+es(p.namaLurah||"................")+'</b></div>'
+        +'<div>Ketua RW '+es(m.rw||"012")+'<div class="sign-space-v37"></div><b>'+es(p.namaKetuaRw||"................")+'</b></div>'
+      +'</div>'
+    +'</div>';
+  };
+
+  /* Patch docMapV37 agar pakai versi terbaru */
+  if(typeof window.docMapV37==="function"){
+    var _om=window.docMapV37;
+    window.docMapV37=function(){
+      var b=_om();
+      b.rapbulanan=window.docRapBulanan;
+      return b;
+    };
+  }
+
+  /* CSS tambahan untuk input KAK di breakdown panel */
+  if(!document.getElementById("bd57-css")){
+    var st=document.createElement("style");
+    st.id="bd57-css";
+    st.textContent=
+      ".mini-inp{width:100%;box-sizing:border-box;padding:4px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:0.82rem;font-family:inherit}"
+      +".mini-inp-xs{width:60px;padding:4px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:0.8rem;text-align:right}"
+      +".mini-inp-sm{padding:4px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:0.8rem;max-width:70px}"
+      +".mini-inp:focus,.mini-inp-xs:focus,.mini-inp-sm:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 2px #bfdbfe}"
+      +".breakdown-table td{vertical-align:middle;padding:6px 8px}"
+      +".breakdown-table thead th{padding:8px;font-size:0.82rem;font-weight:600}";
+    document.head.appendChild(st);
+  }
+
+  console.log("[BOP v1.57] Format KAK Breakdown aktif");
+})();
+/* END PATCH v1.57 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.58 - Fix komprehensif: breakdown panel + RAP bulanan + UI cleanup
+   Root causes yang diperbaiki:
+   1. v1.55 getMonthlyRapRows tidak include annualIndex → panel tidak bisa buka
+   2. v1.57 pakai monthlyBreakdowns (plural) ≠ monthlyBreakdown (original)
+   3. v1.57 updateBreakdownFromInputs overwrite total, tidak backward-compat
+   4. LPJ: gabung 2 tombol → 1 dropdown
+   5. DS: HTML+JSON disembunyikan di balik ⋯
+═══════════════════════════════════════════════════════════════ */
+(function bopFixV58(){
+  if(window.__bopFixV58) return;
+  window.__bopFixV58 = true;
+
+  /* ── shared helpers ── */
+  function rp(n){try{return rupiah(Number(n||0));}catch(e){return "Rp"+Number(n||0).toLocaleString("id-ID");}}
+  function es(s){try{return esc(String(s==null?"":s));}catch(e){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}}
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 1: getMonthlyRapRows — selalu sertakan annualIndex
+     (v1.55 menghilangkan field ini → semua breakdown rusak)
+  ════════════════════════════════════════════════════════════ */
+  var MO58=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+  function getActiveMon58(){
+    var sels=["v48RapBulanSel","monthlyDocMonth"];
+    for(var i=0;i<sels.length;i++){var el=document.getElementById(sels[i]);if(el&&el.offsetParent!==null&&el.value&&MO58.indexOf(el.value)>=0)return el.value;}
+    for(var j=0;j<sels.length;j++){var el2=document.getElementById(sels[j]);if(el2&&el2.value&&MO58.indexOf(el2.value)>=0)return el2.value;}
+    try{var m=window.data.pengajuan.selectedMonth;if(MO58.indexOf(m)>=0)return m;}catch(e){}
+    return MO58[0];
+  }
+  function getR58(month){
+    if(!month||MO58.indexOf(month)<0) month=getActiveMon58();
+    var ci=MO58.indexOf(month),rap=[],rows=[];
+    try{rap=window.data.pengajuan.rap||[];}catch(e){return[];}
+    if(!Array.isArray(rap)){try{rap=Object.values(rap);}catch(e){return[];}}
+    rap.forEach(function(r,idx){
+      if(Array.isArray(r)) r={uraian:r[0]||"",volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||"",bulan:r[4]||"",kategori:r[5]||"Operasional",subKategori:"",bulanMulai:"",bulanSelesai:""};
+      if(!r||!r.uraian) return;
+      var jb=0,sb="",bl=r.bulan||"";
+      var bM=r.bulanMulai||"",bS=r.bulanSelesai||"";
+      if(!bM||!bS){var m2=bl.match(/^(.+?)\s+s\.d\.?\s+(.+)$/i);if(m2){bM=m2[1].trim();bS=m2[2].trim();}}
+      if(bM&&bS){var s=MO58.indexOf(bM),e=MO58.indexOf(bS);if(s>=0&&e>=s&&ci>=s&&ci<=e){jb=Math.round(Number(r.jumlah||0)/(e-s+1));sb="Range "+bM+" s.d "+bS;}}
+      if(!jb&&bl===month){jb=Number(r.jumlah||0);sb="Langsung";}
+      var RA=(typeof RAP_MONTH_ALL!=="undefined")?RAP_MONTH_ALL:"Januari-Desember 2026";
+      if(!jb&&(bl===RA||bl==="Semua Bulan"||bl==="ALL")){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata 12 bln";}
+      if(!jb&&bl===""){jb=Math.round(Number(r.jumlah||0)/12);sb="Bagi rata";}
+      if(jb>0) rows.push({
+        uraian:r.uraian||"",kategori:r.kategori||"Operasional",subKategori:r.subKategori||"",
+        tipe:r.tipe||"",volume:r.volume||r.volumeBulanan||"1 Paket",
+        volumeBulanan:r.volumeBulanan||r.volume||"1 Paket",
+        jumlah:Number(r.jumlah||0),jumlahBulanan:jb,keterangan:r.keterangan||"",
+        bulan:bl,sumber:sb,bulanMulai:r.bulanMulai||"",bulanSelesai:r.bulanSelesai||"",
+        rentangBulan:r.rentangBulan||(bM&&bS?bM+" s.d "+bS:""),
+        annualIndex:idx  /* ← FIX UTAMA: annualIndex selalu ada */
+      });
+    });
+    return rows;
+  }
+  window.getMonthlyRapRows = getR58;
+  window.monthlyTotal = function(m){return getR58(m).reduce(function(s,r){return s+Number(r.jumlahBulanan||0);},0);};
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 2: Breakdown storage — pakai monthlyBreakdown (singular)
+     kompatibel dengan data lama + original getBreakdownRows
+  ════════════════════════════════════════════════════════════ */
+  function ensureBD(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};}
+  function bdKey(month,idx){return encodeURIComponent(month)+"__"+idx;}
+  function getBD(month,idx){
+    ensureBD();
+    var k=bdKey(month,idx),d=window.data;
+    if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
+    return d.pengajuan.monthlyBreakdown[k];
+  }
+  function saveBD(){
+    try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(window.data));}catch(e){}
+  }
+  function migrateRow(r){
+    if(r.qty1!==undefined) return r;
+    return Object.assign({},r,{
+      qty1:1,sat1:"Paket",qty2:1,sat2:"Keg",qty3:"",sat3:"",satTotal:"Paket",
+      hargaSatuan:Number(r.jumlah||0),jumlah:Number(r.jumlah||0)
+    });
+  }
+  function calcJml(r){
+    var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;
+    return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 3: updateBreakdownFromInputs — baca data-bd58
+  ════════════════════════════════════════════════════════════ */
+  window.__bd58save = function(){
+    ensureBD();
+    document.querySelectorAll("[data-bd58]").forEach(function(inp){
+      var p=inp.dataset.bd58.split("|");
+      if(p.length<4) return;
+      var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
+      var rows=getBD(month,idx);
+      if(!rows[ri]) return;
+      rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
+      if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
+        rows[ri].jumlah=calcJml(rows[ri]);
+        var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
+        if(cell) cell.textContent=rp(rows[ri].jumlah);
+        /* Update notice bar */
+        var panel=document.getElementById("bd58Panel");
+        if(panel){
+          var notice=panel.querySelector(".bd58-notice");
+          if(notice){
+            var t=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+            var tgt=0;
+            try{var ri2=getR58(month);var it=ri2.find(function(r){return r.annualIndex===idx;});tgt=it?Number(it.jumlahBulanan||0):0;}catch(e){}
+            var diff=tgt-t,ok=diff===0&&t>0;
+            notice.className="bd58-notice "+(ok?"ok":"bad");
+            notice.textContent=ok?"✔ Sesuai anggaran":"Sisa: "+rp(diff)+" | Total: "+rp(t)+" / Target: "+rp(tgt);
+          }
+        }
+      }
+    });
+    saveBD();
+  };
+  window.updateBreakdownFromInputs = window.__bd58save;
+
+  /* addBreakdownRow & deleteBreakdownRow */
+  window.addBreakdownRow = function(month,annualIndex){
+    window.__bd58save();
+    var rows=getBD(month,annualIndex);
+    rows.push({uraian:"",qty1:1,sat1:"Pkt",qty2:1,sat2:"Keg",qty3:"",sat3:"",satTotal:"Pkt",hargaSatuan:0,jumlah:0,keterangan:""});
+    saveBD();
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+  window.__bd58add = function(annualIndex){window.addBreakdownRow(getActiveMon58(),annualIndex);};
+
+  window.__bd58del = function(annualIndex,ri){
+    window.__bd58save();
+    var month=getActiveMon58();
+    var rows=getBD(month,annualIndex);
+    rows.splice(ri,1);
+    saveBD();
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+  window.deleteBreakdownRow = function(month,annualIndex,rowIndex){
+    window.__bd58save();
+    var rows=getBD(month,annualIndex);
+    rows.splice(rowIndex,1);
+    saveBD();
+    if(typeof renderMonthlyRapSummary==="function") renderMonthlyRapSummary();
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 4: renderBreakdownPanel — KAK format, no inline escaping issues
+  ════════════════════════════════════════════════════════════ */
+  var SATUAN58=["Pkt","Paket","Keg","Kegiatan","Bln","Bulan","Org","Orang","OK","OB","TPS","PPK","Unit","Lembar","Buah","Set","Rim","Hari","Jam","Kali","RT","RW"];
+  function satSel(enc,idx,ri,field,val){
+    var opts=SATUAN58.map(function(s){return "<option value=\""+s+"\""+(s===val?" selected":"")+">"+s+"</option>";}).join("");
+    if(val&&SATUAN58.indexOf(val)<0) opts+="<option value=\""+es(val)+"\" selected>"+es(val)+"</option>";
+    return "<select class=\"mini-inp-sm\" data-bd58=\""+enc+"|"+idx+"|"+ri+"|"+field+"\" onchange=\"window.__bd58save&&window.__bd58save()\">"+opts+"</select>";
+  }
+  window.renderBreakdownPanel = function(month,item){
+    ensureBD();
+    var enc=encodeURIComponent(month);
+    var rawRows=getBD(month,item.annualIndex);
+    var rows=rawRows.map(migrateRow);
+    window.data.pengajuan.monthlyBreakdown[bdKey(month,item.annualIndex)]=rows;
+    var target=Number(item.jumlahBulanan||0);
+    var total=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+    var diff=target-total,ok=diff===0&&total>0;
+    var notice="<div class=\"bd58-notice "+(ok?"ok":"bad")+"\">"+(ok?"✔ Sesuai anggaran":"Sisa: "+rp(diff)+" | Total: "+rp(total)+" / Target: "+rp(target))+"</div>";
+    var tbody=rows.length?rows.map(function(r,ri){
+      return "<tr>"
+        +"<td style=\"text-align:center;color:#888\">"+(ri+1)+"</td>"
+        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.uraian||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|uraian\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty1||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty1\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"sat1",r.sat1||"Pkt")+"</td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty2||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty2\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"sat2",r.sat2||"Keg")+"</td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+(r.qty3||"")+"\" placeholder=\"opt\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty3\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"sat3",r.sat3||"")+"</td>"
+        +"<td>"+satSel(enc,item.annualIndex,ri,"satTotal",r.satTotal||"Pkt")+"</td>"
+        +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td class=\"bd58-jml\" style=\"text-align:right;white-space:nowrap\">"+rp(r.jumlah||0)+"</td>"
+        +"<td style=\"text-align:center\"><button type=\"button\" class=\"delete\" onclick=\"window.__bd58del&&window.__bd58del("+item.annualIndex+","+ri+")\">✕</button></td>"
+        +"</tr>";
+    }).join(""):"<tr><td colspan=\"12\" style=\"text-align:center;color:#888;padding:16px\">Belum ada rincian. Klik + Tambah.</td></tr>";
+
+    return "<div class=\"breakdown-panel is-open\" id=\"bd58Panel\">"
+      +"<div class=\"bd-header\"><strong>Breakdown KAK: "+es(item.uraian)+"</strong>"+notice+"</div>"
+      +"<div class=\"bd-table-wrap\" style=\"overflow-x:auto;margin:8px 0\">"
+      +"<table class=\"bd-table\" style=\"font-size:12px;min-width:900px\">"
+      +"<thead><tr>"
+      +"<th style=\"width:32px\">No</th>"
+      +"<th>Uraian Rincian</th>"
+      +"<th>Qty1</th><th>Sat1</th>"
+      +"<th>Qty2</th><th>Sat2</th>"
+      +"<th>Qty3</th><th>Sat3</th>"
+      +"<th>Sat Total</th>"
+      +"<th>Harga Satuan (Rp)</th>"
+      +"<th>Jumlah</th><th></th>"
+      +"</tr></thead>"
+      +"<tbody>"+tbody+"</tbody>"
+      +"</table></div>"
+      +"<div class=\"bd-footer\" style=\"display:flex;gap:8px;margin-top:8px\">"
+      +"<button type=\"button\" class=\"primary\" onclick=\"window.__bd58add&&window.__bd58add("+item.annualIndex+")\">+ Tambah Rincian</button>"
+      +"<button type=\"button\" class=\"secondary\" onclick=\"closeMonthlyBreakdown()\">✕ Tutup</button>"
+      +"</div>"
+      +"</div>";
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 5: docRapBulanan — format KAK tabel 8 kolom
+  ════════════════════════════════════════════════════════════ */
+  window.docRapBulanan = function(){
+    try{
+      var month=getActiveMon58();
+      var d=window.data;
+      d.pengajuan.selectedMonth=month;
+      var rapRows=getR58(month);
+      var allRows=[];
+      rapRows.forEach(function(item){
+        var bdRows=getBD(month,item.annualIndex);
+        if(bdRows.length){
+          bdRows.forEach(function(r){
+            var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;
+            var volStr=q1+" "+(r.sat1||"Pkt")+" × "+q2+" "+(r.sat2||"Keg");
+            if(r.qty3&&r.sat3) volStr+=" × "+q3+" "+r.sat3;
+            allRows.push({
+              no:allRows.length+1,
+              kegiatan:item.uraian,sub:item.kategori+(item.subKategori?" - "+item.subKategori:""),
+              uraian:r.uraian||"-",
+              volStr:volStr,
+              volTotal:(q1*q2*q3)+" "+(r.satTotal||"Pkt"),
+              harga:Number(r.hargaSatuan||0),
+              jumlah:Number(r.jumlah||0),
+              ket:r.keterangan||item.keterangan||""
+            });
+          });
+        } else {
+          allRows.push({
+            no:allRows.length+1,
+            kegiatan:item.uraian,sub:item.kategori+(item.subKategori?" - "+item.subKategori:""),
+            uraian:"—",
+            volStr:item.volumeBulanan||"1 Paket",
+            volTotal:item.volumeBulanan||"1 Paket",
+            harga:item.jumlahBulanan,jumlah:item.jumlahBulanan,
+            ket:item.keterangan||""
+          });
+        }
+      });
+      var total=allRows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+      var tbody=allRows.length
+        ?allRows.map(function(r){return "<tr><td>"+r.no+"</td><td>"+es(r.kegiatan)+"<br><small>"+es(r.sub)+"</small></td><td>"+es(r.uraian)+"</td><td>"+es(r.volStr)+"</td><td>"+es(r.volTotal)+"</td><td style=\"text-align:right\">"+rp(r.harga)+"</td><td style=\"text-align:right\">"+rp(r.jumlah)+"</td><td>"+es(r.ket)+"</td></tr>";}).join("")
+        :"<tr><td colspan=\"8\" style=\"text-align:center\">Belum ada rencana kegiatan untuk bulan "+es(month)+".</td></tr>";
+      var body="<div class=\"title\">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN "+es(month).toUpperCase()+"</div>"
+        +"<table><thead><tr><th>No</th><th>Kegiatan</th><th>Uraian Rincian</th><th>Komponen Volume</th><th>Vol Total</th><th>Harga Satuan</th><th>Jumlah</th><th>Keterangan</th></tr></thead>"
+        +"<tbody>"+tbody
+        +"<tr><td colspan=\"6\"><b>Total RAP Bulan "+es(month)+"</b></td><td style=\"text-align:right\"><b>"+rp(total)+"</b></td><td></td></tr>"
+        +"</tbody></table>"
+        +"<p style=\"text-align:right;margin-top:20px\">"+(typeof todaySemarangV18==="function"?todaySemarangV18():"Semarang, "+new Date().toLocaleDateString("id-ID"))+"</p>"
+        +"<div class=\"ttd-4\">"
+        +"<div>Ketua RT "+d.master.rt+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.master.ketua):d.master.ketua||"")+"</div>"
+        +"<div>Bendahara RT "+d.master.rt+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.master.bendahara):d.master.bendahara||"")+"</div>"
+        +"<div>Lurah "+d.master.kelurahan+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.pengajuan.namaLurah):d.pengajuan.namaLurah||"")+"</div>"
+        +"<div>Ketua RW "+d.master.rw+"<div class=\"signature-space\"></div>"+(typeof safeNameV18==="function"?safeNameV18(d.pengajuan.namaKetuaRw):d.pengajuan.namaKetuaRw||"")+"</div>"
+        +"</div>";
+      try{if(typeof officialWrap46==="function") return officialWrap46(body);}catch(e){}
+      try{if(typeof official==="function") return official(body);}catch(e){}
+      return "<div class=\"official official-v36 official-v37\">"+body+"</div>";
+    }catch(err){
+      return "<p style=\"color:red;padding:20px\">Error generate RAP Bulanan v1.58: "+err.message+"</p>";
+    }
+  };
+
+  /* Patch docMapV37 agar pakai docRapBulanan terbaru */
+  if(typeof window.docMapV37==="function"){
+    var _om=window.docMapV37;
+    window.docMapV37=function(){var b=_om();b.rapbulanan=window.docRapBulanan;return b;};
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 6: UI Cleanup — LPJ dropdown + DS ⋯ menu
+  ════════════════════════════════════════════════════════════ */
+  function uiCleanup58(){
+    /* --- LPJ: gabung printLpj + exportPdfLpjV38 → 1 split button --- */
+    var btnPrint=document.getElementById("printLpj");
+    var btnExp=document.getElementById("exportPdfLpjV38");
+    if(btnPrint&&btnExp&&!document.getElementById("__lpjSplit58")){
+      var wrap=document.createElement("div");
+      wrap.id="__lpjSplit58";
+      wrap.style.cssText="position:relative;display:inline-flex;gap:0";
+
+      var main=document.createElement("button");
+      main.className="primary";
+      main.textContent="⬇ Cetak / Export PDF";
+      main.style.cssText="border-radius:6px 0 0 6px;margin:0";
+      main.onclick=function(){window.exportPdfLpjV38&&window.exportPdfLpjV38();};
+
+      var tog=document.createElement("button");
+      tog.className="primary";
+      tog.innerHTML="▾";
+      tog.style.cssText="border-radius:0 6px 6px 0;border-left:1px solid rgba(255,255,255,0.3);padding:0 10px;min-width:0;margin:0";
+
+      var menu=document.createElement("div");
+      menu.style.cssText="display:none;position:absolute;top:100%;left:0;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:210px;margin-top:2px;overflow:hidden";
+      menu.innerHTML="<div style=\"padding:8px 0\">"
+        +"<div style=\"padding:4px 14px 8px;font-size:11px;color:#888;border-bottom:1px solid #eee\">Pilih format output</div>"
+        +"<button id=\"__lpjOptPdf\" style=\"display:block;width:100%;text-align:left;padding:10px 16px;border:none;background:none;cursor:pointer;font-size:13px\">⬇ Export PDF (otomatis)</button>"
+        +"<button id=\"__lpjOptPrint\" style=\"display:block;width:100%;text-align:left;padding:10px 16px;border:none;background:none;cursor:pointer;font-size:13px\">🖨 Cetak (Print Dialog)</button>"
+        +"</div>";
+
+      tog.onclick=function(e){e.stopPropagation();menu.style.display=menu.style.display==="none"?"block":"none";};
+      document.addEventListener("click",function(){menu.style.display="none";});
+
+      wrap.appendChild(main); wrap.appendChild(tog); wrap.appendChild(menu);
+      btnPrint.parentNode.insertBefore(wrap,btnPrint);
+      btnPrint.style.display="none";
+      btnExp.style.display="none";
+
+      setTimeout(function(){
+        var optPdf=document.getElementById("__lpjOptPdf");
+        var optPrint=document.getElementById("__lpjOptPrint");
+        if(optPdf) optPdf.onclick=function(){menu.style.display="none";window.exportPdfLpjV38&&window.exportPdfLpjV38();};
+        if(optPrint) optPrint.onclick=function(){menu.style.display="none";if(typeof cleanPrint==="function")cleanPrint("lpj");};
+      },100);
+    }
+
+    /* --- Document Studio: sembunyikan ⬇ HTML + ⬇ JSON di balik ⋯ --- */
+    var dsHtml=document.getElementById("dsExportHtml");
+    var dsJson=document.getElementById("dsExportJson");
+    if(dsHtml&&dsJson&&!document.getElementById("__dsMore58")){
+      var mWrap=document.createElement("div");
+      mWrap.id="__dsMore58";
+      mWrap.style.cssText="position:relative;display:inline-block;vertical-align:middle";
+
+      var mBtn=document.createElement("button");
+      mBtn.title="Export lainnya (HTML / JSON)";
+      mBtn.textContent="⋯";
+      mBtn.style.cssText="font-size:15px;padding:3px 10px;line-height:1.2";
+
+      var mMenu=document.createElement("div");
+      mMenu.style.cssText="display:none;position:absolute;top:100%;right:0;z-index:9999;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.15);min-width:160px;margin-top:2px;overflow:hidden";
+      mMenu.innerHTML="<div style=\"padding:8px 0\">"
+        +"<div style=\"padding:4px 12px 8px;font-size:11px;color:#888;border-bottom:1px solid #eee\">Export lainnya</div>"
+        +"<button id=\"__dsHtmlMenu\" style=\"display:block;width:100%;text-align:left;padding:9px 14px;border:none;background:none;cursor:pointer;font-size:13px\">⬇ Export HTML</button>"
+        +"<button id=\"__dsJsonMenu\" style=\"display:block;width:100%;text-align:left;padding:9px 14px;border:none;background:none;cursor:pointer;font-size:13px\">⬇ Export JSON Template</button>"
+        +"</div>";
+
+      mBtn.onclick=function(e){e.stopPropagation();mMenu.style.display=mMenu.style.display==="none"?"block":"none";};
+      document.addEventListener("click",function(){mMenu.style.display="none";});
+      mWrap.appendChild(mBtn); mWrap.appendChild(mMenu);
+
+      /* Sisipkan sebelum ⬇ HTML, sembunyikan asli */
+      dsHtml.parentNode.insertBefore(mWrap,dsHtml);
+      dsHtml.style.display="none"; dsJson.style.display="none";
+
+      /* Wire menu ke klik asli setelah DS siap */
+      setTimeout(function(){
+        var hm=document.getElementById("__dsHtmlMenu");
+        var jm=document.getElementById("__dsJsonMenu");
+        if(hm) hm.onclick=function(){mMenu.style.display="none";dsHtml.click();};
+        if(jm) jm.onclick=function(){mMenu.style.display="none";dsJson.click();};
+      },2500);
+    }
+  }
+
+  /* Jalankan setelah DOM ready */
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(uiCleanup58,600);});
+  } else {
+    setTimeout(uiCleanup58,600);
+  }
+
+})();
+/* END PATCH v1.58 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.59 — Fix cursor jumping + Ringkasan Anggaran + docPengambilanBank
+   1. Debounce __bd58save → tidak re-render saat mengetik
+   2. renderBreakdownPanel + Ringkasan Anggaran real-time
+   3. docPengambilanBank multi-bulan (sesuai gambar BPD Jateng)
+   4. Wire tombol previewPengambilanBank + printPengambilanBank
+═══════════════════════════════════════════════════════════════ */
+(function bopFixV59(){
+  if(window.__bopFixV59) return;
+  window.__bopFixV59 = true;
+
+  /* ── helpers ── */
+  function rp(n){try{return rupiah(Number(n||0));}catch(e){return "Rp"+Number(n||0).toLocaleString("id-ID");}}
+  function es(s){try{return esc(String(s==null?"":s));}catch(e){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}}
+  var MO=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 1: Debounce __bd58save — tidak setItem tiap keystroke
+     Strategi:
+       - Saat input → update data in-memory langsung (tanpa localStorage)
+       - Debounce 600ms → baru localStorage.setItem
+       - TIDAK pernah call renderMonthlyRapSummary saat mengetik
+  ════════════════════════════════════════════════════════════ */
+  var _saveTimer=null;
+  var _origBd58Save=window.__bd58save;
+
+  window.__bd58save = function(){
+    /* 1. Update data in-memory dari semua input bd58 (tanpa re-render DOM) */
+    if(typeof _origBd58Save==="function"){
+      /* Patch: jalankan original tapi blok saveBD */
+      var _origSaveBD=window.__bd58saveBD;
+      /* Panggil langsung versi yang hanya update in-memory */
+    }
+
+    /* In-memory update manual yang aman (tidak ganti DOM) */
+    try{
+      var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
+      var bdKey=function(m,i){return encodeURIComponent(m)+"__"+i;};
+      var calcJml=function(r){var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));};
+      ensureBD();
+      var d=window.data;
+      document.querySelectorAll("[data-bd58]").forEach(function(inp){
+        var p=inp.dataset.bd58.split("|");
+        if(p.length<4) return;
+        var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
+        var k=bdKey(month,idx);
+        if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
+        var rows=d.pengajuan.monthlyBreakdown[k];
+        if(!rows[ri]) return;
+        rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
+        /* Auto-calc jumlah in-place */
+        if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
+          rows[ri].jumlah=calcJml(rows[ri]);
+          var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
+          if(cell) cell.textContent=rp(rows[ri].jumlah);
+          /* Update progress bar & notice without re-rendering panel */
+          updateBdRingkasan(month,idx);
+        }
+      });
+    }catch(e){console.warn("[v1.59] bd58save err:",e);}
+
+    /* 2. Debounce localStorage save */
+    clearTimeout(_saveTimer);
+    _saveTimer=setTimeout(function(){
+      try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(window.data));}catch(e){}
+    },600);
+  };
+  window.updateBreakdownFromInputs=window.__bd58save;
+
+  /* Update ringkasan panel in-place (tidak re-render) */
+  function updateBdRingkasan(month,idx){
+    var panel=document.getElementById("bd58Panel");
+    if(!panel) return;
+    var ringsEl=panel.querySelector(".bd-ringkasan");
+    if(!ringsEl) return;
+    try{
+      var rows=window.data.pengajuan.monthlyBreakdown[encodeURIComponent(month)+"__"+idx]||[];
+      var total=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+      var rapRows=typeof getMonthlyRapRows==="function"?getMonthlyRapRows(month):[];
+      var item=rapRows.find(function(r){return r.annualIndex===idx;})||{};
+      var target=Number(item.jumlahBulanan||0);
+      var pct=target>0?Math.min(Math.round(total/target*100),999):0;
+      var cls=pct===100?"ok":pct>100?"over":"partial";
+      /* Update notice bar */
+      var notice=panel.querySelector(".bd58-notice");
+      if(notice){
+        var diff=target-total,ok=diff===0&&total>0;
+        notice.className="bd58-notice "+(ok?"ok":"bad");
+        notice.textContent=ok?"✔ Sesuai anggaran":"Sisa: "+rp(diff)+" | "+rp(total)+" / "+rp(target);
+      }
+      /* Update ringkasan total */
+      var totalCell=ringsEl.querySelector(".bd-rings-total");
+      if(totalCell) totalCell.textContent=rp(total);
+      var pctLabel=ringsEl.querySelector(".bd-rings-pct");
+      if(pctLabel) pctLabel.textContent=pct+"%";
+      var fill=ringsEl.querySelector(".bd-progress-fill");
+      if(fill){fill.style.width=Math.min(pct,100)+"%";fill.className="bd-progress-fill "+cls;}
+      /* Update rows' jumlah */
+      rows.forEach(function(r,ri){
+        var rowEl=ringsEl.querySelector("[data-rings-ri='"+ri+"']");
+        if(rowEl) rowEl.textContent=rp(r.jumlah||0);
+      });
+    }catch(e){}
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 2: renderBreakdownPanel v1.59 — tambah Ringkasan Anggaran
+  ════════════════════════════════════════════════════════════ */
+  var _prevRBP=window.renderBreakdownPanel;
+  window.renderBreakdownPanel=function(month,item){
+    /* Panggil v1.58 untuk render panel utama */
+    var html=typeof _prevRBP==="function"?_prevRBP(month,item):"";
+    /* Inject Ringkasan Anggaran sebelum </div> penutup */
+    if(html && html.indexOf("</div>")>-1){
+      var rings=buildRingkasan(month,item);
+      html=html.replace(/<\/div>\s*$/,rings+"</div>");
+    }
+    return html;
+  };
+
+  function buildRingkasan(month,item){
+    try{
+      var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
+      ensureBD();
+      var k=encodeURIComponent(month)+"__"+item.annualIndex;
+      var rows=(window.data.pengajuan.monthlyBreakdown[k])||[];
+      var total=rows.reduce(function(s,r){return s+Number(r.jumlah||0);},0);
+      var target=Number(item.jumlahBulanan||0);
+      var pct=target>0?Math.min(Math.round(total/target*100),999):0;
+      var cls=pct===100?"ok":pct>100?"over":"partial";
+      var rowsHtml=rows.length?rows.map(function(r,ri){
+        var vs=(Number(r.qty1||1))+"×"+(Number(r.qty2||1));
+        if(r.qty3) vs+="×"+Number(r.qty3);
+        return "<tr><td>"+(ri+1)+"</td><td>"+es(r.uraian||"—")+"</td><td>"+es(vs)+"</td><td data-rings-ri='"+ri+"'>"+rp(r.jumlah||0)+"</td></tr>";
+      }).join(""):"<tr><td colspan='4' style='text-align:center;color:#94a3b8'>Belum ada rincian</td></tr>";
+      return "<div class='bd-ringkasan'>"
+        +"<div class='bd-ringkasan-title'>📊 Ringkasan Anggaran</div>"
+        +"<table class='bd-ringkasan-table'>"
+        +"<thead><tr><th>No</th><th>Uraian</th><th>Qty</th><th>Jumlah</th></tr></thead>"
+        +"<tbody>"+rowsHtml+"</tbody>"
+        +"<tfoot><tr><td colspan='3'>Total Breakdown</td><td class='bd-rings-total'>"+rp(total)+"</td></tr></tfoot>"
+        +"</table>"
+        +"<div class='bd-progress-bar'><div class='bd-progress-fill "+cls+"' style='width:"+Math.min(pct,100)+"%'></div></div>"
+        +"<div class='bd-progress-label'><span>Anggaran Bulan: "+rp(target)+"</span><span class='bd-rings-pct'>"+pct+"%</span></div>"
+        +"</div>";
+    }catch(e){return "";}
+  }
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 3: docPengambilanBank — multi-bulan, grup per bulan
+     Sesuai dokumen "Pengambilan Operasional RT melalui Bank Jawa Tengah"
+  ════════════════════════════════════════════════════════════ */
+  window.docPengambilanBank=function(mulai,selesai){
+    try{
+      var d=window.data;
+      var m=d.master;
+      mulai=mulai||document.getElementById("pbBulanMulai")&&document.getElementById("pbBulanMulai").value||MO[0];
+      selesai=selesai||document.getElementById("pbBulanSelesai")&&document.getElementById("pbBulanSelesai").value||MO[6];
+      var si=MO.indexOf(mulai),ei=MO.indexOf(selesai);
+      if(si<0) si=0; if(ei<si) ei=si;
+      var rangeMonths=MO.slice(si,ei+1);
+      var grandTotal=0;
+      var noGlobal=0;
+      var tbody="";
+      rangeMonths.forEach(function(mo){
+        var rows=typeof getMonthlyRapRows==="function"?getMonthlyRapRows(mo):[];
+        if(!rows.length) return;
+        tbody+="<tr class='bulan-header'><td colspan='5'><b>Bulan "+es(mo)+" :</b></td></tr>";
+        rows.forEach(function(r){
+          noGlobal++;
+          grandTotal+=Number(r.jumlahBulanan||0);
+          tbody+="<tr><td style='text-align:center'>"+noGlobal+"</td><td>"+es(r.uraian)+"</td><td>"+es(r.volumeBulanan||r.volume||"1 kali")+"</td><td style='text-align:right'>"+rp(r.jumlahBulanan)+"</td><td>"+es(r.keterangan||"")+"</td></tr>";
+        });
+      });
+      if(!tbody) tbody="<tr><td colspan='5' style='text-align:center'>Belum ada kegiatan pada rentang bulan yang dipilih.</td></tr>";
+      tbody+="<tr style='font-weight:700;background:#f1f5f9'><td colspan='3' style='text-align:center'>JUMLAH</td><td style='text-align:right'>"+rp(grandTotal)+"</td><td></td></tr>";
+      var terbilangStr="";
+      try{terbilangStr=terbilang(grandTotal).replace(/\s+/g," ");}catch(e){terbilangStr="…";}
+      var today="";
+      try{today=todaySemarangV18();}catch(e){today="Semarang, "+new Date().toLocaleDateString("id-ID");}
+      var rangeLabel=mulai+(mulai!==selesai?" s.d. "+selesai:"");
+      var body="<div class='title'>Pengambilan Operasional RT<br>Melalui Bank Jawa Tengah</div>"
+        +"<table class='no-border' style='width:auto;margin-bottom:14px'>"
+        +"<tr><td style='width:170px'>Nama Lembaga</td><td>: RT "+m.rt+" RW "+m.rw+"</td></tr>"
+        +"<tr><td>Kelurahan</td><td>: "+es(m.kelurahan)+"</td></tr>"
+        +"<tr><td>Kecamatan</td><td>: "+es(m.kecamatan)+"</td></tr>"
+        +"<tr><td>Untuk Kegiatan Bulan</td><td>: "+es(rangeLabel)+"</td></tr>"
+        +"</table>"
+        +"<table><thead><tr><th style='width:36px'>No.</th><th>Uraian Kegiatan</th><th>Satuan / Volume</th><th>Anggaran</th><th>Keterangan</th></tr></thead>"
+        +"<tbody>"+tbody+"</tbody></table>"
+        +"<p style='margin-top:8px'>Terbilang : <b>"+terbilangStr+" Rupiah</b></p>"
+        +"<p style='text-align:right;margin-top:20px'>"+today+"</p>"
+        +"<div class='ttd-3'>"
+        +"<div>Yang Mengambil<br>Ketua RT "+m.rt+" RW "+m.rw+"<div class='signature-space'></div>"+(typeof safeNameV18==="function"?safeNameV18(m.ketua):m.ketua||"")+"</div>"
+        +"<div>Bendahara<div class='signature-space'></div>"+(typeof safeNameV18==="function"?safeNameV18(m.bendahara):m.bendahara||"")+"</div>"
+        +"<div>Mengetahui<br>Lurah "+es(m.kelurahan)+"<div class='signature-space'></div>"+(typeof safeNameV18==="function"?safeNameV18(d.pengajuan.namaLurah):d.pengajuan.namaLurah||"")+"</div>"
+        +"</div>";
+      try{if(typeof officialWrap46==="function") return officialWrap46(body);}catch(e){}
+      try{if(typeof official==="function") return official(body);}catch(e){}
+      return "<div class='official official-v36 official-v37'>"+body+"</div>";
+    }catch(err){
+      return "<p style='color:red;padding:20px'>Error docPengambilanBank: "+err.message+"</p>";
+    }
+  };
+
+  /* ════════════════════════════════════════════════════════════
+     FIX 4: Wire tombol Pengambilan Bank setelah DOM ready
+  ════════════════════════════════════════════════════════════ */
+  function wirePBButtons(){
+    var prevBtn=document.getElementById("previewPengambilanBank");
+    var printBtn=document.getElementById("printPengambilanBank");
+    var out=document.getElementById("pbDocOutput");
+    if(prevBtn&&!prevBtn.__pb59){
+      prevBtn.__pb59=true;
+      prevBtn.onclick=function(){
+        if(!out) return;
+        out.style.display="block";
+        out.innerHTML=window.docPengambilanBank();
+      };
+    }
+    if(printBtn&&!printBtn.__pb59){
+      printBtn.__pb59=true;
+      printBtn.onclick=function(){
+        if(!out) return;
+        out.style.display="block";
+        out.innerHTML=window.docPengambilanBank();
+        setTimeout(function(){
+          var w=window.open("","_blank");
+          if(!w) return;
+          w.document.write("<!doctype html><html><head><meta charset='utf-8'><title>Pengambilan Bank</title><link rel='stylesheet' href='styles.css'></head><body><div class='doc-paper'>"+out.innerHTML+"</div></body></html>");
+          w.document.close();
+          w.print();
+        },200);
+      };
+    }
+  }
+
+  /* CSS untuk bulan-header row di tabel */
+  var style=document.createElement("style");
+  style.textContent=".bulan-header td{background:#f0f4ff;font-weight:700;color:#1e40af;padding:6px 9px}.no-border{border:none!important}.no-border td,.no-border tr{border:none!important;background:transparent!important;padding:3px 6px}";
+  document.head.appendChild(style);
+
+  /* Jalankan setelah DOM ready */
+  if(document.readyState==="loading"){
+    document.addEventListener("DOMContentLoaded",function(){setTimeout(wirePBButtons,800);});
+  } else {
+    setTimeout(wirePBButtons,800);
+  }
+
+  /* Re-wire saat navigasi ke tab pengambilan-bank */
+  document.addEventListener("click",function(e){
+    if(e.target&&e.target.dataset&&e.target.dataset.tab==="pengambilan-bank"){
+      setTimeout(wirePBButtons,100);
+    }
+  });
+
+  console.log("[BOP v1.59] Ringkasan Anggaran + Pengambilan Bank + cursor fix aktif");
+})();
+/* END PATCH v1.59 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.60 — Universal Document Modal
+   • Semua .doc-paper → collapsed card (👁 Lihat | 🖨 Cetak)
+   • Modal: tab Preview | Edit (rich) | Cetak
+   • Edit → "Salin ke DS" untuk lanjut edit di Document Studio
+   • ESC / klik overlay → tutup modal
+   • @media print: card sembunyi, dokumen asli muncul
+═══════════════════════════════════════════════════════════════ */
+(function bopDocModalV60(){
+  if(window.__bopDocModalV60) return;
+  window.__bopDocModalV60 = true;
+
+  /* ── CSS ── */
+  var style60 = document.createElement('style');
+  style60.textContent = [
+    /* overlay & box */
+    '.dm60-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9900;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px)}',
+    '.dm60-box{background:#fff;width:min(900px,96vw);max-height:94vh;border-radius:18px;display:flex;flex-direction:column;box-shadow:0 30px 80px rgba(0,0,0,.55);overflow:hidden}',
+    /* header */
+    '.dm60-header{display:flex;align-items:center;gap:10px;padding:13px 18px;background:#1e293b;color:#fff;flex-shrink:0}',
+    '.dm60-hicon{font-size:20px}',
+    '.dm60-htitle{flex:1;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.dm60-tabs{display:flex;gap:3px;background:rgba(255,255,255,.12);border-radius:8px;padding:3px}',
+    '.dm60-tab{padding:5px 13px;border:none;border-radius:6px;background:transparent;color:rgba(255,255,255,.65);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}',
+    '.dm60-tab.active{background:#fff;color:#1e293b}',
+    '.dm60-close{margin-left:6px;width:30px;height:30px;border:none;background:rgba(255,255,255,.15);border-radius:8px;color:#fff;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0}',
+    '.dm60-close:hover{background:rgba(255,255,255,.3)}',
+    /* body */
+    '.dm60-body{flex:1;overflow:hidden;display:flex}',
+    '.dm60-panel{display:none;flex:1;overflow-y:auto;padding:24px;flex-direction:column;align-items:center}',
+    '.dm60-panel.active{display:flex}',
+    '.dm60-doc-area{width:100%;max-width:780px}',
+    /* edit toolbar */
+    '.dm60-edit-bar{width:100%;max-width:780px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px}',
+    '.dm60-edit-bar button{padding:4px 10px;border:1px solid #e2e8f0;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;line-height:1.4}',
+    '.dm60-edit-bar button:hover{background:#f1f5f9}',
+    '.dm60-edit-bar select{padding:4px 6px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px}',
+    '.dm60-copy-ds{margin-left:auto!important;background:#1e40af!important;color:#fff!important;border-color:#1e40af!important}',
+    '.dm60-copy-ds:hover{background:#1d4ed8!important}',
+    '.dm60-edit-content{width:100%;max-width:780px;border:2px solid #3b82f6;border-radius:8px;padding:20px;min-height:400px;outline:none;font-family:"Times New Roman",serif;font-size:12pt;line-height:1.7}',
+    /* cetak panel */
+    '.dm60-cetak-top{width:100%;max-width:780px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-bottom:20px}',
+    '.dm60-cetak-top h4{margin:0 0 12px;font-size:13px;color:#374151;font-weight:700}',
+    '.dm60-cetak-btns{display:flex;gap:10px;flex-wrap:wrap}',
+    '.dm60-cetak-btns button{flex:1 1 150px;padding:11px 16px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;border:none;transition:background .15s}',
+    '.dm60-btn-print{background:#1e293b;color:#fff}',
+    '.dm60-btn-print:hover{background:#334155}',
+    '.dm60-btn-dl{background:#e2e8f0;color:#374151}',
+    '.dm60-btn-dl:hover{background:#cbd5e1}',
+    '.dm60-cetak-hint{font-size:11px;color:#94a3b8;margin:10px 0 0}',
+    /* doc card (replaces inline preview) */
+    '.doc-paper.has-doc60{padding:0!important;background:transparent!important;border:none!important;box-shadow:none!important;display:block!important}',
+    '.doc-paper.has-doc60>*:not(.dm-card60){display:none!important}',
+    '.dm-card60{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:14px 18px;box-shadow:0 2px 8px rgba(0,0,0,.06);cursor:default;transition:box-shadow .18s}',
+    '.dm-card60:hover{box-shadow:0 4px 18px rgba(0,0,0,.11)}',
+    '.dm-card60-icon{font-size:30px;flex-shrink:0;line-height:1}',
+    '.dm-card60-text{flex:1;min-width:0}',
+    '.dm-card60-text strong{display:block;font-size:14px;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.dm-card60-text small{display:block;font-size:11px;color:#94a3b8;margin-top:3px}',
+    '.dm-card60-btns{display:flex;gap:8px;flex-shrink:0}',
+    '.dm-card60-btns button{padding:7px 15px;border:none;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s}',
+    '.dm-btn-view60{background:#1e40af;color:#fff}',
+    '.dm-btn-view60:hover{background:#1d4ed8}',
+    '.dm-btn-print60{background:#f1f5f9;color:#374151}',
+    '.dm-btn-print60:hover{background:#e2e8f0}',
+    /* print media */
+    '@media print{.doc-paper.has-doc60>*:not(.dm-card60){display:block!important}.dm-card60{display:none!important}.dm60-overlay{display:none!important}}',
+    /* mobile */
+    '@media(max-width:600px){.dm60-tabs .dm60-tab{padding:4px 9px;font-size:11px}.dm-card60{flex-wrap:wrap}.dm-card60-btns{width:100%}.dm-card60-btns button{flex:1}}'
+  ].join('');
+  document.head.appendChild(style60);
+
+  /* ── Modal HTML ── */
+  var modalEl = document.createElement('div');
+  modalEl.id = 'docModal60';
+  modalEl.className = 'dm60-overlay';
+  modalEl.style.display = 'none';
+  modalEl.innerHTML = '<div class="dm60-box">'
+    + '<div class="dm60-header">'
+    +   '<span class="dm60-hicon">📄</span>'
+    +   '<span class="dm60-htitle" id="dm60TitleText">Dokumen</span>'
+    +   '<div class="dm60-tabs">'
+    +     '<button class="dm60-tab active" data-dmtab="preview">👁 Preview</button>'
+    +     '<button class="dm60-tab" data-dmtab="edit">✏️ Edit</button>'
+    +     '<button class="dm60-tab" data-dmtab="cetak">🖨 Cetak</button>'
+    +   '</div>'
+    +   '<button class="dm60-close" id="dm60CloseBtn">✕</button>'
+    + '</div>'
+    + '<div class="dm60-body">'
+    +   '<div class="dm60-panel active" id="dm60PanelPreview">'
+    +     '<div class="dm60-doc-area" id="dm60DocPreview"></div>'
+    +   '</div>'
+    +   '<div class="dm60-panel" id="dm60PanelEdit">'
+    +     '<div class="dm60-edit-bar">'
+    +       '<button title="Tebal" onclick="document.execCommand(\'bold\')"><b>B</b></button>'
+    +       '<button title="Miring" onclick="document.execCommand(\'italic\')"><i>I</i></button>'
+    +       '<button title="Garis bawah" onclick="document.execCommand(\'underline\')"><u>U</u></button>'
+    +       '<button title="Rata kiri" onclick="document.execCommand(\'justifyLeft\')">⬅</button>'
+    +       '<button title="Tengah" onclick="document.execCommand(\'justifyCenter\')">≡</button>'
+    +       '<button title="Rata kanan" onclick="document.execCommand(\'justifyRight\')">➡</button>'
+    +       '<select title="Ukuran font" onchange="document.execCommand(\'fontSize\',false,this.value);this.value=\'\'">'
+    +         '<option value="">Ukuran...</option>'
+    +         '<option value="1">8pt</option><option value="2">10pt</option>'
+    +         '<option value="3">12pt</option><option value="4">14pt</option>'
+    +         '<option value="5">18pt</option><option value="6">24pt</option>'
+    +       '</select>'
+    +       '<button class="dm60-copy-ds" id="dm60CopyDsBtn">📋 Salin ke Document Studio</button>'
+    +     '</div>'
+    +     '<div class="dm60-edit-content" id="dm60DocEdit" contenteditable="true" spellcheck="false"></div>'
+    +   '</div>'
+    +   '<div class="dm60-panel" id="dm60PanelCetak">'
+    +     '<div class="dm60-cetak-top">'
+    +       '<h4>🖨 Cetak atau Simpan sebagai PDF</h4>'
+    +       '<div class="dm60-cetak-btns">'
+    +         '<button class="dm60-btn-print" id="dm60PrintBtn">🖨 Cetak / Simpan PDF</button>'
+    +         '<button class="dm60-btn-dl" id="dm60DlBtn">⬇ Download HTML</button>'
+    +       '</div>'
+    +       '<p class="dm60-cetak-hint">Tips: Pilih "Save as PDF" atau "Microsoft Print to PDF" di dialog print browser untuk mendapatkan file PDF.</p>'
+    +     '</div>'
+    +     '<div class="dm60-doc-area" id="dm60DocCetak"></div>'
+    +   '</div>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(modalEl);
+
+  /* ── State ── */
+  var _curHtml = '';
+  var _curTitle = '';
+  var _curEl = null;
+
+  /* ── openDocModal ── */
+  window.openDocModal = function(html, title, srcEl) {
+    _curHtml = html || '';
+    _curTitle = title || 'Dokumen';
+    _curEl = srcEl || null;
+    var t = document.getElementById('dm60TitleText');
+    if(t) t.textContent = _curTitle;
+    switchTab('preview');
+    modalEl.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  };
+
+  window.closeDocModal = function() {
+    modalEl.style.display = 'none';
+    document.body.style.overflow = '';
+  };
+
+  /* ── Tab switching ── */
+  function switchTab(tab) {
+    var panels = {preview:'dm60PanelPreview', edit:'dm60PanelEdit', cetak:'dm60PanelCetak'};
+    Object.keys(panels).forEach(function(k) {
+      var p = document.getElementById(panels[k]);
+      var b = modalEl.querySelector('[data-dmtab="'+k+'"]');
+      if(p) p.classList.toggle('active', k===tab);
+      if(b) b.classList.toggle('active', k===tab);
+    });
+    if(tab==='preview') { var e=document.getElementById('dm60DocPreview'); if(e) e.innerHTML=_curHtml; }
+    if(tab==='edit')    { var e=document.getElementById('dm60DocEdit');    if(e) e.innerHTML=_curHtml; }
+    if(tab==='cetak')   { var e=document.getElementById('dm60DocCetak');   if(e) e.innerHTML=_curHtml; }
+  }
+
+  /* ── Wire modal buttons ── */
+  var closeBtn = document.getElementById('dm60CloseBtn');
+  if(closeBtn) closeBtn.onclick = window.closeDocModal;
+
+  modalEl.addEventListener('click', function(e){ if(e.target===modalEl) window.closeDocModal(); });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape' && modalEl.style.display!=='none') window.closeDocModal();
+  });
+
+  modalEl.querySelectorAll('[data-dmtab]').forEach(function(btn){
+    btn.addEventListener('click', function(){ switchTab(this.dataset.dmtab); });
+  });
+
+  /* ── Print ── */
+  var printBtn = document.getElementById('dm60PrintBtn');
+  if(printBtn) printBtn.onclick = function(){
+    var w = window.open('','_blank');
+    if(!w) return;
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+      +_curTitle+'</title><link rel="stylesheet" href="styles.css">'
+      +'<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
+      +'</head><body>'+_curHtml+'</body></html>');
+    w.document.close();
+    setTimeout(function(){w.print();},400);
+  };
+
+  /* ── Download HTML ── */
+  var dlBtn = document.getElementById('dm60DlBtn');
+  if(dlBtn) dlBtn.onclick = function(){
+    var blob = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
+      +_curTitle+'</title><link rel="stylesheet" href="styles.css">'
+      +'</head><body>'+_curHtml+'</body></html>'],{type:'text/html'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = (_curTitle||'dokumen').replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50)+'.html';
+    a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+  };
+
+  /* ── Salin ke Document Studio ── */
+  var copyDsBtn = document.getElementById('dm60CopyDsBtn');
+  if(copyDsBtn) copyDsBtn.onclick = function(){
+    var editEl = document.getElementById('dm60DocEdit');
+    var html = editEl ? editEl.innerHTML : _curHtml;
+    var dsPage = document.getElementById('dsPage');
+    if(!dsPage){ showToast('Document Studio tidak ditemukan.', true); return; }
+    dsPage.innerHTML = html;
+    _curHtml = html;
+    if(_curEl) _curEl.__docHtml60 = html;
+    window.closeDocModal();
+    /* Navigasi ke DS: coba click nav + subtab */
+    try{
+      var tabEl = document.querySelector('[data-tab="tab-dokumen"]') || document.querySelector('.subtab[data-tab="dokumen"]');
+      if(tabEl){ tabEl.click(); }
+    }catch(e){}
+    showToast('✅ Dokumen tersalin ke Document Studio');
+  };
+
+  /* ── Toast helper ── */
+  function showToast(msg, isErr){
+    var t = document.createElement('div');
+    t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:'
+      +(isErr?'#dc2626':'#1e293b')+';color:#fff;padding:10px 22px;border-radius:10px;z-index:9999;font-size:13px;font-weight:600;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.3)';
+    t.textContent=msg;
+    document.body.appendChild(t);
+    setTimeout(function(){t.style.opacity='0';t.style.transition='opacity .4s';setTimeout(function(){t.remove();},400);},2800);
+  }
+
+  /* ── MutationObserver: wrap .doc-paper ── */
+  function detectTitle(html){
+    var tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    var el = tmp.querySelector('.title,.kop-judul,h2,h3');
+    return el ? el.textContent.replace(/\s+/g,' ').trim().slice(0,80) : '';
+  }
+
+  var ID_LABEL = {
+    docOutput:'Dokumen Pengajuan', pbDocOutput:'Pengambilan Bank',
+    lpjOut:'Laporan Pertanggungjawaban', rapBulananOut:'RAP Bulanan',
+    persiapanOut:'Persiapan Kegiatan', suratOut:'Surat',
+    previewOut:'Dokumen', rbbOut:'RBB', beritaAcaraOut:'Berita Acara',
+    sptjmOut:'SPTJM', suratPermohonanOut:'Surat Permohonan',
+    daftarHadirOut:'Daftar Hadir', checklistOut:'Checklist',
+    undanganOut:'Undangan', notulenOut:'Notulen', kuitansiOut:'Kuitansi',
+    sklOut:'SKL', rekeningOut:'Rekening', cetakLpj:'Cetak LPJ'
+  };
+
+  function guessTitle(el){
+    if(ID_LABEL[el.id]) return ID_LABEL[el.id];
+    var panel = el.closest ? el.closest('.panel') : null;
+    if(panel){
+      var h = panel.querySelector('h2,h3,h4');
+      if(h) return h.textContent.trim().slice(0,80);
+    }
+    return 'Dokumen';
+  }
+
+  function wrapDocPaper(el){
+    if(el.querySelector('.dm-card60')) return;
+    var raw = el.innerHTML;
+    if(!raw || !raw.trim()) return;
+    /* Skip jika bukan konten dokumen (misalnya panel kosong dengan 1 child) */
+    if(raw.trim().length < 40) return;
+
+    el.__docHtml60 = raw;
+    var title = detectTitle(raw) || guessTitle(el);
+    el.__docTitle60 = title;
+
+    var card = document.createElement('div');
+    card.className = 'dm-card60';
+    card.innerHTML = '<span class="dm-card60-icon">📄</span>'
+      +'<div class="dm-card60-text"><strong>'+title+'</strong>'
+      +'<small>Klik kartu ini untuk membuka preview dokumen</small></div>'
+      +'<div class="dm-card60-btns">'
+      +'<button class="dm-btn-view60">👁 Lihat</button>'
+      +'<button class="dm-btn-print60">🖨 Cetak</button>'
+      +'</div>';
+
+    card.querySelector('.dm-btn-view60').onclick = function(e){
+      e.stopPropagation();
+      window.openDocModal(el.__docHtml60, el.__docTitle60, el);
+    };
+    card.querySelector('.dm-btn-print60').onclick = function(e){
+      e.stopPropagation();
+      var w = window.open('','_blank');
+      if(!w) return;
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+el.__docTitle60+'</title>'
+        +'<link rel="stylesheet" href="styles.css">'
+        +'</head><body>'+el.__docHtml60+'</body></html>');
+      w.document.close();
+      setTimeout(function(){w.print();},400);
+    };
+
+    el.classList.add('has-doc60');
+    el.insertBefore(card, el.firstChild);
+    el.style.display = 'block';
+  }
+
+  var _obs60 = new WeakSet();
+  function observeDocPapers(){
+    document.querySelectorAll('.doc-paper').forEach(function(el){
+      if(_obs60.has(el)) return;
+      _obs60.add(el);
+      if(el.innerHTML.trim().length > 40 && !el.querySelector('.dm-card60')){
+        wrapDocPaper(el);
+      }
+      new MutationObserver(function(muts){
+        var added = muts.some(function(m){
+          return m.type==='childList' && Array.from(m.addedNodes).some(function(n){
+            return n.nodeType===1 && !(n.classList&&n.classList.contains('dm-card60'));
+          });
+        });
+        if(added && !el.querySelector('.dm-card60')){
+          setTimeout(function(){wrapDocPaper(el);},15);
+        }
+      }).observe(el,{childList:true});
+    });
+  }
+
+  function init60(){
+    observeDocPapers();
+    new MutationObserver(function(){ observeDocPapers(); })
+      .observe(document.body,{childList:true, subtree:true});
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',function(){setTimeout(init60,500);});
+  } else {
+    setTimeout(init60,300);
+  }
+
+  console.log('[BOP v1.60] Universal Document Modal aktif');
+})();
+/* END PATCH v1.60 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.61 — Fix: 👁 Preview Generate 7 Dokumen + pq-preview cleanup
+   Root cause: v1.60 menambah eye card ke docOutput yang off-screen
+   (-9999px, visibility:hidden) → tombol tak terlihat user.
+   Fix: tombol Preview visible di ds-gen panel + auto-buka setelah Generate.
+   ═══════════════════════════════════════════════════════════════ */
+(function bopDocPreviewFixV61(){
+  if(window.__bopDocPreviewFixV61) return;
+  window.__bopDocPreviewFixV61 = true;
+
+  /* ── Ambil clean HTML dari docOutput (tanpa dm-card60) ── */
+  function getDocHtml(){
+    var docOut = document.getElementById('docOutput');
+    if(!docOut) return '';
+    /* v1.60 menyimpan raw HTML di __docHtml60 sebelum dm-card60 ditambahkan */
+    if(docOut.__docHtml60 && docOut.__docHtml60.trim().length > 40){
+      return docOut.__docHtml60;
+    }
+    /* Fallback: baca innerHTML, strip dm-card60 */
+    var tmp = document.createElement('div');
+    tmp.innerHTML = docOut.innerHTML;
+    var card = tmp.querySelector('.dm-card60');
+    if(card) card.remove();
+    return tmp.innerHTML;
+  }
+
+  /* ── Buka modal preview dengan dokumen saat ini ─────── */
+  function openPreviewModal(){
+    var html = getDocHtml();
+    if(!html || html.trim().length < 40){
+      if(typeof window.bopToast === 'function'){
+        window.bopToast('Info','Generate dokumen terlebih dahulu.','info');
+      } else {
+        alert('Generate dokumen terlebih dahulu sebelum preview.');
+      }
+      return;
+    }
+    if(typeof window.openDocModal !== 'function'){
+      alert('Preview modal belum siap. Coba lagi sesaat.');
+      return;
+    }
+    var selEl = document.getElementById('dsDocSelectV43');
+    var selText = (selEl && selEl.options && selEl.selectedIndex >= 0)
+      ? (selEl.options[selEl.selectedIndex].text || 'Dokumen')
+      : 'Dokumen';
+    window.openDocModal(html, selText, null);
+  }
+
+  /* ── Inject tombol 👁 Preview di samping Generate ────── */
+  function injectPreviewBtn(){
+    var genGroup = document.querySelector('.ds-doc-select-group-v43');
+    if(!genGroup || document.getElementById('dsPreviewBtnV61')) return;
+
+    var btn = document.createElement('button');
+    btn.id    = 'dsPreviewBtnV61';
+    btn.type  = 'button';
+    btn.title = 'Lihat pratinjau dokumen yang sudah di-generate';
+    btn.style.cssText =
+      'background:#0f172a;color:#e2e8f0;border:1.5px solid #334155;'
+      +'border-radius:10px;padding:0 16px;height:38px;font-size:13px;'
+      +'font-weight:700;cursor:pointer;display:inline-flex;align-items:center;'
+      +'gap:6px;white-space:nowrap;flex-shrink:0;margin-left:6px;transition:.15s';
+    btn.innerHTML = '👁 Preview';
+    btn.onmouseenter = function(){ this.style.background='#1e293b'; };
+    btn.onmouseleave = function(){ this.style.background='#0f172a'; };
+    btn.onclick = openPreviewModal;
+
+    genGroup.appendChild(btn);
+  }
+
+  /* ── Hook Generate button: auto-buka preview setelah gen */
+  function hookGenerateBtn(){
+    var btn = document.getElementById('dsDocGenBtnV43');
+    if(!btn || btn.__v61hooked) return;
+    btn.__v61hooked = true;
+    btn.addEventListener('click', function(){
+      /* Tunggu previewDoc selesai (kira-kira 300-400ms) */
+      setTimeout(openPreviewModal, 500);
+    });
+  }
+
+  /* ── Fix pqPreviewContent: hapus dm-card60 yang masuk ─ */
+  function patchPqPreview(){
+    var pqContent = document.getElementById('pqPreviewContent');
+    if(!pqContent) return;
+    new MutationObserver(function(){
+      var card = pqContent.querySelector('.dm-card60');
+      if(card) card.remove();
+    }).observe(pqContent, {childList:true, subtree:false});
+  }
+
+  /* ── Init ─────────────────────────────────────────────── */
+  function init(){
+    injectPreviewBtn();
+    hookGenerateBtn();
+    patchPqPreview();
+    console.log('[BOP v1.61] Eye button Generate Dokumen + pq-preview fix aktif');
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init, 1800); });
+  } else {
+    setTimeout(init, 1800);
+  }
+})();
+/* END PATCH v1.61 */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.62 — Rewrite bersih:
+   (A) Hapus dm-card60 dari output containers via DOM (bukan CSS)
+   (B) Edit → Preview/Cetak sync via capture-phase delegation
+   (C) Tombol Cetak & Download selalu pakai konten terbaru
+   ═══════════════════════════════════════════════════════════════ */
+(function bopPatchV62(){
+  if(window.__bopPatchV62) return;
+  window.__bopPatchV62 = true;
+
+  /* ── (A) CSS minimal: hanya sembunyikan tombol Lihat/Cetak ─── */
+  var sCss = document.createElement('style');
+  sCss.textContent =
+    '.dm-card60-btns{display:none!important}' +
+    /* Backup hide untuk output containers — JS juga akan hapus dari DOM */
+    '#docOutput .dm-card60,#pkDocOutput .dm-card60,#lpjOutput .dm-card60{display:none!important;visibility:hidden!important}';
+  document.head.appendChild(sCss);
+
+  /* ── (B) Hapus dm-card60 dari output containers via JS ───────
+     CSS saja tidak cukup karena v1.60 punya aturan setara.
+     Solusi: hapus node dari DOM + cabut class has-doc60 agar
+     dokumen asli tampil kembali. Jika v1.60 observer coba
+     re-insert, watcher kita akan langsung hapus lagi. */
+  var OUTPUT_IDS = ['docOutput','pkDocOutput','lpjOutput'];
+
+  function unwrapOutputEl(container) {
+    if (!container) return;
+    var card = container.querySelector('.dm-card60');
+    if (!card) return;
+    container.removeChild(card);
+    container.classList.remove('has-doc60');
+    /* Pastikan semua anak kembali tampil (has-doc60 menghide mereka) */
+    Array.from(container.childNodes).forEach(function(n){
+      if (n.nodeType === 1) n.style.removeProperty('display');
+    });
+  }
+
+  function watchOutputEl(id) {
+    var el = document.getElementById(id);
+    if (!el || el.__v62watch) return;
+    el.__v62watch = true;
+    unwrapOutputEl(el); /* cleanup awal */
+    new MutationObserver(function(muts) {
+      /* Cek apakah ada dm-card60 yang baru di-insert */
+      var gotCard = muts.some(function(m) {
+        return Array.from(m.addedNodes).some(function(n) {
+          return n.nodeType === 1 && n.classList && n.classList.contains('dm-card60');
+        });
+      });
+      if (gotCard) {
+        /* requestAnimationFrame → hapus sebelum browser paint */
+        requestAnimationFrame(function(){ unwrapOutputEl(el); });
+      }
+    }).observe(el, {childList: true});
+  }
+
+  function initOutputWatchers() {
+    OUTPUT_IDS.forEach(watchOutputEl);
+    /* Jaga-jaga jika elemen belum ada di DOM saat init */
+    var retries = 0;
+    var iv = setInterval(function() {
+      OUTPUT_IDS.forEach(watchOutputEl);
+      retries++;
+      if (retries >= 6) clearInterval(iv);
+    }, 600);
+  }
+
+  /* ── (C) Edit → Preview/Cetak sync ──────────────────────────
+     Gunakan document capture-phase delegation agar listener
+     terpasang sebelum v1.60 switchTab meng-overwrite konten. */
+
+  function liveHtml() {
+    var el = document.getElementById('dm60DocEdit');
+    if (el && el.innerHTML && el.innerHTML.trim().length > 40)
+      return el.innerHTML;
+    return window.__dm60CurHtml || '';
+  }
+
+  /* Tab click: update preview/cetak setelah switchTab asli selesai */
+  document.addEventListener('click', function(e) {
+    var tab = e.target.closest && e.target.closest('[data-dmtab]');
+    if (!tab) return;
+    var modal = document.getElementById('docModal60');
+    if (!modal || !modal.contains(tab)) return;
+    var toTab = tab.dataset.dmtab;
+    if (toTab !== 'preview' && toTab !== 'cetak') return;
+    /* Ambil HTML dari editor — 50ms cukup untuk switchTab selesai */
+    var captured = liveHtml();
+    if (!captured || captured.trim().length < 40) return;
+    setTimeout(function() {
+      if (toTab === 'preview') {
+        var pv = document.getElementById('dm60DocPreview');
+        if (pv) pv.innerHTML = captured;
+      } else {
+        var ct = document.getElementById('dm60DocCetak');
+        if (ct) ct.innerHTML = captured;
+      }
+    }, 50);
+  }, true /* capture — before v1.60 switchTab */);
+
+  /* ── (D) Tombol Cetak & Download selalu pakai konten editor ─ */
+  document.addEventListener('click', function(e) {
+    var btn = e.target;
+    while (btn && btn !== document) {
+      if (btn.id === 'dm60PrintBtn' || btn.id === 'dm60DlBtn') break;
+      btn = btn.parentElement;
+    }
+    if (!btn || (btn.id !== 'dm60PrintBtn' && btn.id !== 'dm60DlBtn')) return;
+
+    e.stopImmediatePropagation();
+    var html  = liveHtml();
+    var title = (document.getElementById('dm60TitleText') || {}).textContent || 'Dokumen';
+
+    if (btn.id === 'dm60PrintBtn') {
+      var w = window.open('', '_blank');
+      if (!w) return;
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
+        + title + '</title><link rel="stylesheet" href="styles.css">'
+        + '<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
+        + '</head><body>' + html + '</body></html>');
+      w.document.close();
+      setTimeout(function(){ w.print(); }, 400);
+    } else {
+      var blob = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
+        + title + '</title><link rel="stylesheet" href="styles.css">'
+        + '</head><body>' + html + '</body></html>'], {type:'text/html'});
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = title.replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50) + '.html';
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+    }
+  }, true);
+
+  /* ── (E) Klik card di luar output containers → buka modal ── */
+  document.addEventListener('click', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    var card = e.target.closest && e.target.closest('.dm-card60');
+    if (!card) return;
+    var container = card.closest('.doc-paper');
+    if (!container) return;
+    if (OUTPUT_IDS.indexOf(container.id) !== -1) return; /* output containers skip */
+    if (container.__docHtml60 && typeof window.openDocModal === 'function')
+      window.openDocModal(container.__docHtml60, container.__docTitle60 || 'Dokumen', container);
+  }, false);
+
+  /* ── (F) Patch openDocModal: isi editor saat modal dibuka ── */
+  function patchOpenModal() {
+    if (window.__openDocModal62) return;
+    if (typeof window.openDocModal !== 'function') return;
+    window.__openDocModal62 = true;
+    var orig = window.openDocModal;
+    window.openDocModal = function(html, title, srcEl) {
+      window.__dm60CurHtml = html || '';
+      /* Tulis ke editor agar liveHtml() langsung tersedia */
+      setTimeout(function() {
+        var editEl = document.getElementById('dm60DocEdit');
+        if (editEl && html) editEl.innerHTML = html;
+      }, 80);
+      orig.call(this, html, title, srcEl);
+    };
+  }
+
+  function init62() {
+    initOutputWatchers();
+    patchOpenModal();
+    console.log('[BOP v1.62] Output unwrap (DOM) + edit-sync (delegation) aktif');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(init62, 2000); });
+  } else {
+    setTimeout(init62, 800);
+  }
+})();
+/* END PATCH v1.62 */
+
+
+/* ================================================================
+   PATCH v1.63 — FIX DEFINITIF: KOP Surat + Tanda Tangan 2-Baris
+   ================================================================
+   Ini adalah patch TERAKHIR yang dimuat sehingga override ini yang
+   benar-benar aktif (mengalahkan semua kopHTML/docRap/docRapBulanan
+   versi sebelumnya yang saling tumpang tindih).
+
+   1) kopHTML() — sesuai contoh surat resmi:
+      PEMERINTAH KOTA SEMARANG (header atas)
+      [Logo] KECAMATAN CANDISARI / KELURAHAN TEGALSARI / RW 012 RT 005
+      garis pemisah
+      Sekretariat: alamat
+   2) Tanda tangan 4 penanda tangan jadi 2 baris:
+      "Mengambil," (center) -> Ketua RT | Bendahara
+      "Mengetahui," (center) -> Lurah | Ketua RW
+      Diterapkan pada docRap (RAP 1 Tahun) & docRapBulanan (RAP Bulanan)
+      dengan cara membungkus hasil fungsi aktif saat ini (tidak
+      menulis ulang logic baris RAP yang sudah benar/volumeBulanan).
+   ================================================================ */
+(function bopKopSignatureFinalV63(){
+  if(window.__bopKopSignatureFinalV63) return;
+  window.__bopKopSignatureFinalV63 = true;
+
+  function esc63(s){
+    try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(e){}
+    return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function safeName63(v){
+    try{ if(typeof safeNameV19==="function") return safeNameV19(v); }catch(e){}
+    try{ if(typeof safeNameV18==="function") return safeNameV18(v); }catch(e){}
+    return String(v||"").trim() || "Nama Jelas";
+  }
+
+  /* ── 1. KOP SURAT — layout sesuai contoh resmi ── */
+  window.kopHTML = function kopHTML(){
+    var k = (window.data && window.data.kop) ? window.data.kop : {};
+    var m = (window.data && window.data.master) ? window.data.master : {};
+    var b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
+    var b2 = k.baris2 || "KECAMATAN CANDISARI";
+    var b3 = k.baris3 || "KELURAHAN TEGALSARI";
+    var b4 = k.baris4 || "RW 012 RT 005";
+    var addr = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
+    var addrLine = /^sekretariat/i.test(addr) ? addr : ("Sekretariat: " + addr);
+    return '<div class="kop kop-v63">'+
+      '<div class="kop-v63-header">'+esc63(b1)+'</div>'+
+      '<div class="kop-v63-row">'+
+        '<div class="kop-v63-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-v63-logo" alt="Logo Kota Semarang"></div>'+
+        '<div class="kop-v63-info">'+
+          '<div class="kop-v63-line1">'+esc63(b2)+'</div>'+
+          '<div class="kop-v63-line1">'+esc63(b3)+'</div>'+
+          '<div class="kop-v63-line1">'+esc63(b4)+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="kop-v63-hr"></div>'+
+      '<div class="kop-v63-addr">'+esc63(addrLine)+'</div>'+
+    '</div>';
+  };
+
+  /* ── 2. CSS untuk KOP baru + tanda tangan 2-baris (inject langsung, tidak tergantung file css) ── */
+  function injectCss63(){
+    if(document.getElementById("bopV63Style")) return;
+    var st = document.createElement("style");
+    st.id = "bopV63Style";
+    st.textContent = `
+      .kop.kop-v63{border-bottom:3px double #000;padding:6px 4px 10px;margin-bottom:18px;text-align:center;display:block}
+      .kop-v63-header{font-family:"Times New Roman",serif;font-weight:700;font-size:18px;text-transform:uppercase;text-align:center;margin:0 0 6px}
+      .kop-v63-row{display:grid;grid-template-columns:74px 1fr 74px;align-items:center;column-gap:14px}
+      .kop-v63-logo-wrap{grid-column:1;justify-self:start}
+      .kop-v63-logo{width:60px;max-height:74px;object-fit:contain;display:block}
+      .kop-v63-info{grid-column:2;text-align:center}
+      .kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:15px;text-transform:uppercase;margin:2px 0;text-align:center}
+      .kop-v63-hr{border-top:1.5px solid #000;margin:6px 0 4px}
+      .kop-v63-addr{font-family:"Times New Roman",serif;font-size:11px;text-align:center;margin:0}
+      .ttd-grouped-v63{margin-top:22px}
+      .ttd-grouped-v63 .ttd-label-v63{text-align:center;font-family:"Times New Roman",serif;margin:0 0 4px;font-size:12pt}
+      .ttd-grouped-v63 .ttd-row-v63{display:grid;grid-template-columns:repeat(2,1fr);gap:40px;text-align:center;margin-bottom:18px}
+      .ttd-grouped-v63 .ttd-row-v63:last-of-type{margin-bottom:0}
+      @media(max-width:560px){.ttd-grouped-v63 .ttd-row-v63{grid-template-columns:1fr;gap:16px}.kop-v63-row{grid-template-columns:50px 1fr 50px;column-gap:8px}}
+      @media print{
+        .kop.kop-v63{border-bottom:3px double #000!important}
+        .kop-v63-logo{width:56px!important;max-height:68px!important}
+        .ttd-grouped-v63 .ttd-row-v63{page-break-inside:avoid;break-inside:avoid}
+      }
+    `;
+    document.head.appendChild(st);
+  }
+
+  /* ── 3. Blok tanda tangan 2-baris (Mengambil / Mengetahui) ── */
+  function ttdGroupedV63(){
+    var m = (window.data && window.data.master) ? window.data.master : {};
+    var p = (window.data && window.data.pengajuan) ? window.data.pengajuan : {};
+    var rt = m.rt || "005", rw = m.rw || "012";
+    var ketua = safeName63(m.ketua);
+    var bendahara = safeName63(m.bendahara);
+    var lurah = safeName63(p.namaLurah);
+    var ketuaRw = safeName63(p.namaKetuaRw);
+    var kelurahan = m.kelurahan || "Tegalsari";
+    return '<div class="ttd-grouped-v63">'+
+      '<p class="ttd-label-v63">Mengambil,</p>'+
+      '<div class="ttd-row-v63">'+
+        '<div>Ketua RT '+esc63(rt)+' RW '+esc63(rw)+'<div class="signature-space"></div><b>'+esc63(ketua)+'</b></div>'+
+        '<div>Bendahara RT '+esc63(rt)+' RW '+esc63(rw)+'<div class="signature-space"></div><b>'+esc63(bendahara)+'</b></div>'+
+      '</div>'+
+      '<p class="ttd-label-v63">Mengetahui,</p>'+
+      '<div class="ttd-row-v63">'+
+        '<div>Lurah '+esc63(kelurahan)+'<div class="signature-space"></div><b>'+esc63(lurah)+'</b></div>'+
+        '<div>Ketua RW '+esc63(rw)+'<div class="signature-space"></div><b>'+esc63(ketuaRw)+'</b></div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  /* ── 4. Utility: ganti blok <div class="ttd-4">...</div> (balanced) dengan blok baru ── */
+  function replaceTtd4(html){
+    var markers = ['<div class="ttd-4">', "<div class='ttd-4'>"];
+    var startIdx = -1, markerLen = 0;
+    for(var mi=0; mi<markers.length; mi++){
+      var idx = html.indexOf(markers[mi]);
+      if(idx !== -1){ startIdx = idx; markerLen = markers[mi].length; break; }
+    }
+    if(startIdx === -1) return html + ttdGroupedV63();
+
+    var i = startIdx + markerLen;
+    var depth = 1;
+    var openRe = /<div\b[^>]*>/g;
+    var rest = html.slice(startIdx + markerLen);
+    var pos = 0;
+    while(depth > 0 && pos < rest.length){
+      var nextOpen = rest.indexOf("<div", pos);
+      var nextClose = rest.indexOf("</div>", pos);
+      if(nextClose === -1) break;
+      if(nextOpen !== -1 && nextOpen < nextClose){
+        depth++;
+        pos = nextOpen + 4;
+      } else {
+        depth--;
+        pos = nextClose + 6;
+      }
+    }
+    var endIdx = startIdx + markerLen + pos;
+    /* Hapus juga paragraf "Mengetahui," polos sebelum blok ttd-4 jika ada, karena label sudah termasuk di blok baru */
+    var before = html.slice(0, startIdx).replace(/<p>Mengetahui,<\/p>\s*$/,"");
+    var after = html.slice(endIdx);
+    return before + ttdGroupedV63() + after;
+  }
+
+  /* ── 5. Bungkus docRap & docRapBulanan aktif dengan tanda tangan baru ── */
+  function wrapDocSignature(fnName){
+    var orig = window[fnName];
+    if(typeof orig !== "function") return;
+    window[fnName] = function(){
+      var html = orig.apply(this, arguments);
+      try{ return replaceTtd4(html); }catch(e){ return html; }
+    };
+  }
+  wrapDocSignature("docRap");
+  wrapDocSignature("docRapBulanan");
+
+  /* Pastikan docMapV37 (peta dokumen Generate 7 Dokumen) memakai versi terbungkus ini */
+  if(typeof window.docMapV37 === "function"){
+    var origMap63 = window.docMapV37;
+    window.docMapV37 = function(){
+      var b = origMap63();
+      if(b && typeof window.docRap === "function") b.rap = window.docRap;
+      if(b && typeof window.docRapBulanan === "function") b.rapbulanan = window.docRapBulanan;
+      return b;
+    };
+  }
+
+  function initV63(){
+    injectCss63();
+    /* Re-render preview jika dokumen RAP/RAP Bulanan sedang tampil */
+    try{
+      var out = document.getElementById("docOutput");
+      if(out && window.currentDoc && (window.currentDoc==="rap" || window.currentDoc==="rapbulanan")){
+        if(typeof window.previewDoc === "function") window.previewDoc(window.currentDoc);
+      }
+    }catch(e){}
+    console.log("[BOP v1.63] KOP surat + tanda tangan 2-baris (Mengambil/Mengetahui) aktif — FINAL.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initV63, 5000); });
+  else
+    setTimeout(initV63, 5000);
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.64 — Auto-Sync Multi-Device: fillInputs + BroadcastChannel
+   Masalah: applyServerData tidak memanggil fillInputs() →
+   form inputs tidak ter-update saat data datang dari device lain.
+════════════════════════════════════════════════════════════════ */
+(function bopAutoSyncV64(){
+  if(window.__bopAutoSyncV64) return;
+  window.__bopAutoSyncV64 = true;
+
+  /* ── 1. Patch applyServerData agar fillInputs + previewDoc ─── */
+  const _origApply = window.bopApplyServerDataV42;
+  window.bopApplyServerDataV42 = function(result){
+    if(_origApply) _origApply(result);
+    try{ if(typeof fillInputs    === "function") fillInputs(); }catch(e){}
+    try{ if(typeof renderRap     === "function") renderRap(); }catch(e){}
+    try{ if(typeof renderExpenses=== "function") renderExpenses(); }catch(e){}
+    try{ if(typeof renderPeserta === "function") renderPeserta(); }catch(e){}
+    try{
+      if(typeof previewDoc === "function" && window.currentDoc)
+        previewDoc(window.currentDoc);
+    }catch(e){}
+  };
+
+  /* ── 2. BroadcastChannel — sync instan antar tab di browser sama ── */
+  try{
+    const BC_NAME = "bop_sync_v64";
+    const bc = new BroadcastChannel(BC_NAME);
+    bc.onmessage = e => {
+      if(e.data && e.data.type === "DATA_UPDATED"){
+        /* Tab lain baru simpan data — langsung ambil versi terbaru */
+        if(typeof window.__bopRetriggerSync === "function") window.__bopRetriggerSync();
+      }
+    };
+    /* Broadcast setiap kali ada push sukses */
+    const _origPut = window.fetch;
+    window.fetch = async function(url, opts){
+      const res = await _origPut.apply(this, arguments);
+      if(typeof url === "string" && url.includes("/api/bop/data") && opts && opts.method === "PUT"){
+        try{ bc.postMessage({ type: "DATA_UPDATED" }); }catch(_){}
+      }
+      return res;
+    };
+  }catch(e){}
+
+  /* ── 3. Page Visibility: poll lebih cepat saat tab aktif ─────── */
+  let pollFast = null;
+  function startFastPoll(){
+    if(pollFast) return;
+    pollFast = setInterval(() => {
+      if(typeof window.__bopRetriggerSync === "function") window.__bopRetriggerSync();
+    }, 5000);
+  }
+  function stopFastPoll(){
+    if(pollFast){ clearInterval(pollFast); pollFast = null; }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible"){
+      startFastPoll();
+      /* Langsung sync saat tab diaktifkan kembali */
+      setTimeout(()=>{ if(typeof window.__bopRetriggerSync==="function") window.__bopRetriggerSync(); }, 200);
+    } else {
+      stopFastPoll();
+    }
+  });
+  if(document.visibilityState === "visible") startFastPoll();
+
+  console.log("[BOP v1.64] Auto-Sync multi-device: fillInputs + BroadcastChannel + visibilitychange aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.65 — Biometrik: Direct Access Mode + Auto-Detect
+   Fix: setAccessModeV31("bop") langsung dipanggil setelah
+   biometrik sukses, tanpa bergantung pada MutationObserver.
+════════════════════════════════════════════════════════════════ */
+(function bopBiometricFixV65(){
+  if(window.__bopBiometricFixV65) return;
+  window.__bopBiometricFixV65 = true;
+
+  function applyBiometricSuccess(){
+    /* Set BOP access mode langsung */
+    if(typeof setAccessModeV31 === "function") setAccessModeV31("bop");
+    window.__bopBioAuth = true;
+
+    /* Navigasi ke halaman terakhir atau dashboard */
+    const LAST_PAGE = "bop_last_page_v43";
+    const lastPage  = localStorage.getItem(LAST_PAGE) || "dashboard";
+    setTimeout(() => {
+      if(typeof goPage === "function") goPage(lastPage);
+      if(typeof bopToast === "function") bopToast("Selamat Datang 👋","Masuk via biometrik berhasil.","success");
+    }, 250);
+  }
+
+  /* Hook tombol biometrik — intercept SETELAH v1.43 terpasang */
+  function hookBtn(){
+    const btn = document.getElementById("biometricBtnV43");
+    const hint = document.getElementById("biometricHintV43");
+    if(!btn || !hint){ setTimeout(hookBtn, 500); return; }
+
+    /* Observer pada hint: kalau muncul ✅ Berhasil → langsung unlock */
+    new MutationObserver(() => {
+      if(hint.textContent.includes("✅ Berhasil") && !window.__bopBioUnlocked){
+        window.__bopBioUnlocked = true;
+        setTimeout(() => { window.__bopBioUnlocked = false; }, 2000);
+        applyBiometricSuccess();
+      }
+    }).observe(hint, { childList: true, characterData: true, subtree: true });
+  }
+
+  /* Auto-detect platform authenticator & tampilkan tombol */
+  async function autoDetect(){
+    if(!window.PublicKeyCredential) return;
+    try{
+      const ok = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+      const row = document.getElementById("biometricRowV43");
+      if(row) row.style.display = ok ? "" : "none";
+
+      /* Tampilkan label sesuai status pendaftaran */
+      const cred = localStorage.getItem("bop_biometric_cred_v43");
+      const label = document.getElementById("biometricBtnLabel");
+      const hint  = document.getElementById("biometricHintV43");
+      if(ok && label){
+        label.textContent = cred ? "Masuk dengan Biometrik" : "Daftarkan Biometrik";
+        if(hint) hint.textContent = cred ? "Sidik jari / wajah terdaftar ✓" : "Tap untuk daftarkan biometrik perangkat ini";
+      }
+    }catch(e){}
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => { setTimeout(hookBtn, 1000); setTimeout(autoDetect, 1200); });
+  else
+    { setTimeout(hookBtn, 1000); setTimeout(autoDetect, 1200); }
+
+  console.log("[BOP v1.65] Biometrik Fix: direct access mode aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.66 — Dropdown Generate Dokumen Premium + Auto-Preview
+   Tambah semua jenis dokumen, auto-preview saat pilih,
+   tanpa mengubah Document Studio.
+════════════════════════════════════════════════════════════════ */
+(function bopDocDropdownPremiumV66(){
+  if(window.__bopDocDropdownV66) return;
+  window.__bopDocDropdownV66 = true;
+
+  const ALL_DOCS = [
+    { group: "📋 Pengajuan Dana Operasional", items: [
+      { value: "permohonan",    label: "1. Surat Permohonan Pencairan" },
+      { value: "rap",           label: "2. RAP 1 Tahun" },
+      { value: "rapbulanan",    label: "2A. RAP Bulanan Otomatis" },
+      { value: "ba",            label: "3. Berita Acara Kesepakatan RAP" },
+      { value: "hadir",         label: "4. Daftar Hadir Rapat RAP" },
+      { value: "sptjm",         label: "5. SPTJM Ketua RT" },
+      { value: "sk",            label: "6. SK Lurah / Dokumentasi" },
+      { value: "rekening",      label: "7. Rekening Bank Jateng" },
+      { value: "rbb",           label: "RBB - Rencana Belanja Bulanan" },
+      { value: "perubahanRap",  label: "5A. Perubahan RAP" },
+      { value: "baPerubahanRap",label: "5B. BA Perubahan RAP" },
+      { value: "tandaTerima",   label: "Tanda Terima Penyaluran" },
+      { value: "paket7pengajuan", label: "📦 Paket 7 Dokumen 2026" },
+    ]},
+    { group: "📝 Rapat & Notulen", items: [
+      { value: "undangan",      label: "Undangan Rapat RAP" },
+      { value: "notulen",       label: "Notulen Resmi RAP" },
+    ]},
+    { group: "📊 LPJ / SPJ", items: [
+      { value: "lpj",           label: "LPJ / SPJ Lengkap" },
+    ]},
+  ];
+
+  function buildSelect(sel){
+    sel.innerHTML = "";
+    ALL_DOCS.forEach(g => {
+      const og = document.createElement("optgroup");
+      og.label = g.group;
+      g.items.forEach(it => {
+        const op = document.createElement("option");
+        op.value = it.value;
+        op.textContent = it.label;
+        og.appendChild(op);
+      });
+      sel.appendChild(og);
+    });
+    /* Restore previously selected */
+    const prev = localStorage.getItem("bop_last_doc_v66") || window.currentDoc || "permohonan";
+    if([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
+
+  function doGenerate(type){
+    if(!type) return;
+    localStorage.setItem("bop_last_doc_v66", type);
+    /* Auto-fill sebelum generate */
+    try{ if(typeof fillInputs  === "function") fillInputs(); }catch(e){}
+    try{ if(typeof collectAll  === "function") collectAll(); }catch(e){}
+    /* Coba previewDoc langsung */
+    if(typeof window.previewDoc === "function"){
+      window.previewDoc(type);
+    } else {
+      const hiddenBtn = document.querySelector(`.doc-btn[data-doc="${type}"]`);
+      if(hiddenBtn) hiddenBtn.click();
+    }
+    /* Scroll ke output */
+    setTimeout(() => {
+      const out = document.getElementById("docOutput");
+      if(out) out.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 400);
+  }
+
+  function init(){
+    const sel = document.getElementById("dsDocSelectV43");
+    const btn = document.getElementById("dsDocGenBtnV43");
+    if(!sel){ setTimeout(init, 600); return; }
+
+    buildSelect(sel);
+
+    /* Auto-preview saat pilih dokumen */
+    sel.addEventListener("change", () => doGenerate(sel.value));
+
+    /* Tombol Generate */
+    if(btn){
+      btn.onclick = () => doGenerate(sel.value);
+      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Generate`;
+    }
+
+    /* Sinkronkan dengan currentDoc saat tab dokumen dibuka */
+    document.querySelectorAll('[data-tab="dokumen"], [data-subtab="dokumen"]').forEach(t => {
+      t.addEventListener("click", () => {
+        setTimeout(() => {
+          if(window.currentDoc && sel.value !== window.currentDoc){
+            const match = [...sel.options].find(o => o.value === window.currentDoc);
+            if(match) sel.value = window.currentDoc;
+          }
+        }, 150);
+      });
+    });
+  }
+
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(init, 1400));
+  else
+    setTimeout(init, 1400);
+
+  console.log("[BOP v1.66] Dropdown Generate Dokumen Premium + auto-preview aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.67 — Auto-Fill Dokumen dari Data Master
+   Setiap kali dokumen di-generate, data master (nama ketua RT,
+   alamat, periode, dll) otomatis terisi tanpa perlu isi manual.
+════════════════════════════════════════════════════════════════ */
+(function bopAutoFillMasterV67(){
+  if(window.__bopAutoFillV67) return;
+  window.__bopAutoFillV67 = true;
+
+  const FIELD_MAP = {
+    /* Data Master */
+    "ketua":        ["masterKetua","namaKetua","ketua_rt"],
+    "sekretaris":   ["masterSekretaris","sekretaris"],
+    "bendahara":    ["masterBendahara","bendahara"],
+    "rt":           ["masterRt","noRt"],
+    "rw":           ["masterRw","noRw"],
+    "kelurahan":    ["masterKelurahan","kelurahan"],
+    "kecamatan":    ["masterKecamatan","kecamatan"],
+    "kota":         ["masterKota","kota"],
+    "lurah":        ["namaLurah","masterLurah","lurah"],
+    "ketuaRw":      ["namaKetuaRw","masterKetuaRw","ketuaRw"],
+    "tahun":        ["masterTahun","tahunAnggaran","tahun"],
+  };
+
+  function autoFillFromData(){
+    try{
+      const d = (typeof data !== "undefined") ? data : null;
+      if(!d || !d.master) return;
+      const m = d.master;
+
+      Object.entries(FIELD_MAP).forEach(([key, ids]) => {
+        const val = m[key];
+        if(!val) return;
+        ids.forEach(id => {
+          const el = document.getElementById(id) || document.querySelector(`[name="${id}"]`);
+          if(el && !el.value) el.value = val;
+        });
+      });
+
+      /* Juga isi input form dengan fillInputs jika tersedia */
+      if(typeof fillInputs === "function") fillInputs();
+    }catch(e){}
+  }
+
+  /* Wrap previewDoc — auto-fill sebelum setiap generate */
+  const _origPD = window.previewDoc;
+  window.previewDoc = function(type){
+    autoFillFromData();
+    try{ if(typeof collectAll === "function") collectAll(); }catch(e){}
+    return _origPD ? _origPD.apply(this, arguments) : undefined;
+  };
+
+  /* Auto-fill saat halaman load */
+  if(document.readyState === "loading")
+    document.addEventListener("DOMContentLoaded", () => setTimeout(autoFillFromData, 1000));
+  else
+    setTimeout(autoFillFromData, 1000);
+
+  console.log("[BOP v1.67] Auto-Fill Dokumen dari Data Master aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.64b — Guard: cegah fillInputs() loop di applyServerData
+════════════════════════════════════════════════════════════════ */
+(function bopSyncGuardV64b(){
+  if(window.__bopSyncGuardV64b) return;
+  window.__bopSyncGuardV64b = true;
+
+  /* Flag global yang diset saat kita sedang apply data dari server
+     — dipakai untuk mencegah schedulePush terpicu balik */
+  window.__bopApplyingServer = false;
+
+  /* Patch applyServerData v1.64 agar set flag sebelum fillInputs */
+  const _applyV64 = window.bopApplyServerDataV42;
+  window.bopApplyServerDataV42 = function(result){
+    window.__bopApplyingServer = true;
+    try{ _applyV64 && _applyV64(result); }finally{}
+    /* fillInputs + renders sudah dijalankan di v1.64,
+       reset flag setelah microtask selesai */
+    Promise.resolve().then(() => { window.__bopApplyingServer = false; });
+  };
+
+  /* Intercept schedulePush: batalkan jika sedang apply dari server */
+  const _origFetch = window.fetch;
+  if(typeof window.__bopSchedulePushPatched === "undefined"){
+    window.__bopSchedulePushPatched = true;
+    const origLS = localStorage.setItem.bind(localStorage);
+    Object.defineProperty(localStorage, "setItem", {
+      configurable: true, writable: true,
+      value: function(key, value){
+        origLS(key, value);
+        /* Jika sedang apply dari server, jangan push balik */
+        if(window.__bopApplyingServer && key && key.startsWith("bop_rt005_data")) return;
+        /* Biarkan schedulePush normal berjalan */
+      }
+    });
+  }
+
+  console.log("[BOP v1.64b] Sync guard: fillInputs loop dicegah aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.68 — 5 Bug Fixes:
+   1. Pratinjau Langsung sudah disembunyikan di HTML
+   2+3. getMonthlyRapRows — gunakan monthsScheduledV19 + jadwalInternal
+   4. Document Studio Preview — baca dari editor (dsPage) bukan docOutput
+   5. previewDoc — tambahkan rbb, lpj, baPerubahanRap, tandaTerima, paket7pengajuan
+════════════════════════════════════════════════════════════════ */
+(function bopFix68(){
+  if(window.__bopFix68) return;
+  window.__bopFix68 = true;
+
+  var MO68=["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026",
+            "Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 2+3: getMonthlyRapRows — pakai monthsScheduledV19 (jadwalInternal)
+     Root cause: getR58 (v1.58) abaikan jadwalInternal, selalu bagi rata
+     per bulan dalam range. Fix ini menggunakan monthsScheduledV19 sehingga
+     Pola Pelaksanaan (sekali/2bulan/3bulan/manual/dll) benar-benar berlaku.
+  ═══════════════════════════════════════════════════════════════ */
+  function getMonthlyRapRows68(month){
+    if(!month||MO68.indexOf(month)<0){
+      // Coba baca dari selector aktif
+      var sels=["v48RapBulanSel","monthlyDocMonth"];
+      for(var si=0;si<sels.length;si++){
+        var sel68=document.getElementById(sels[si]);
+        if(sel68&&sel68.value&&MO68.indexOf(sel68.value)>=0){ month=sel68.value; break; }
+      }
+      if(!month||MO68.indexOf(month)<0){
+        try{ var sm=window.data.pengajuan.selectedMonth; if(MO68.indexOf(sm)>=0) month=sm; }catch(e){}
+      }
+      if(!month||MO68.indexOf(month)<0) month=MO68[0];
+    }
+
+    var rap=[];
+    try{ rap=window.data.pengajuan.rap||[]; }catch(e){ return []; }
+    if(!Array.isArray(rap)){ try{ rap=Object.values(rap); }catch(e){ return []; } }
+
+    var rows=[];
+    rap.forEach(function(r,idx){
+      if(!r||!r.uraian) return;
+
+      /* Gunakan monthsScheduledV19 agar jadwalInternal dihormati */
+      var scheduled=[];
+      try{ scheduled=monthsScheduledV19(r)||[]; }catch(e){
+        /* Fallback minimal jika monthsScheduledV19 tidak tersedia */
+        var ci=MO68.indexOf(month);
+        var bM=r.bulanMulai||"",bS=r.bulanSelesai||"";
+        var si2=MO68.indexOf(bM),ei=MO68.indexOf(bS);
+        if(si2>=0&&ei>=0&&ci>=si2&&ci<=ei) scheduled=[month];
+        else if(!bM&&!bS) scheduled=MO68; // semua bulan
+      }
+      if(scheduled.indexOf(month)<0) return;
+
+      /* Hitung jumlah & qty untuk bulan ini */
+      var qty=0,jb=0;
+      try{ qty=monthlyQtyForRowV19(r,month)||0; }catch(e){
+        /* Fallback: total qty / jumlah bulan scheduled */
+        try{
+          var v18=parseVolumeV18(r.volume);
+          qty=scheduled.length>0?v18.qty/scheduled.length:0;
+        }catch(e2){ qty=0; }
+      }
+      try{ jb=monthlyAmountForRowV19(r,month)||0; }catch(e){
+        /* Fallback: total jumlah / scheduled count */
+        jb=scheduled.length>0?Math.round(Number(r.jumlah||0)/scheduled.length):0;
+      }
+      if(jb<=0) return;
+
+      /* Format volume bulanan */
+      var volBulanan=r.volume||"1 Paket";
+      try{
+        var v68=parseVolumeV18(r.volume);
+        if(qty>0) volBulanan=formatVolumeV18(qty,v68.unit);
+      }catch(e){}
+
+      rows.push({
+        uraian:r.uraian||"",
+        kategori:r.kategori||"Operasional",
+        subKategori:r.subKategori||"",
+        tipe:r.tipe||"",
+        volume:r.volume||"1 Paket",
+        volumeBulanan:volBulanan,
+        qtyBulanan:qty,
+        jumlah:Number(r.jumlah||0),
+        jumlahBulanan:jb,
+        keterangan:r.keterangan||"",
+        bulanMulai:r.bulanMulai||"",
+        bulanSelesai:r.bulanSelesai||"",
+        rentangBulan:(r.bulanMulai&&r.bulanSelesai)?r.bulanMulai+" s.d "+r.bulanSelesai:"",
+        sumber:(function(){ try{ return scheduleLabelV19(r); }catch(e){ return "Otomatis"; } })(),
+        annualIndex:idx
+      });
+    });
+    return rows;
+  }
+
+  window.getMonthlyRapRows = getMonthlyRapRows68;
+  window.monthlyTotal = function(m){ return getMonthlyRapRows68(m).reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0); };
+  console.log("[BOP v1.68-fix2] getMonthlyRapRows: jadwalInternal + Pola Pelaksanaan aktif.");
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 5: previewDoc — tambah rbb, lpj, baPerubahanRap, tandaTerima, paket7pengajuan
+     Root cause: docMapV37 tidak punya rbb & lpj → jatuh ke docPermohonan
+  ═══════════════════════════════════════════════════════════════ */
+  var _origPD68 = window.previewDoc;
+  window.previewDoc = function previewDoc68(type){
+    /* Lookup map lengkap — fallback ke docMapV37 + tambahan */
+    var extraMap={
+      rbb: function(){ try{ return docRbb(); }catch(e){ return "<p>docRbb belum tersedia.</p>"; } },
+      lpj: function(){ try{ return docLpj(); }catch(e){ return "<p>docLpj belum tersedia.</p>"; } },
+      baPerubahanRap: function(){
+        try{ return (window.docBeritaAcaraPerubahanV37||window.docBeritaAcaraPerubahanV36)(); }
+        catch(e){ return "<p>BA Perubahan RAP belum tersedia.</p>"; }
+      },
+      perubahanRap: function(){
+        try{ return (window.docPerubahanRapV37||window.docPerubahanRapV36)(); }
+        catch(e){ return "<p>Perubahan RAP belum tersedia.</p>"; }
+      },
+      tandaTerima: function(){
+        try{ return (window.docTandaTerimaPenyaluranV37||window.docTandaTerimaPenyaluranV36)(); }
+        catch(e){ return "<p>Tanda Terima belum tersedia.</p>"; }
+      },
+      paket7pengajuan: function(){
+        try{ return (window.docPaket7PengajuanV37||window.docPaket7PengajuanV36)(); }
+        catch(e){ return "<p>Paket 7 Dokumen belum tersedia.</p>"; }
+      }
+    };
+
+    /* Cek apakah tipe ini butuh extra handler */
+    if(extraMap[type]){
+      /* Auto-fill dulu */
+      try{ if(typeof fillInputs==="function") fillInputs(); }catch(e){}
+      try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+      /* Set currentDoc */
+      try{ currentDoc=type; }catch(e){ window.currentDoc=type; }
+      window.currentDoc=type;
+      /* Highlight tombol aktif */
+      document.querySelectorAll(".doc-btn").forEach(function(b){
+        b.classList.toggle("active",b.dataset&&b.dataset.doc===type);
+      });
+      /* Render ke docOutput */
+      var out=document.getElementById("docOutput");
+      if(out){
+        out.innerHTML=extraMap[type]();
+        out.classList.add("doc-paper");
+        /* Scroll ke output */
+        setTimeout(function(){ out.scrollIntoView({behavior:"smooth",block:"nearest"}); },200);
+      }
+      return;
+    }
+
+    /* Untuk tipe lainnya, pakai previewDoc original (v1.37/v1.67) */
+    if(_origPD68) return _origPD68.apply(this,arguments);
+    /* Fallback minimal */
+    var out2=document.getElementById("docOutput");
+    if(out2) out2.innerHTML="<p>Fungsi generate belum tersedia untuk tipe: "+String(type)+"</p>";
+  };
+  console.log("[BOP v1.68-fix5] previewDoc: rbb + lpj + baPerubahanRap + tandaTerima aktif.");
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 4: Document Studio Preview — baca dari editor dsPage
+     Root cause: Preview button membaca docOutput (HTML lama), bukan
+     konten editor yang sedang diedit user.
+  ═══════════════════════════════════════════════════════════════ */
+  function fixDsPreview(){
+    var previewBtn=document.getElementById("dsPreviewBtnV61");
+    var genBtn=document.getElementById("dsDocGenBtnV43");
+    if(!previewBtn && !genBtn){ setTimeout(fixDsPreview,800); return; }
+
+    function getEditorHtml(){
+      /* Prioritas 1: dsPage (contentEditable DS editor) */
+      var dsPage=document.getElementById("dsPage");
+      if(dsPage && dsPage.innerHTML && dsPage.innerHTML.trim().length>40)
+        return dsPage.innerHTML;
+      /* Prioritas 2: docOutput saat ini */
+      var docOut=document.getElementById("docOutput");
+      if(docOut){
+        if(docOut.__docHtml60 && docOut.__docHtml60.trim().length>40) return docOut.__docHtml60;
+        var tmp=document.createElement("div");
+        tmp.innerHTML=docOut.innerHTML;
+        var card=tmp.querySelector(".dm-card60"); if(card) card.remove();
+        return tmp.innerHTML;
+      }
+      return "";
+    }
+
+    function openEditorPreview(){
+      var html=getEditorHtml();
+      if(!html||html.trim().length<40){
+        if(typeof window.bopToast==="function") window.bopToast("Info","Generate dokumen terlebih dahulu.","info");
+        else alert("Generate dokumen terlebih dahulu sebelum preview.");
+        return;
+      }
+      if(typeof window.openDocModal==="function"){
+        var selEl=document.getElementById("dsDocSelectV43");
+        var label=(selEl&&selEl.options&&selEl.selectedIndex>=0)?
+          (selEl.options[selEl.selectedIndex].text||"Dokumen"):"Dokumen";
+        window.openDocModal(html,label,null);
+      } else {
+        /* Fallback: buka window baru */
+        var w=window.open("","_blank","width=800,height=900");
+        if(w) w.document.write("<!doctype html><html><head><meta charset='utf-8'><title>Preview</title><link rel='stylesheet' href='styles.css'></head><body><div class='doc-paper'>"+html+"</div></body></html>");
+      }
+    }
+
+    /* Ganti handler Preview button agar baca dari DS editor */
+    if(previewBtn){
+      previewBtn.onclick = openEditorPreview;
+    }
+
+    /* Tombol Print dari DS juga harus pakai konten editor */
+    var dsPrintBtn=document.getElementById("dsPrintDoc");
+    if(dsPrintBtn){
+      var _origPrint=dsPrintBtn.onclick;
+      dsPrintBtn.onclick=function(){
+        /* Sync konten dsPage ke docOutput agar print pakai versi terkini */
+        var dsPage=document.getElementById("dsPage");
+        var docOut=document.getElementById("docOutput");
+        if(dsPage&&docOut&&dsPage.innerHTML.trim().length>40){
+          docOut.__docHtml60=dsPage.innerHTML;
+        }
+        if(_origPrint) _origPrint.call(this);
+        else if(typeof window.cleanPrintV37==="function") window.cleanPrintV37("doc");
+        else window.print();
+      };
+    }
+    console.log("[BOP v1.68-fix4] DS Preview: baca dari dsPage editor aktif.");
+  }
+
+  if(document.readyState==="loading")
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(fixDsPreview,1500); });
+  else
+    setTimeout(fixDsPreview,1500);
+
+  console.log("[BOP v1.68] 5 Bug Fixes aktif — Pratinjau Langsung disembunyikan, jadwalInternal fix, DS preview fix, docMap lengkap.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.69 — Fix Teliti dan Rapi:
+   1. docRbb()       → pakai getMonthlyRapRows (jadwalInternal-aware)
+   2. docRapBulanan  → tampilkan volumeBulanan (bukan volume tahunan)
+   3. previewDoc map → semua tipe dokumen dipetakan dengan benar
+   4. docPkNotulen   → engine lengkap A-J setara docNotulen pengajuan
+════════════════════════════════════════════════════════════════ */
+(function bopFix69(){
+  if(window.__bopFix69) return;
+  window.__bopFix69 = true;
+
+  /* ── Helpers internal ──────────────────────────────────────── */
+  function s69(v, fb){ return String(v||"").trim() || (fb||"........................................"); }
+  function rp69(n){ try{ return rupiah(Number(n||0)); }catch(e){ return "Rp"+(Number(n||0)).toLocaleString("id-ID"); } }
+  function esc69(v){ try{ return esc(v); }catch(e){ return String(v||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); } }
+  function tgl69(){ try{ return todaySemarangV18(); }catch(e){ return "Semarang, "+new Date().toLocaleDateString("id-ID",{day:"2-digit",month:"long",year:"numeric"}); } }
+  function kop69(){ try{ return official(""); }catch(e){ return ""; } }
+  function off69(body){ try{ return official(body); }catch(e){ return '<div class="official">'+body+'</div>'; } }
+  function getMon69(){
+    var sels=["v48RapBulanSel","monthlyDocMonth"];
+    for(var si=0;si<sels.length;si++){
+      var el=document.getElementById(sels[si]);
+      if(el&&el.value) return el.value;
+    }
+    try{ return window.data.pengajuan.selectedMonth||"Januari 2026"; }catch(e){ return "Januari 2026"; }
+  }
+  function getM69(){ try{ return window.data.master||{}; }catch(e){ return {}; } }
+  function getP69(){ try{ return window.data.pengajuan||{}; }catch(e){ return {}; } }
+  function getRows69(month){
+    try{ return (typeof getMonthlyRapRows==="function"?getMonthlyRapRows(month):[])||[]; }catch(e){ return []; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 1: docRbb — RBB = Rencana Belanja Bulanan
+     Pakai getMonthlyRapRows (jadwalInternal + pola pelaksanaan),
+     bukan getMonthlyFlattenedRows yang butuh breakdown data.
+  ══════════════════════════════════════════════════════════════ */
+  window.docRbb = function docRbb69(){
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+    var month=getMon69();
+    var m=getM69(), p=getP69();
+    var rows=getRows69(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+
+    var tbody=rows.length
+      ? rows.map(function(r,i){
+          return '<tr>'+
+            '<td class="col-no-v37">'+(i+1)+'</td>'+
+            '<td>'+esc69(r.uraian||"")+'<br><small style="color:#666">'+esc69(r.kategori||"")+(r.subKategori?' &bull; '+esc69(r.subKategori):'')+'</small></td>'+
+            '<td style="text-align:center">'+esc69(r.volumeBulanan||r.volume||"")+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+rp69(r.jumlahBulanan)+'</td>'+
+            '<td>'+esc69(r.keterangan||"")+'</td>'+
+          '</tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">Belum ada kegiatan terjadwal untuk bulan '+esc69(month)+'.</td></tr>';
+
+    var body=
+      '<div class="title">RENCANA BELANJA BULANAN (RBB)<br>BANTUAN OPERASIONAL RT<br>BULAN '+esc69(month).toUpperCase()+'</div>'+
+      '<table class="no-border" style="margin-bottom:8px">'+
+        '<tr><td style="width:160px">Nama Lembaga</td><td>: RT '+esc69(m.rt||"005")+' RW '+esc69(m.rw||"012")+'</td></tr>'+
+        '<tr><td>Kelurahan</td><td>: '+esc69(m.kelurahan||"Tegalsari")+'</td></tr>'+
+        '<tr><td>Kecamatan</td><td>: '+esc69(m.kecamatan||"Candisari")+'</td></tr>'+
+        '<tr><td>Untuk Kegiatan Bulan</td><td>: <b>'+esc69(month)+'</b></td></tr>'+
+      '</table>'+
+      '<table><thead><tr>'+
+        '<th class="col-no-v37">No.</th>'+
+        '<th>Uraian Kegiatan</th>'+
+        '<th style="width:110px;text-align:center">Satuan/Volume</th>'+
+        '<th style="width:110px;text-align:right">Anggaran</th>'+
+        '<th>Keterangan</th>'+
+      '</tr></thead><tbody>'+
+        tbody+
+        '<tr><td colspan="3"><b>Jumlah</b></td>'+
+        '<td style="text-align:right;white-space:nowrap"><b>'+rp69(total)+'</b></td>'+
+        '<td></td></tr>'+
+      '</tbody></table>'+
+      '<p>Terbilang: <i>'+(function(){ try{ return terbilang(total).replace(/\s+/g," "); }catch(e){ return "......"; } }())+'</i> Rupiah</p>'+
+      '<p style="text-align:right;margin-top:20px">'+tgl69()+'</p>'+
+      '<div class="ttd-3">'+
+        '<div>Yang Mengambil<br>Ketua RT '+esc69(m.rt||"005")+' RW '+esc69(m.rw||"012")+'<div class="signature-space"></div>'+s69(m.ketua,"Nama Jelas")+'</div>'+
+        '<div>Bendahara RT '+esc69(m.rt||"005")+'<div class="signature-space"></div>'+s69(m.bendahara,"Nama Jelas")+'</div>'+
+        '<div>Mengetahui<br>Lurah '+esc69(m.kelurahan||"Tegalsari")+'<div class="signature-space"></div>'+s69(p.namaLurah,"Nama Jelas")+'</div>'+
+      '</div>';
+
+    return off69(body);
+  };
+  console.log("[BOP v1.69-fix1] docRbb: pakai getMonthlyRapRows + jadwalInternal aktif.");
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 2: docRapBulanan — tampilkan volumeBulanan (per-bulan),
+     bukan volume tahunan. Gunakan getMonthlyRapRows yang sudah
+     aware dengan jadwalInternal / pola pelaksanaan.
+  ══════════════════════════════════════════════════════════════ */
+  window.docRapBulanan = function docRapBulanan69(){
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+    var month=getMon69();
+    try{ if(window.data&&window.data.pengajuan) window.data.pengajuan.selectedMonth=month; }catch(e){}
+    var m=getM69(), p=getP69();
+    var rows=getRows69(month);
+    var total=rows.reduce(function(s,r){ return s+Number(r.jumlahBulanan||0); },0);
+
+    var tbody=rows.length
+      ? rows.map(function(r,i){
+          var kat=esc69(r.kategori||"Operasional");
+          var sub=r.subKategori?" &bull; "+esc69(r.subKategori):"";
+          var pola=(function(){ try{ return " | "+scheduleLabelV19(r); }catch(e){ return ""; } }());
+          /* Tampilkan volumeBulanan (per-bulan), bukan volume tahunan */
+          var volBulanan=r.volumeBulanan||r.volume||"1 Paket";
+          return '<tr>'+
+            '<td class="col-no-v37">'+(i+1)+'</td>'+
+            '<td>'+esc69(r.uraian||"")+'<br><small style="color:#666">'+kat+sub+pola+'</small></td>'+
+            '<td style="text-align:center">'+esc69(volBulanan)+'</td>'+
+            '<td style="text-align:right;white-space:nowrap">'+rp69(r.jumlahBulanan)+'</td>'+
+            '<td>'+esc69(r.keterangan||"")+'</td>'+
+          '</tr>';
+        }).join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#888;font-style:italic">Belum ada kegiatan terjadwal untuk bulan '+esc69(month)+'. Atur Jadwal Internal pada RAP 1 Tahun.</td></tr>';
+
+    var body=
+      '<div class="title">RENCANA ANGGARAN PENGGUNAAN BULANAN<br>BANTUAN OPERASIONAL RT<br>BULAN '+esc69(month).toUpperCase()+'</div>'+
+      '<table><thead><tr>'+
+        '<th class="col-no-v37">No</th>'+
+        '<th>Uraian Kegiatan</th>'+
+        '<th style="width:110px;text-align:center">Satuan/Volume Bulanan</th>'+
+        '<th style="width:110px;text-align:right">Rencana Anggaran</th>'+
+        '<th>Keterangan</th>'+
+      '</tr></thead><tbody>'+
+        tbody+
+        '<tr><td colspan="3"><b>Jumlah RAP Bulanan</b></td>'+
+        '<td style="text-align:right;white-space:nowrap"><b>'+rp69(total)+'</b></td>'+
+        '<td></td></tr>'+
+      '</tbody></table>'+
+      '<p style="text-align:right;margin-top:20px">'+tgl69()+'</p>'+
+      '<div class="ttd-4">'+
+        '<div>Ketua RT '+esc69(m.rt||"005")+'<div class="signature-space"></div>'+s69(m.ketua,"Nama Jelas")+'</div>'+
+        '<div>Bendahara RT '+esc69(m.rt||"005")+'<div class="signature-space"></div>'+s69(m.bendahara,"Nama Jelas")+'</div>'+
+        '<div>Lurah '+esc69(m.kelurahan||"Tegalsari")+'<div class="signature-space"></div>'+s69(p.namaLurah,"Nama Jelas")+'</div>'+
+        '<div>Ketua RW '+esc69(m.rw||"012")+'<div class="signature-space"></div>'+s69(p.namaKetuaRw,"Nama Jelas")+'</div>'+
+      '</div>';
+
+    return off69(body);
+  };
+  console.log("[BOP v1.69-fix2] docRapBulanan: volumeBulanan + jadwalInternal aktif.");
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 3: previewDoc — map lengkap & benar semua tipe
+     Ganti wrapper v1.68 dengan implementasi definitif.
+  ══════════════════════════════════════════════════════════════ */
+  window.previewDoc = function previewDoc69(type){
+    /* Auto-fill & collect sebelum generate */
+    try{ if(typeof fillInputs==="function") fillInputs(); }catch(e){}
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+
+    /* Set currentDoc */
+    try{ currentDoc=type; }catch(e){}
+    window.currentDoc=type;
+
+    /* Highlight tombol aktif */
+    document.querySelectorAll(".doc-btn").forEach(function(b){
+      b.classList.toggle("active", b.dataset&&b.dataset.doc===type);
+    });
+
+    /* Map lengkap semua tipe dokumen */
+    function getDocFn(t){
+      switch(t){
+        /* ── Pengajuan Dana Operasional ── */
+        case "permohonan":    return window.docPermohonan  || (function(){ try{return docPermohonan();}catch(e){return "";} });
+        case "rap":           return window.docRap         || (function(){ try{return docRap();}catch(e){return "";} });
+        case "rapbulanan":    return window.docRapBulanan  || (function(){ try{return docRapBulanan();}catch(e){return "";} });
+        case "ba":            return window.docBA          || (function(){ try{return docBA();}catch(e){return "";} });
+        case "hadir":         return window.docHadir       || (function(){ try{return docHadir();}catch(e){return "";} });
+        case "sptjm":         return window.docSptjm       || (function(){ try{return docSptjm();}catch(e){return "";} });
+        case "sk":            return window.docSK          || (function(){ try{return docSK();}catch(e){return "";} });
+        case "rekening":      return window.docRekening    || (function(){ try{return docRekening();}catch(e){return "";} });
+        case "undangan":      return window.docUndangan    || (function(){ try{return docUndangan();}catch(e){return "";} });
+        case "notulen":       return window.docNotulen     || (function(){ try{return docNotulen();}catch(e){return "";} });
+        /* ── Tambahan Pengajuan ── */
+        case "rbb":           return window.docRbb;          /* Fixed above */
+        case "lpj":           return function(){ try{ return docLpj(); }catch(e){ return "<p>Belum ada data LPJ.</p>"; } };
+        case "perubahanRap":  return window.docPerubahanRapV37 || window.docPerubahanRapV36
+                                     || (function(){ try{return docPerubahanRap();}catch(e){return "";} });
+        case "baPerubahanRap":return window.docBeritaAcaraPerubahanV37 || window.docBeritaAcaraPerubahanV36
+                                     || (function(){ try{return docBeritaAcaraPerubahan();}catch(e){return "";} });
+        case "tandaTerima":   return window.docTandaTerimaPenyaluranV37 || window.docTandaTerimaPenyaluranV36
+                                     || (function(){ try{return docTandaTerimaPenyaluran();}catch(e){return "";} });
+        case "paket7pengajuan":return window.docPaket7PengajuanV37 || window.docPaket7PengajuanV36
+                                     || (function(){ try{return docPaket7Pengajuan();}catch(e){return "";} });
+        /* ── Default ── */
+        default: return window.docPermohonan || (function(){ try{return docPermohonan();}catch(e){return "";} });
+      }
+    }
+
+    var fn=getDocFn(type);
+    var html="";
+    try{ html=typeof fn==="function"?fn():(fn&&typeof fn.call==="function"?fn.call(null):""); }catch(e){ html="<p>Gagal generate dokumen: "+e.message+"</p>"; }
+
+    var out=document.getElementById("docOutput");
+    if(out){
+      out.innerHTML=html;
+      out.classList.add("doc-paper");
+      setTimeout(function(){ out.scrollIntoView({behavior:"smooth",block:"nearest"}); },200);
+    }
+  };
+  console.log("[BOP v1.69-fix3] previewDoc69: map lengkap semua tipe aktif.");
+
+  /* ══════════════════════════════════════════════════════════════
+     FIX 4: docPkNotulen — Engine A-J setara docNotulen Pengajuan
+     Menghasilkan notulen resmi lengkap dari data persiapan kegiatan.
+  ══════════════════════════════════════════════════════════════ */
+  window.docPkNotulen = function docPkNotulen69(){
+    try{ if(typeof collectPersiapan==="function") collectPersiapan(); }catch(e){}
+    var m=getM69();
+    var p={};
+    try{ p=window.data.persiapan||{}; }catch(e){}
+
+    var rt=m.rt||"005", rw=m.rw||"012";
+    var kel=m.kelurahan||"Tegalsari", kec=m.kecamatan||"Candisari", kota=m.kota||"Semarang";
+    var ketua=m.ketua||"Ketua RT";
+    var sekretaris=m.sekretaris||m.bendahara||"Sekretaris RT";
+    var pimpinan=p.pimpinan||ketua;
+    var notulis=p.notulis||sekretaris;
+    var namaKegiatan=p.nama||"Kegiatan Operasional RT";
+    var jenisKegiatan=p.jenis||"Kegiatan Operasional";
+    var hariTanggal=p.hariTanggal||"........................ 2026";
+    var waktu=(p.waktu||"Pukul .......... s.d. .......... WIB");
+    var tempat=p.tempat||("Balai RT "+rt+" RW "+rw);
+    var hadir=Number(p.hadir||0)||14;
+    var tdkHadir=Number(p.tidakHadir||0);
+    var agendaRaw=p.agenda||namaKegiatan;
+    var pembahasanRaw=p.pembahasan||agendaRaw;
+    var keputusanRaw=p.keputusan||"";
+    var tgl=tgl69();
+
+    /* Helper buat poin dari teks */
+    function poin(teks, fallback){
+      try{ return pointsHtmlV25(textToPointsV25(teks, fallback)); }
+      catch(e){
+        var pts=String(teks||fallback||"").split(/\n|;/).map(function(x){ return x.trim(); }).filter(Boolean);
+        if(!pts.length) pts=[String(fallback||"")];
+        return '<ol class="notulen-list-v25">'+pts.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>';
+      }
+    }
+
+    /* Identifikasi masalah kontekstual */
+    var masalah=[
+      "Perlunya pelaksanaan "+jenisKegiatan.toLowerCase()+" "+namaKegiatan+" secara tertib dan terencana.",
+      "Perlunya pembahasan agenda, mekanisme pelaksanaan, dan pembagian tugas peserta.",
+      "Perlunya kelengkapan administrasi dan dokumentasi kegiatan sebagai bukti pertanggungjawaban BOP RT.",
+      "Perlunya penentuan rencana tindak lanjut agar hasil kegiatan dapat diimplementasikan secara efektif."
+    ];
+    var tujuan=[
+      "Melaksanakan dan mendokumentasikan "+namaKegiatan+" secara resmi.",
+      "Membahas agenda dan mekanisme pelaksanaan kegiatan bersama seluruh peserta.",
+      "Menyepakati hasil keputusan rapat sebagai dasar pelaksanaan tindak lanjut.",
+      "Melengkapi administrasi dan dokumentasi kegiatan untuk keperluan pertanggungjawaban BOP RT."
+    ];
+    var keputusan=[
+      namaKegiatan+" dilaksanakan sesuai agenda yang telah disepakati bersama.",
+      "Seluruh peserta berkomitmen untuk melaksanakan keputusan rapat secara konsisten dan bertanggung jawab.",
+      "Dokumentasi dan administrasi kegiatan disiapkan sebagai kelengkapan laporan pertanggungjawaban BOP RT.",
+      "Rencana tindak lanjut dilaksanakan sesuai jadwal dan PIC yang telah ditetapkan."
+    ];
+    if(keputusanRaw.trim()){
+      try{
+        var pts=textToPointsV25(keputusanRaw,"");
+        if(pts.length>0) keputusan=pts.concat(keputusan.slice(pts.length));
+      }catch(e){}
+    }
+
+    /* Tindak lanjut dari action table */
+    var actionRows=(Array.isArray(p.action)?p.action:[]).map(function(r,i){
+      var a=Array.isArray(r)?{tugas:r[0]||"",waktu:r[1]||"",pic:r[2]||""}:{tugas:r.tugas||r[0]||"",waktu:r.waktu||r[1]||"",pic:r.pic||r[2]||""};
+      return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc69(a.tugas)+'</td><td>'+esc69(a.waktu)+'</td><td>'+esc69(a.pic)+'</td></tr>';
+    }).join("") || '<tr><td>1</td><td></td><td></td><td></td></tr>';
+
+    /* Peserta hadir */
+    var pesertaRows=(Array.isArray(p.peserta)?p.peserta:[])
+      .filter(function(r){ return Array.isArray(r)?(r[0]||r[1]):(r&&(r.nama||r.jabatan)); })
+      .map(function(r,i){
+        if(Array.isArray(r)) return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc69(r[0])+'</td><td>'+esc69(r[1])+'</td><td>'+(i+1)+'.</td></tr>';
+        return '<tr><td class="col-no-v37">'+(i+1)+'</td><td>'+esc69(r.nama||"")+'</td><td>'+esc69(r.jabatan||"")+'</td><td>'+(i+1)+'.</td></tr>';
+      }).join("");
+
+    var body='<div class="notulen-doc-v28">'+
+
+      /* Judul */
+      '<div class="title">NOTULEN KEGIATAN OPERASIONAL<br>'+
+      esc69(namaKegiatan).toUpperCase()+'<br>'+
+      'RT '+esc69(rt)+' RW '+esc69(rw)+' KELURAHAN '+esc69(kel).toUpperCase()+'<br>'+
+      'KECAMATAN '+esc69(kec).toUpperCase()+' KOTA '+esc69(kota).toUpperCase()+'</div>'+
+
+      /* A. Identitas Kegiatan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>A. IDENTITAS KEGIATAN</b></div>'+
+      '<table class="no-border notulen-meta-v25 notulen-meta-v28">'+
+        '<tr><td style="width:175px"><b>Jenis Kegiatan</b></td><td>: '+esc69(jenisKegiatan)+'</td></tr>'+
+        '<tr><td><b>Nama / Tema Kegiatan</b></td><td>: <b>'+esc69(namaKegiatan)+'</b></td></tr>'+
+        '<tr><td><b>Hari / Tanggal</b></td><td>: '+esc69(hariTanggal)+'</td></tr>'+
+        '<tr><td><b>Waktu</b></td><td>: '+esc69(waktu)+'</td></tr>'+
+        '<tr><td><b>Tempat</b></td><td>: '+esc69(tempat)+'</td></tr>'+
+        '<tr><td><b>Pimpinan Kegiatan</b></td><td>: '+esc69(pimpinan)+'</td></tr>'+
+        '<tr><td><b>Jabatan</b></td><td>: Ketua RT '+esc69(rt)+' RW '+esc69(rw)+'</td></tr>'+
+        '<tr><td><b>Notulis</b></td><td>: '+esc69(notulis)+'</td></tr>'+
+        '<tr><td><b>Jumlah Peserta</b></td><td>: '+hadir+' orang hadir'+(tdkHadir>0?', '+tdkHadir+' orang tidak hadir':'')+'</td></tr>'+
+        '<tr><td><b>Unsur Peserta</b></td><td>: Ketua RT, Sekretaris RT, Bendahara RT, Pengurus RT, dan Warga RT '+esc69(rt)+' RW '+esc69(rw)+'</td></tr>'+
+      '</table>'+
+
+      /* B. Latar Belakang */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>B. LATAR BELAKANG</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Dalam rangka mendukung kelancaran kegiatan kemasyarakatan dan pelayanan administrasi di wilayah RT '+esc69(rt)+' RW '+esc69(rw)+' Kelurahan '+esc69(kel)+', Kecamatan '+esc69(kec)+', Kota '+esc69(kota)+', perlu dilaksanakan kegiatan operasional yang terencana, terdokumentasi, dan dapat dipertanggungjawabkan.</p>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Sehubungan dengan hal tersebut, dilaksanakan kegiatan <b>'+esc69(namaKegiatan)+'</b> sebagai bagian dari pelaksanaan program BOP RT Tahun 2026. Kegiatan ini diselenggarakan secara musyawarah agar agenda, mekanisme pelaksanaan, dan rencana tindak lanjut dapat disepakati bersama.</p>'+
+
+      /* C. Identifikasi Masalah */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>C. IDENTIFIKASI MASALAH</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Berdasarkan kebutuhan pelaksanaan kegiatan, terdapat beberapa hal pokok yang perlu dibahas, yaitu:</p>'+
+      '<ol class="notulen-list-v25">'+masalah.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>'+
+
+      /* D. Tujuan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>D. TUJUAN KEGIATAN</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Kegiatan ini dilaksanakan dengan tujuan:</p>'+
+      '<ol class="notulen-list-v25">'+tujuan.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>'+
+
+      /* E. Agenda */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. AGENDA KEGIATAN</b></div>'+
+      poin(agendaRaw, namaKegiatan)+
+
+      /* F. Pokok Pembahasan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>F. POKOK PEMBAHASAN</b></div>'+
+      poin(pembahasanRaw, agendaRaw)+
+
+      /* G. Hasil Keputusan */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>G. HASIL KEPUTUSAN KEGIATAN</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Berdasarkan pembahasan dan musyawarah, disepakati hal-hal sebagai berikut:</p>'+
+      '<ol class="notulen-list-v25">'+keputusan.map(function(x){ return '<li>'+esc69(x)+'</li>'; }).join("")+'</ol>'+
+
+      /* H. Rencana Tindak Lanjut */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>H. RENCANA TINDAK LANJUT</b></div>'+
+      '<table><thead><tr><th class="col-no-v37">No</th><th>Tugas / Tindak Lanjut</th><th>Target Waktu</th><th>PIC</th></tr></thead><tbody>'+actionRows+'</tbody></table>'+
+
+      /* I. Daftar Peserta (jika ada) */
+      (pesertaRows?
+        '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>I. DAFTAR PESERTA</b></div>'+
+        '<table><thead><tr><th class="col-no-v37">No.</th><th>Nama</th><th>Jabatan / Status</th><th>Tanda Tangan</th></tr></thead><tbody>'+pesertaRows+'</tbody></table>'
+      :'')+
+
+      /* J. Penutup */
+      '<div class="notulen-section-title-v25 notulen-section-title-v28"><b>'+(pesertaRows?"J":"I")+'. PENUTUP</b></div>'+
+      '<p class="notulen-paragraph-v25 notulen-paragraph-v28">Demikian notulen kegiatan operasional ini dibuat dengan sebenar-benarnya sebagai dokumen resmi hasil musyawarah RT '+esc69(rt)+' RW '+esc69(rw)+' Kelurahan '+esc69(kel)+', Kecamatan '+esc69(kec)+', Kota '+esc69(kota)+'. Notulen ini digunakan sebagai salah satu kelengkapan administrasi dan pertanggungjawaban BOP RT Tahun Anggaran 2026.</p>'+
+
+      /* Tanggal & TTD */
+      '<p class="notulen-date-v28">'+tgl+'</p>'+
+      '<table class="no-border sign-two-v37" style="margin-top:10px"><tbody><tr>'+
+        '<td style="text-align:center">Mengetahui,<br>Pimpinan Kegiatan<br>Ketua RT '+esc69(rt)+' RW '+esc69(rw)+'<div class="signature-space"></div><b>'+esc69(pimpinan)+'</b></td>'+
+        '<td style="text-align:center">Notulis,<br>&nbsp;<br>&nbsp;<div class="signature-space"></div><b>'+esc69(notulis)+'</b></td>'+
+      '</tr></tbody></table>'+
+    '</div>';
+
+    return off69(body);
+  };
+  /* Override global + previewPkDoc map */
+  if(typeof previewPkDoc==="function"){
+    var _origPPD=previewPkDoc;
+    window.previewPkDoc=function(type){
+      if(type==="pk-notulen"||!type){
+        try{ if(typeof collectPersiapan==="function") collectPersiapan(); }catch(e){}
+        window.currentPkDoc=type||"pk-notulen";
+        var el=document.getElementById("pkDocOutput");
+        if(el) el.innerHTML=window.docPkNotulen();
+        return;
+      }
+      _origPPD.apply(this,arguments);
+    };
+  }
+  console.log("[BOP v1.69-fix4] docPkNotulen: engine A-J lengkap setara pengajuan aktif.");
+
+  console.log("[BOP v1.69] Semua 4 fix selesai: RBB, RAB Bulanan, previewDoc map, Notulen PK.");
+})();
+
+/* ================================================================
+   PATCH v1.70 — KOP Definitif: tabel kop-standard (no JS delay)
+   Override FINAL window.kopHTML pakai layout tabel 3-kolom yang
+   sudah punya CSS solid di styles.css (kop-standard).
+   - Kolom 1 (78px): logo kiri
+   - Kolom 2 (auto): semua teks CENTER
+   - Kolom 3 (78px): spacer kanan
+   Tidak ada setTimeout / CSS injection — langsung dari styles.css.
+   ================================================================ */
+(function bopKopDefinitifV70(){
+  if(window.__bopKopDefinitifV70) return;
+  window.__bopKopDefinitifV70 = true;
+
+  function e(s){ try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(ex){} return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  window.kopHTML = function kopHTML(){
+    var k = (window.data && window.data.kop) ? window.data.kop : {};
+    var m = (window.data && window.data.master) ? window.data.master : {};
+    var b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
+    var b2 = k.baris2 || "KECAMATAN CANDISARI";
+    var b3 = k.baris3 || "KELURAHAN TEGALSARI";
+    var b4 = k.baris4 || "RW 012 RT 005";
+    var addr = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
+    return '<div class="kop kop-standard">'+
+      '<table class="kop-table"><tr>'+
+        '<td class="kop-col-logo">'+
+          '<img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang">'+
+        '</td>'+
+        '<td class="kop-col-text">'+
+          '<div class="kop-text">'+
+            '<h1>'+e(b1)+'</h1>'+
+            '<h2>'+e(b2)+'</h2>'+
+            '<h2>'+e(b3)+'</h2>'+
+            '<h2>'+e(b4)+'</h2>'+
+            '<p>'+e(addr)+'</p>'+
+          '</div>'+
+        '</td>'+
+        '<td class="kop-col-spacer"></td>'+
+      '</tr></table>'+
+    '</div>';
+  };
+
+  console.log("[BOP v1.70] kopHTML kop-standard table definitif aktif.");
+})();

@@ -25,6 +25,7 @@
   let facingMode   = "environment";
   let lightboxPhoto = null;
   let geocodeCache  = {};
+  let gpsAccuracyHistory = []; /* {t:detik, acc:meter} sepanjang proses kunci GPS terakhir */
   const photoCache  = new Map(); /* photoId → dataUrl, loaded from IndexedDB on boot */
 
   /* ── Helpers ────────────────────────────────────────────── */
@@ -152,7 +153,7 @@
     if (d.isHttpLan)    return "GPS diblokir karena dibuka dari HTTP/LAN. Buka dari HTTPS atau localhost.";
     if (d.isFileProt)   return "Dibuka sebagai file lokal. GPS bisa timeout. Gunakan HTTPS/localhost untuk GPS stabil.";
     if (state.gpsDebug.permission === "denied") return "Izin lokasi ditolak. Aktifkan di Pengaturan Situs browser.";
-    return "GPS belum terkunci. Aktifkan Akurasi Tinggi, Wi-Fi/data, lalu tekan Kunci GPS.";
+    return "GPS belum terkunci. Aktifkan Akurasi Tinggi dan Wi-Fi/data agar lokasi terkunci otomatis.";
   }
 
   function coordsToText(gps) {
@@ -166,6 +167,37 @@
     state.gps        = gps || null;
     saveState();
     renderGps();
+  }
+
+  /* ── GPS accuracy history mini-chart ─────────────────────── */
+  function renderGpsAccuracyChart() {
+    const box = $("gpsAccuracyChart");
+    if (!box) return;
+    if (!gpsAccuracyHistory.length) {
+      box.innerHTML = `<p class="gps-acc-empty">Belum ada sampel akurasi. Tekan "Kunci GPS Sekarang" untuk mulai memantau.</p>`;
+      return;
+    }
+    const accs   = gpsAccuracyHistory.map(s => s.acc);
+    const worst  = Math.max(...accs, GPS_GOOD_ACC);
+    const latest = accs[accs.length - 1];
+    const tone   = acc => acc <= GPS_GOOD_ACC ? "good" : (acc <= GPS_GOOD_ACC * 3 ? "warn" : "bad");
+    const bars = gpsAccuracyHistory.map(s => {
+      const h = Math.max(6, Math.round((1 - Math.min(s.acc, worst) / worst) * 100));
+      return `<div class="gps-acc-bar-wrap" title="Detik ke-${s.t}: ±${Math.round(s.acc)}m">
+        <div class="gps-acc-bar ${tone(s.acc)}" style="height:${h}%"></div>
+      </div>`;
+    }).join("");
+    box.innerHTML = `
+      <div class="gps-acc-header">
+        <span>Riwayat Akurasi GPS</span>
+        <span class="gps-acc-latest ${tone(latest)}">±${Math.round(latest)}m sekarang</span>
+      </div>
+      <div class="gps-acc-track">${bars}</div>
+      <div class="gps-acc-legend">
+        <span><i class="dot good"></i> Bagus (≤${GPS_GOOD_ACC}m)</span>
+        <span><i class="dot warn"></i> Sedang</span>
+        <span><i class="dot bad"></i> Kurang</span>
+      </div>`;
   }
 
   /* Reverse geocoding via Nominatim (free, no key needed) */
@@ -202,6 +234,7 @@
     if (gpsWatchId !== null) { try { navigator.geolocation.clearWatch(gpsWatchId); } catch(_){} gpsWatchId = null; }
     if (gpsTimer)            { clearTimeout(gpsTimer); gpsTimer = null; }
 
+    gpsAccuracyHistory = [];
     setGpsStatus("searching", "Mengambil lokasi…", state.gps);
 
     return new Promise(resolve => {
@@ -269,6 +302,9 @@
         }
         state.gps = best;
         saveState();
+        gpsAccuracyHistory.push({ t: elapsed(), acc: Number(g.accuracy||0) });
+        if (gpsAccuracyHistory.length > 20) gpsAccuracyHistory.shift();
+        renderGpsAccuracyChart();
         return best;
       };
 
@@ -350,52 +386,61 @@
 
   /* ── GPS render ─────────────────────────────────────────── */
   function renderGps() {
-    const btn         = $("gpsStatusBtn");
-    const short       = $("gpsShort");
-    const detail      = $("gpsDetail");
-    const acc         = $("gpsAcc");
-    const guardBox    = $("gpsGuardBox");
-    const guardTitle  = $("gpsGuardTitle");
-    const guardText   = $("gpsGuardText");
-    const overlayGps  = $("overlayGps");
+    const btn        = $("gpsStatusBtn");
+    const short      = $("gpsShort");
+    const detail     = $("gpsDetail");
+    const acc        = $("gpsAcc");
+    const dotRing    = $("gpsDotRing");
+    const inlineDot  = $("gpsInlineDot");
+    const inlineText = $("gpsInlineText");
+    const inlineAcc  = $("gpsInlineAcc");
+    const overlayGps = $("overlayGps");
 
-    btn.classList.remove("gps-ok","gps-bad","gps-wait","gps-searching");
-    guardBox.classList.remove("locked","blocked");
+    const STATE_CLASSES = ["gps-ok","gps-bad","gps-wait","gps-searching"];
+    const setState = cls => {
+      [btn, dotRing, inlineDot].forEach(el => {
+        if (!el) return;
+        el.classList.remove(...STATE_CLASSES);
+        el.classList.add(cls);
+      });
+    };
+    const setText = (el, text) => { if (el) el.textContent = text; };
 
     if (state.gpsStatus === "locked" && state.gps) {
-      btn.classList.add("gps-ok");
-      short.textContent  = "GPS terkunci";
-      const addr = state.gps.address ? state.gps.address : coordsToText(state.gps);
-      detail.textContent = addr;
-      acc.textContent    = `±${Math.round(state.gps.accuracy||0)}m`;
-      guardBox.classList.add("locked");
-      guardTitle.textContent = "GPS terkunci ✓";
-      guardText.textContent  = `${state.gps.address ? state.gps.address + " • " : ""}${coordsToText(state.gps)}`;
-      if (overlayGps) overlayGps.textContent = `GPS: ${addr} ±${Math.round(state.gps.accuracy||0)}m`;
+      setState("gps-ok");
+      const addr   = state.gps.address ? state.gps.address : coordsToText(state.gps);
+      const accStr = `±${Math.round(state.gps.accuracy||0)}m`;
+      setText(short, "GPS terkunci");
+      setText(detail, addr);
+      setText(acc, accStr);
+      setText(inlineText, addr);
+      setText(inlineAcc, accStr);
+      setText(overlayGps, `GPS: ${addr} ${accStr}`);
       return;
     }
 
     if (state.gpsStatus === "blocked" || state.gpsStatus === "denied" || state.gpsStatus === "failed") {
-      btn.classList.add("gps-bad");
-      short.textContent  = "GPS belum bisa";
-      detail.textContent = state.gpsMessage || "Tekan untuk detail";
-      acc.textContent    = "";
-      guardBox.classList.add("blocked");
-      guardTitle.textContent = "GPS belum bisa";
-      guardText.textContent  = state.gpsMessage || gpsBlockedMsg();
-      if (overlayGps) overlayGps.textContent = "GPS belum terkunci";
+      setState("gps-bad");
+      const msg = state.gpsMessage || gpsBlockedMsg();
+      setText(short, "GPS belum bisa");
+      setText(detail, state.gpsMessage || "Tekan untuk detail");
+      setText(acc, "");
+      setText(inlineText, msg);
+      setText(inlineAcc, "");
+      setText(overlayGps, "GPS belum terkunci");
       return;
     }
 
     const searching = state.gpsStatus === "searching";
-    btn.classList.add(searching ? "gps-searching" : "gps-wait");
-    short.textContent  = searching ? "Mengunci GPS..." : "GPS belum terkunci";
-    detail.textContent = state.gpsMessage || (searching ? "Mencari sinyal..." : "Ketuk untuk kunci GPS");
-    acc.textContent    = (searching && state.gps) ? `±${Math.round(state.gps.accuracy||0)}m` : "";
-    guardBox.classList.remove("locked","blocked");
-    guardTitle.textContent = searching ? "Mengunci GPS..." : "GPS Guard";
-    guardText.textContent  = state.gpsMessage || "Kunci GPS sebelum ambil foto agar koordinat masuk watermark.";
-    if (overlayGps) overlayGps.textContent = searching ? "GPS sedang dikunci..." : "GPS belum terkunci";
+    setState(searching ? "gps-searching" : "gps-wait");
+    const detailMsg = state.gpsMessage || (searching ? "Mencari sinyal..." : "Menunggu GPS...");
+    const accStr    = (searching && state.gps) ? `±${Math.round(state.gps.accuracy||0)}m` : "";
+    setText(short, searching ? "Mengunci GPS..." : "GPS belum terkunci");
+    setText(detail, detailMsg);
+    setText(acc, accStr);
+    setText(inlineText, detailMsg);
+    setText(inlineAcc, accStr);
+    setText(overlayGps, searching ? "GPS sedang dikunci..." : "GPS belum terkunci");
   }
 
   /* ── Activities ─────────────────────────────────────────── */
@@ -854,61 +899,130 @@
     if (cameraStream) await startCamera();
   }
 
-  /* ── Watermark ──────────────────────────────────────────── */
+  /* ── Watermark Premium v2 ───────────────────────────────── */
   function drawWatermark(ctx, canvas, act, gps, capturedAt) {
     const W = canvas.width;
     const H = canvas.height;
 
-    const fontSize  = Math.max(20, Math.round(W * 0.022));
-    const lh        = Math.round(fontSize * 1.4);
-    const pad       = Math.max(16, Math.round(W * 0.016));
+    /* ── Font tiers ── */
+    const fzTitle = Math.max(26, Math.round(W * 0.028));  /* judul kegiatan  */
+    const fzInfo  = Math.max(18, Math.round(W * 0.020));  /* tanggal & alamat */
+    const fzSub   = Math.max(13, Math.round(W * 0.014));  /* koordinat / badge */
+    const pad     = Math.max(18, Math.round(W * 0.020));
 
-    // Build watermark lines
-    const line1 = `🏘 RT 005 RW 012 Tegalsari  ·  ${selectedType || checklistOf(act)[0]}`;
-    const line2 = `📅 ${fmtFull(capturedAt)}`;
-    const line3 = gps
-      ? `📍 ${Number(gps.lat).toFixed(6)}°, ${Number(gps.lng).toFixed(6)}° ±${Math.round(gps.accuracy||0)}m`
-      : `📍 GPS tidak tersedia`;
-    const line4 = (gps && gps.address) ? `   ${gps.address}` : null;
+    const lhTitle = Math.round(fzTitle * 1.40);
+    const lhInfo  = Math.round(fzInfo  * 1.38);
+    const lhSub   = Math.round(fzSub   * 1.30);
 
-    const lines = [line1, line2, line3];
-    if (line4) lines.push(line4);
+    /* ── Konten baris ── */
+    const actLabel = selectedType || checklistOf(act)[0] || "Kegiatan RT";
+    const dateStr  = fmtFull(capturedAt);  /* "Sabtu, 05 Juli 2026 • 15:23:45 WIB" */
 
-    const boxH = pad * 2 + lh * lines.length;
+    const hasGps  = gps && gps.lat != null && gps.lng != null;
+    const hasAddr = gps && gps.address;
 
-    // Semi-transparent dark gradient bar at bottom
-    const grad = ctx.createLinearGradient(0, H - boxH - 20, 0, H);
-    grad.addColorStop(0, "rgba(0,0,0,0)");
-    grad.addColorStop(0.3, "rgba(0,0,0,0.72)");
-    grad.addColorStop(1, "rgba(0,0,0,0.88)");
+    /* Baris GOLD (addrLine)  → alamat terbaca manusia (atau label fallback)
+       Baris KECIL (coordLine) → koordinat mentah; SELALU muncul bila GPS ada
+       Ini memastikan raw coordinates tidak pernah mengisi slot emas. */
+    let addrLine  = null;
+    let coordLine = null;
+    if (hasAddr) {
+      addrLine  = `📍 ${gps.address}`;
+    } else if (hasGps) {
+      addrLine  = "📍 Lokasi GPS terdeteksi";   /* fallback label di gold */
+    } else {
+      addrLine  = "📍 GPS tidak tersedia";
+    }
+    /* Koordinat mentah selalu di baris kecil selama GPS tersedia */
+    if (hasGps) {
+      coordLine = `${Number(gps.lat).toFixed(6)}°, ${Number(gps.lng).toFixed(6)}° ±${Math.round(gps.accuracy||0)}m`;
+    }
+
+    /* Identitas RT — selalu ada */
+    const rtLine = "RT 005 RW 012 · Tegalsari, Candisari, Semarang";
+
+    /* ── Hitung tinggi total overlay ── */
+    let boxH = pad * 2 + lhTitle + lhInfo; /* kegiatan + tanggal */
+    if (addrLine)  boxH += lhInfo;
+    if (coordLine) boxH += lhSub;
+    boxH += lhSub; /* RT badge — selalu */
+
+    /* ── Gradient overlay gelap di bawah ── */
+    const gradH = boxH + 48;
+    const grad  = ctx.createLinearGradient(0, H - gradH, 0, H);
+    grad.addColorStop(0,    "rgba(0,0,0,0)");
+    grad.addColorStop(0.22, "rgba(0,0,8,0.60)");
+    grad.addColorStop(1,    "rgba(0,0,8,0.93)");
     ctx.fillStyle = grad;
-    ctx.fillRect(0, H - boxH - 20, W, boxH + 20);
+    ctx.fillRect(0, H - gradH, W, gradH);
 
-    // Gold accent line
-    ctx.fillStyle = "#d4a843";
-    ctx.fillRect(0, H - boxH - 2, W, 3);
+    /* ── Aksen vertikal kiri (emas) ── */
+    const accentW = Math.max(4, Math.round(W * 0.006));
+    const accentGrad = ctx.createLinearGradient(0, H - boxH, 0, H);
+    accentGrad.addColorStop(0, "#ffe066");
+    accentGrad.addColorStop(1, "#c8860a");
+    ctx.fillStyle = accentGrad;
+    ctx.fillRect(0, H - boxH, accentW, boxH);
 
-    // Text
+    /* ── Render teks ── */
     ctx.save();
-    ctx.font      = `700 ${fontSize}px -apple-system, Arial, sans-serif`;
-    ctx.fillStyle = "#ffffff";
     ctx.textBaseline = "top";
+    ctx.shadowColor  = "rgba(0,0,10,0.95)";
+    ctx.shadowBlur   = 8;
+    const xText = pad + accentW + 6;
 
-    lines.forEach((line, i) => {
-      const y = H - boxH + pad + i * lh;
-      // Subtle shadow for readability
-      ctx.shadowColor   = "rgba(0,0,0,0.8)";
-      ctx.shadowBlur    = 4;
-      ctx.fillText(line, pad, y, W - pad * 2);
-    });
+    let y = H - boxH + pad;
 
-    // Small RT logo text top-right
-    ctx.font        = `800 ${Math.max(14, Math.round(W * 0.016))}px -apple-system, Arial, sans-serif`;
-    ctx.fillStyle   = "rgba(255,255,255,0.75)";
-    ctx.shadowBlur  = 3;
+    /* BARIS 1 — Nama kegiatan (besar, putih solid) */
+    ctx.font      = `800 ${fzTitle}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(actLabel, xText, y, W - xText - pad);
+    y += lhTitle;
+
+    /* BARIS 2 — Tanggal & waktu (sedang, putih 90%) */
+    ctx.font      = `600 ${fzInfo}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,0.90)";
+    ctx.fillText(`📅 ${dateStr}`, xText, y, W - xText - pad);
+    y += lhInfo;
+
+    /* BARIS 3 — Alamat (sedang, emas — paling menonjol) */
+    if (addrLine) {
+      ctx.font      = `700 ${fzInfo}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+      ctx.fillStyle = "#ffd660";
+      ctx.fillText(addrLine, xText, y, W - xText - pad);
+      y += lhInfo;
+    }
+
+    /* BARIS 4 — Koordinat mentah (kecil, abu perak) */
+    if (coordLine) {
+      ctx.font      = `400 ${fzSub}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+      ctx.fillStyle = "rgba(190,210,240,0.82)";
+      ctx.shadowBlur = 4;
+      ctx.fillText(coordLine, xText, y, W - xText - pad);
+      y += lhSub;
+    }
+
+    /* BARIS BAWAH — Identitas RT (kecil, putih 70%, selalu ada) */
+    ctx.font      = `700 ${fzSub}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle = "rgba(255,255,255,0.72)";
+    ctx.shadowBlur = 3;
+    ctx.fillText(rtLine, xText, y, W - xText - pad);
+
+    /* ── Badge brand pojok kanan atas ── */
+    const badgeFz = Math.max(12, Math.round(W * 0.015));
+    ctx.font        = `900 ${badgeFz}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle   = "rgba(255,255,255,0.82)";
+    ctx.shadowBlur  = 5;
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
     ctx.textAlign   = "right";
     ctx.textBaseline = "top";
-    ctx.fillText("MoKu RT005", W - pad, pad);
+    ctx.fillText("MoKu · RT005", W - pad, pad);
+
+    /* ── Badge identitas pojok kiri atas ── */
+    ctx.font        = `700 ${Math.max(11, Math.round(W * 0.012))}px -apple-system,"Helvetica Neue",Arial,sans-serif`;
+    ctx.fillStyle   = "rgba(255,214,96,0.80)";
+    ctx.textAlign   = "left";
+    ctx.fillText("RT 005 RW 012 · Tegalsari", pad, pad);
 
     ctx.restore();
   }
@@ -1353,16 +1467,17 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       : r
     );
 
-    /* Expand RAP_MONTH_ALL & range bulan → satu entry per bulan */
+    /* Expand HANYA jika bulan === MOKU_MONTH_ALL (eksplisit semua bulan)
+       atau ada range bulanMulai-bulanSelesai.
+       Bulan kosong ("") = belum dijadwalkan → simpan 1 entry, JANGAN expand. */
     const expanded = [];
     normRap.forEach((r, origIdx) => {
-      const bulan = r.bulan || "";
-      const isAll = bulan === MOKU_MONTH_ALL || bulan === "" ||
-                    (r.bulanMulai && r.bulanSelesai); /* format range */
+      const bulan    = r.bulan || "";
+      const hasRange = !!(r.bulanMulai && r.bulanSelesai);
+      const isAll    = bulan === MOKU_MONTH_ALL || hasRange;
       if (isAll) {
-        /* Cek range bulan (bulanMulai - bulanSelesai) */
         let months = MOKU_MONTHS;
-        if (r.bulanMulai && r.bulanSelesai) {
+        if (hasRange) {
           const iStart = MOKU_MONTHS.indexOf(r.bulanMulai);
           const iEnd   = MOKU_MONTHS.indexOf(r.bulanSelesai);
           if (iStart >= 0 && iEnd >= iStart)
@@ -1373,18 +1488,38 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
           expanded.push({ ...r, bulan: m, jumlah: nominalPerBulan, _origIdx: origIdx });
         });
       } else {
+        /* Bulan spesifik atau kosong → satu entry apa adanya */
         expanded.push({ ...r, _origIdx: origIdx });
       }
     });
 
-    const existingIds = new Set((state.activities||[]).map(a => a.id));
-    const mapped      = expanded.map((r, i) => rapToActivity(r, i));
+    const mapped    = expanded.map((r, i) => rapToActivity(r, i));
+    const mappedIds = new Set(mapped.map(a => a.id));
+
+    /* Hapus kegiatan BOP Sync lama yang tidak relevan DAN tidak memiliki
+       hasil/foto terdokumentasi — aktivitas dengan data tetap dipertahankan
+       agar rekaman kerja yang sudah dibuat tidak hilang bila RAP diubah. */
+    const hasLinkedData = id => {
+      const res = (state.results || {})[id] || {};
+      return Object.values(res).some(v => v && String(v).trim().length > 0);
+    };
+    const staleAll    = (state.activities||[]).filter(
+      a => a.source === "BOP Sync" && !mappedIds.has(a.id)
+    );
+    const staleRemove = staleAll.filter(a => !hasLinkedData(a.id));
+    const staleBefore = staleRemove.length;
+    if (staleBefore > 0) {
+      const removeIds = new Set(staleRemove.map(a => a.id));
+      state.activities = (state.activities||[]).filter(a => !removeIds.has(a.id));
+    }
+
+    const existingIds = new Set(state.activities.map(a => a.id));
     const newActs     = mapped.filter(a => !existingIds.has(a.id));
     const updActs     = mapped.filter(a =>  existingIds.has(a.id));
 
     let changed = 0;
     if (newActs.length) {
-      state.activities = [...(state.activities||[]), ...newActs];
+      state.activities = [...state.activities, ...newActs];
       changed += newActs.length;
     }
     if (updActs.length) {
@@ -1394,7 +1529,8 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       });
     }
 
-    if (changed > 0 || updActs.length > 0) {
+    const totalChanged = changed + staleBefore;
+    if (totalChanged > 0 || updActs.length > 0) {
       if (!state.currentId && state.activities.length)
         state.currentId = state.activities[0].id;
       saveState();
@@ -1405,7 +1541,9 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     }
 
     if (!opts.silent) {
-      if (changed > 0)
+      if (staleBefore > 0)
+        showToast(`✓ Sync BOP: ${changed} baru, ${staleBefore} kegiatan lama dihapus`);
+      else if (changed > 0)
         showToast(`✓ Sinkron BOP: ${changed} kegiatan baru ditambahkan`);
       else
         showToast(`✓ Semua ${mapped.length} kegiatan BOP sudah tersinkron`);
@@ -1422,14 +1560,15 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       ? { uraian:r[0]||"", volume:r[1]||"1 Paket", jumlah:Number(r[2]||0), keterangan:r[3]||"", kategori:"Operasional", subKategori:"", bulan:"", tipe:"" }
       : r
     );
-    /* Expand RAP_MONTH_ALL untuk hitung estimasi jumlah kegiatan baru */
+    /* Expand HANYA jika MOKU_MONTH_ALL atau ada range (sama seperti syncFromBOP) */
     const expanded = [];
     normRap.forEach((r, origIdx) => {
-      const bulan = r.bulan || "";
-      const isAll = bulan === MOKU_MONTH_ALL || bulan === "" || (r.bulanMulai && r.bulanSelesai);
+      const bulan    = r.bulan || "";
+      const hasRange = !!(r.bulanMulai && r.bulanSelesai);
+      const isAll    = bulan === MOKU_MONTH_ALL || hasRange;
       if (isAll) {
         let months = MOKU_MONTHS;
-        if (r.bulanMulai && r.bulanSelesai) {
+        if (hasRange) {
           const iS = MOKU_MONTHS.indexOf(r.bulanMulai), iE = MOKU_MONTHS.indexOf(r.bulanSelesai);
           if (iS >= 0 && iE >= iS) months = MOKU_MONTHS.slice(iS, iE + 1);
         }
@@ -1492,6 +1631,7 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
         ["Koordinat saat ini", state.gps ? coordsToText(state.gps) : "Belum terkunci"],
         ["Alamat", state.gps?.address || "Belum terdeteksi"]
       ].map(([k,v]) => `<div class="debug-item"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("");
+      renderGpsAccuracyChart();
       $("gpsSheet").hidden = false;
     });
   }
@@ -1580,24 +1720,23 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
       if (open && !e.target.closest("button")) { openLightbox(open.dataset.openPhoto); return; }
     });
 
-    $("floatingCameraBtn").addEventListener("click", openCamera);
-    $("cameraMainBtn").addEventListener("click", openCamera);
-    $("captureBtn").addEventListener("click", capturePhoto);
-    $("closeCameraBtn").addEventListener("click", closeCamera);
-    $("switchCameraBtn").addEventListener("click", switchCamera);
+    const _fcBtn = $("floatingCameraBtn"); if(_fcBtn) _fcBtn.addEventListener("click", openCamera);
+    const _cmBtn = $("cameraMainBtn"); if(_cmBtn) _cmBtn.addEventListener("click", openCamera);
+    const _capBtn = $("captureBtn"); if(_capBtn) _capBtn.addEventListener("click", capturePhoto);
+    const _ccBtn = $("closeCameraBtn"); if(_ccBtn) _ccBtn.addEventListener("click", closeCamera);
+    const _scBtn = $("switchCameraBtn"); if(_scBtn) _scBtn.addEventListener("click", switchCamera);
 
-    $("lockGpsBtn").addEventListener("click", () => lockGps({ silent:false }));
-    $("gpsStatusBtn").addEventListener("click", showGpsSheet);
-    $("retryGpsBtn").addEventListener("click", () => { $("gpsSheet").hidden = true; lockGps({ silent:false }); });
-    $("closeGpsSheetBtn").addEventListener("click", () => $("gpsSheet").hidden = true);
-    $("gpsSheet").addEventListener("click", e => { if (e.target === $("gpsSheet")) $("gpsSheet").hidden = true; });
+    const _gsBtn = $("gpsStatusBtn"); if(_gsBtn) _gsBtn.addEventListener("click", showGpsSheet);
+    const _rgBtn = $("retryGpsBtn"); if(_rgBtn) _rgBtn.addEventListener("click", () => { const _gs = $("gpsSheet"); if(_gs) _gs.hidden = true; lockGps({ silent:false }); });
+    const _cgsBtn = $("closeGpsSheetBtn"); if(_cgsBtn) _cgsBtn.addEventListener("click", () => { const _gs = $("gpsSheet"); if(_gs) _gs.hidden = true; });
+    const _gSheet = $("gpsSheet"); if(_gSheet) _gSheet.addEventListener("click", e => { if (e.target === _gSheet) _gSheet.hidden = true; });
 
     // Activity modal (tombol manual sudah dihapus dari UI, jaga jika DOM masih ada)
     const addManualEl = $("addManualBtn");
     if (addManualEl) addManualEl.addEventListener("click", openAddModal);
-    $("saveActivityBtn").addEventListener("click", saveNewActivity);
-    $("cancelActivityBtn").addEventListener("click", () => $("activityModal").hidden = true);
-    $("activityModal").addEventListener("click", e => { if (e.target === $("activityModal")) $("activityModal").hidden = true; });
+    const _savBtn = $("saveActivityBtn"); if(_savBtn) _savBtn.addEventListener("click", saveNewActivity);
+    const _canBtn = $("cancelActivityBtn"); if(_canBtn) _canBtn.addEventListener("click", () => { const _am = $("activityModal"); if(_am) _am.hidden = true; });
+    const _aModal = $("activityModal"); if(_aModal) _aModal.addEventListener("click", e => { if (e.target === _aModal) _aModal.hidden = true; });
 
     // Enter to save modal
     document.addEventListener("keydown", e => {
@@ -1693,9 +1832,9 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     }
 
     // Lightbox
-    $("closeLightbox").addEventListener("click", () => $("lightbox").hidden = true);
-    $("lightbox").addEventListener("click", e => { if (e.target === $("lightbox")) $("lightbox").hidden = true; });
-    $("lightboxDownload").addEventListener("click", () => {
+    const _clBtn = $("closeLightbox"); if(_clBtn) _clBtn.addEventListener("click", () => { const _lb = $("lightbox"); if(_lb) _lb.hidden = true; });
+    const _lbox = $("lightbox"); if(_lbox) _lbox.addEventListener("click", e => { if (e.target === _lbox) _lbox.hidden = true; });
+    const _lbDl = $("lightboxDownload"); if(_lbDl) _lbDl.addEventListener("click", () => {
       if (!lightboxPhoto) return;
       const a = document.createElement("a");
       a.href = lightboxPhoto.dataUrl;
@@ -1715,16 +1854,70 @@ body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff}
     });
 
     // PWA install
+    initInstallButton();
+  }
+
+  /* ── PWA Install button ─────────────────────────────────────
+     - Tidak bisa install dari dalam iframe (embed di BOP App):
+       browser menolak beforeinstallprompt/prompt() lintas-frame,
+       jadi tombol disembunyikan & diarahkan ke "Buka Layar Penuh".
+     - Di halaman penuh: tombol muncul saat browser siap (beforeinstallprompt),
+       hilang otomatis begitu sudah terpasang (appinstalled / sudah standalone).
+  ── */
+  const PWA_INSTALLED_FLAG = "moku_pwa_installed_v1";
+  function isRunningStandalone() {
+    try {
+      if (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) return true;
+      if (window.navigator.standalone === true) return true;
+    } catch(_){}
+    return localStorage.getItem(PWA_INSTALLED_FLAG) === "1";
+  }
+  function isEmbeddedInIframe() {
+    try { return window.self !== window.top; } catch(_) { return true; }
+  }
+  function initInstallButton() {
+    const btn = $("installBtn");
+    if (!btn) return;
+
+    if (isEmbeddedInIframe()) {
+      // Install tidak bisa dilakukan dari dalam tampilan tertanam.
+      btn.hidden = true;
+      return;
+    }
+
+    if (isRunningStandalone()) {
+      btn.hidden = true;
+      return;
+    }
+
     window.addEventListener("beforeinstallprompt", e => {
       e.preventDefault();
       installPrompt = e;
-      $("installBtn").hidden = false;
+      if (!isRunningStandalone()) btn.hidden = false;
     });
-    $("installBtn").addEventListener("click", async () => {
+
+    btn.addEventListener("click", async () => {
       if (!installPrompt) return;
-      installPrompt.prompt();
+      btn.disabled = true;
+      try {
+        installPrompt.prompt();
+        const choice = await installPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          btn.hidden = true;
+          localStorage.setItem(PWA_INSTALLED_FLAG, "1");
+        }
+      } catch(_) {
+        /* browser membatalkan prompt, tombol tetap tampil agar bisa dicoba lagi */
+      } finally {
+        installPrompt = null;
+        btn.disabled = false;
+      }
+    });
+
+    window.addEventListener("appinstalled", () => {
+      btn.hidden = true;
       installPrompt = null;
-      $("installBtn").hidden = true;
+      localStorage.setItem(PWA_INSTALLED_FLAG, "1");
     });
   }
 

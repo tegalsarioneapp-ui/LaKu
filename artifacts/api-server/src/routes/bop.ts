@@ -371,6 +371,35 @@ router.post("/bop/init-db", async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/bop/server-url
+   Mengembalikan URL publik server ini agar browser baru bisa
+   auto-discover tanpa perlu konfigurasi manual.
+   Railway mengeset RAILWAY_PUBLIC_DOMAIN atau SERVER_URL.
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/server-url", (req, res) => {
+  const fromEnv =
+    process.env.SERVER_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+    process.env.VERCEL_URL ||
+    "";
+
+  let serverUrl = fromEnv ? fromEnv.replace(/\/+$/, "") : "";
+  if (serverUrl && !/^https?:\/\//i.test(serverUrl)) {
+    serverUrl = "https://" + serverUrl;
+  }
+
+  /* Fallback: rekonstruksi dari header request */
+  if (!serverUrl) {
+    const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+    const host  = (req.headers["x-forwarded-host"] as string) || req.headers.host || "";
+    if (host) serverUrl = proto + "://" + host;
+  }
+
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.json({ ok: true, serverUrl });
+});
+
 export default router;
 
 export async function autoInitDb(): Promise<void> {

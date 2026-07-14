@@ -474,6 +474,64 @@ body.ds-focus-mode .app-shell {
   background: rgba(26,111,196,.4);
 }
 
+/* ── Mobile banner (tersembunyi di desktop, muncul di mobile) ──────── */
+.ds-mobile-banner {
+  display: none;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, #eff6ff 0%, #f0faf4 100%);
+  border-top: 1px solid #bcd9f8;
+  border-bottom: 1px solid #c3e6cb;
+  font-size: 12.5px;
+  color: #1a3a6e;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+.ds-mobile-banner .ds-mb-icon {
+  font-size: 20px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.ds-mobile-banner .ds-mb-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ds-mobile-banner .ds-mb-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: #0f2d5a;
+  margin-bottom: 2px;
+}
+.ds-mobile-banner .ds-mb-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #2d5080;
+}
+.ds-mobile-banner .ds-mb-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1e4d82;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.ds-mobile-banner .ds-mb-note {
+  font-size: 11px;
+  color: #6b7c90;
+  margin-top: 4px;
+  font-style: italic;
+}
+
 /* ── Responsive ────────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   .ds-wrap {
@@ -493,6 +551,84 @@ body.ds-focus-mode .app-shell {
     zoom: 1 !important;
   }
   .ds-gen-right { display: none; }
+}
+
+/* ── Mobile (≤767px): Editor disembunyikan, hanya gen panel + preview ── */
+@media (max-width: 767px) {
+  /* Container: tinggi otomatis, tidak perlu fill viewport */
+  .ds-wrap {
+    height: auto !important;
+    min-height: auto !important;
+    border-radius: 10px;
+    border: 1px solid #c8d8ec;
+  }
+
+  /* Sembunyikan tombol toggle yang tidak relevan di mobile */
+  #dsToggleGenPanel,
+  #dsToggleSidebar,
+  #dsFocusMode {
+    display: none !important;
+  }
+
+  /* Toggle bar: hanya tampilkan nama dokumen aktif */
+  .ds-toggle-bar {
+    justify-content: center;
+    min-height: 38px;
+    padding: 6px 14px;
+  }
+  .ds-doc-name {
+    text-align: center;
+    flex: unset;
+    max-width: 100%;
+  }
+  .ds-template-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  /* Tampilkan mobile banner */
+  .ds-mobile-banner {
+    display: flex !important;
+  }
+
+  /* Tampilkan kembali panel kanan (backup) di mobile */
+  .ds-gen-right {
+    display: flex !important;
+  }
+
+  /* Panel gen: biarkan membesar sesuai konten */
+  .ds-gen-panel {
+    max-height: none !important;
+  }
+  .ds-gen-inner {
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+  .ds-gen-left,
+  .ds-gen-right {
+    min-width: 0;
+    width: 100%;
+  }
+  .ds-gen-right {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  /* Sembunyikan toolbar formatting — tidak bisa digunakan tanpa editor */
+  .ds-toolbar {
+    display: none !important;
+  }
+
+  /* Sembunyikan area editor A4 — dsPage tetap di DOM untuk DS JS */
+  .ds-canvas {
+    display: none !important;
+  }
+
+  /* Sembunyikan status bar */
+  .ds-status-bar {
+    display: none !important;
+  }
 }
 
 /* ── Print (from Document Studio) ─────────────────────────────────── */

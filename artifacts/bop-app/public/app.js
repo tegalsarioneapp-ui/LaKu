@@ -10717,3 +10717,187 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.70] Bug-fix komprehensif semua menu aktif.");
 })();
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.71 — Fix definitif "Atur Jadwal" RAP 1 Tahun
+   
+   Bug 1 (CRITICAL): closeJadwalInternalV19() set scheduleEditIndex=null
+     → Number(null)=0, bukan NaN → check isNaN gagal → panel tetap
+     tampil untuk baris ke-0 setelah klik "Tutup"
+   Fix: gunakan sentinel -1, cek i<0||isNaN(i)
+
+   Bug 2: Semua fungsi (open/save/close/render) tidak aman terhadap
+     scheduleEditIndex=null (dibaca dari localStorage sbg 0)
+   Fix: normalize dulu ke -1 jika null/undefined/NaN
+   
+   Bug 3: Scroll ke panel terjadi terlalu dini (sebelum DOM settle)
+   Fix: double rAF (requestAnimationFrame) setelah renderRap()
+════════════════════════════════════════════════════════════════ */
+(function bopFix71(){
+  if(window.__bopFix71) return;
+  window.__bopFix71 = true;
+
+  /* Helper: normalize scheduleEditIndex ke angka, return -1 jika invalid */
+  function getSchedIdx71(){
+    var idx = (window.data||{}).pengajuan ? data.pengajuan.scheduleEditIndex : undefined;
+    if(idx === null || idx === undefined) return -1;
+    var n = Number(idx);
+    return (Number.isNaN(n) || n < 0) ? -1 : n;
+  }
+
+  /* ── FIX closeJadwalInternalV19: set -1, bukan null ─────────── */
+  window.closeJadwalInternalV19 = function closeJadwalInternalV71(){
+    try{
+      data.pengajuan.scheduleEditIndex = -1;
+      localStorage.setItem(STORE, JSON.stringify(data));
+      renderRap();
+    }catch(e){ console.error("[v1.71] closeJadwal error:",e); }
+  };
+
+  /* ── FIX openJadwalInternalV19: guard + scroll via rAF ──────── */
+  window.openJadwalInternalV19 = function openJadwalInternalV71(i){
+    try{
+      updateRapFromInputs();
+      var idx = Number(i);
+      if(Number.isNaN(idx)||!data.pengajuan.rap[idx]){
+        console.warn("[v1.71] openJadwal: index tidak valid:", i);
+        return;
+      }
+      data.pengajuan.scheduleEditIndex = idx;
+      localStorage.setItem(STORE, JSON.stringify(data));
+      renderRap(); // synchronous — panel sudah terisi setelah ini
+      notifyChangeV19("Jadwal internal dibuka","Atur pola muncul RAP bulanan tanpa mengubah template resmi.","warning");
+      /* Scroll setelah browser settle (double rAF = setelah paint) */
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          var el = document.getElementById("rapSchedulePanelV19");
+          if(el) el.scrollIntoView({ behavior:"smooth", block:"start" });
+        });
+      });
+    }catch(e){ console.error("[v1.71] openJadwal error:",e); }
+  };
+
+  /* ── FIX saveJadwalInternalV19: guard i<0 ───────────────────── */
+  window.saveJadwalInternalV19 = function saveJadwalInternalV71(){
+    try{
+      var i = getSchedIdx71();
+      if(i < 0 || !data.pengajuan.rap[i]) return;
+      var mode = document.getElementById("jadwalModeV19")?.value || "auto";
+      var manual = Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; });
+      data.pengajuan.rap[i].jadwalInternal = { mode:mode, manualMonths:manual };
+      localStorage.setItem(STORE, JSON.stringify(data));
+      notifyChangeV19(
+        "Jadwal internal tersimpan",
+        (data.pengajuan.rap[i].uraian||"Mata anggaran") + " memakai pola " + scheduleLabelV19(data.pengajuan.rap[i]) + ".",
+        "success"
+      );
+      renderRap();
+    }catch(e){ console.error("[v1.71] saveJadwal error:",e); }
+  };
+
+  /* ── FIX renderSchedulePanelV19: cek i<0, build panel sendiri ─ */
+  window.ensureSchedulePanelV19 = function(){
+    /* Dibuat ulang di renderSchedulePanelV19 — no-op di sini */
+  };
+
+  window.renderSchedulePanelV19 = function renderSchedulePanelV71(){
+    try{
+      /* Pastikan container ada di DOM */
+      var panel = document.getElementById("rapSchedulePanelV19");
+      if(!panel){
+        var rapTable = document.getElementById("rapTable");
+        if(!rapTable) return;
+        var wrap = rapTable.closest(".table-wrap") || rapTable.parentElement;
+        if(!wrap) return;
+        panel = document.createElement("div");
+        panel.id = "rapSchedulePanelV19";
+        wrap.insertAdjacentElement("afterend", panel);
+      }
+
+      /* Tentukan index yang aktif */
+      var i = getSchedIdx71();
+
+      /* Tidak ada yang dipilih → teks petunjuk */
+      if(i < 0 || !data.pengajuan.rap[i]){
+        panel.innerHTML =
+          '<div class="schedule-panel-v19">' +
+          '<div class="schedule-title">Jadwal Internal RAP Bulanan</div>' +
+          '<div class="schedule-subtitle">Klik <b>Atur Jadwal</b> pada salah satu mata anggaran untuk menentukan pola muncul di RAP Bulanan. Pengaturan ini tidak tercetak pada template resmi.</div>' +
+          '</div>';
+        return;
+      }
+
+      var row = data.pengajuan.rap[i];
+      var cfg = row.jadwalInternal || { mode:"auto", manualMonths:[] };
+      var scheduled = monthsScheduledV19(row);
+      var months = monthListV17();
+
+      var modeOptions = [
+        ["auto","Otomatis berdasarkan volume"],
+        ["sekali","Sekali saja pada bulan mulai"],
+        ["bulanan","Setiap bulan"],
+        ["2bulan","2 bulan sekali"],
+        ["3bulan","3 bulan sekali"],
+        ["6bulan","6 bulan sekali"],
+        ["manual","Bulan tertentu / manual"]
+      ].map(function(o){
+        return '<option value="'+o[0]+'"'+(cfg.mode===o[0]?" selected":"")+'>'+o[1]+'</option>';
+      }).join("");
+
+      var monthChecks = months.map(function(m){
+        var chk = (cfg.manualMonths||[]).indexOf(m)>=0 ? " checked" : "";
+        return '<label><input type="checkbox" data-jadwal-month-v19 value="'+m+'"'+chk+'> '+m.replace(" 2026","")+'</label>';
+      }).join("");
+
+      var preview = months.map(function(m){
+        return '<span class="'+(scheduled.indexOf(m)>=0?"":"off")+'">'+m.replace(" 2026","")+'</span>';
+      }).join("");
+
+      panel.innerHTML =
+        '<div class="schedule-panel-v19">' +
+          '<div class="schedule-title">Atur Jadwal Internal</div>' +
+          '<div class="schedule-subtitle"><b>'+esc(row.uraian||"Mata anggaran")+'</b><br>' +
+            'Pengaturan ini hanya untuk logika RAP Bulanan. Hasil cetak RAP resmi tetap mengikuti template pemerintah.</div>' +
+          '<div class="form-grid" style="margin-top:12px">' +
+            '<label>Pola Pelaksanaan<select id="jadwalModeV19">'+modeOptions+'</select></label>' +
+            '<label>Rentang Aktif<input value="'+esc(row.bulanMulai||"-")+' s.d '+esc(row.bulanSelesai||"-")+'" disabled></label>' +
+            '<label>Total Volume<input value="'+esc(row.volume||"-")+'" disabled></label>' +
+            '<label>Nilai / Volume<input value="'+rupiah(unitPriceV18(row))+'" disabled></label>' +
+          '</div>' +
+          '<div style="margin-top:14px"><b style="font-size:13px">Pilih bulan manual (aktif saat mode = Bulan tertentu)</b>' +
+            '<div class="manual-month-grid" style="margin-top:8px">'+monthChecks+'</div>' +
+          '</div>' +
+          '<div style="margin-top:14px"><b style="font-size:13px">Preview bulan yang muncul di RAP Bulanan</b>' +
+            '<div class="schedule-preview-months" style="margin-top:8px">'+preview+'</div>' +
+          '</div>' +
+          '<div class="action-row" style="margin-top:16px">' +
+            '<button class="primary" type="button" onclick="saveJadwalInternalV19()">💾 Simpan Jadwal</button>' +
+            '<button class="secondary" type="button" onclick="closeJadwalInternalV19()">✕ Tutup</button>' +
+          '</div>' +
+        '</div>';
+
+      /* Wire event handlers setelah DOM dibuat */
+      var modeEl = document.getElementById("jadwalModeV19");
+      if(modeEl){
+        modeEl.onchange = function(){
+          row.jadwalInternal = {
+            mode: modeEl.value,
+            manualMonths: Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; })
+          };
+          window.renderSchedulePanelV19();
+        };
+      }
+      Array.from(document.querySelectorAll("[data-jadwal-month-v19]")).forEach(function(ch){
+        ch.onchange = function(){
+          row.jadwalInternal = {
+            mode: document.getElementById("jadwalModeV19")?.value || "manual",
+            manualMonths: Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; })
+          };
+          window.renderSchedulePanelV19();
+        };
+      });
+
+    }catch(e){ console.error("[v1.71] renderSchedulePanel error:",e); }
+  };
+
+  console.log("[BOP v1.71] Fix definitif Atur Jadwal: sentinel -1, guard i<0, scroll rAF, event handler re-wire aktif.");
+})();

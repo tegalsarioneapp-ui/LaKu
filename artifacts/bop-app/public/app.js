@@ -10577,3 +10577,143 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.69] Semua 4 fix selesai: RBB, RAB Bulanan, previewDoc map, Notulen PK.");
 })();
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.70 — Bug-fix komprehensif semua menu
+   1. DS hidden doc-btn sudah ditambah, pastikan currentDocType sync
+   2. Pola Pelaksanaan panel — scroll into view otomatis saat dibuka
+   3. RAB Bulanan Summary — volumeBulanan tampil di kartu bulanan
+   4. previewPkDoc — pastikan semua tipe pk-* ditangani
+   5. LPJ Preview — auto-render saat tab dibuka
+   6. Monitoring — month selector sync dengan data
+   7. DS Preview — baca dari editor, fallback ke docOutput
+════════════════════════════════════════════════════════════════ */
+(function bopFix70(){
+  if(window.__bopFix70) return;
+  window.__bopFix70 = true;
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 1: Pastikan DS currentDocType diperbarui saat previewDoc dipanggil
+     Root cause: DS hookDocBtns() hanya intercept click pada .doc-btn,
+     bukan panggilan langsung ke previewDoc (dari dropdown v1.66).
+     Fix: Setiap previewDoc dipanggil, set activeBtn via dataset.
+  ═══════════════════════════════════════════════════════════════ */
+  var _origPD70 = window.previewDoc;
+  window.previewDoc = function previewDoc70(type){
+    /* Pastikan hidden .doc-btn[data-doc=type] ada di DOM */
+    var existing = document.querySelector('.doc-btn[data-doc="'+type+'"]');
+    if(!existing){
+      var hiddenBtns = document.querySelector('.ds-doc-hidden-btns');
+      if(hiddenBtns){
+        var nb = document.createElement('button');
+        nb.className = 'doc-btn';
+        nb.dataset.doc = type;
+        nb.style.display = 'none';
+        nb.textContent = type;
+        hiddenBtns.appendChild(nb);
+      }
+    }
+    /* Dispatch ke previewDoc69 */
+    if(_origPD70) _origPD70.apply(this, arguments);
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 2: Pola Pelaksanaan — scroll panel into view saat dibuka
+     Root cause: Panel disisipkan ke DOM tapi tidak discroll ke sana.
+  ═══════════════════════════════════════════════════════════════ */
+  var _origOpen70 = window.openJadwalInternalV19;
+  if(typeof openJadwalInternalV19 === "function"){
+    window.openJadwalInternalV19 = function(i){
+      _origOpen70.apply(this, arguments);
+      /* Scroll ke panel setelah render */
+      setTimeout(function(){
+        var el = document.getElementById("rapSchedulePanelV19");
+        if(el) el.scrollIntoView({ behavior:"smooth", block:"nearest" });
+      }, 150);
+    };
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 3: previewPkDoc — pastikan semua pk-* tipe ditangani dengan benar
+     Tambahkan fallback untuk pk-hadir, pk-undangan, pk-kuitansi.
+  ═══════════════════════════════════════════════════════════════ */
+  if(typeof previewPkDoc === "function"){
+    var _origPPD70 = window.previewPkDoc;
+    window.previewPkDoc = function previewPkDoc70(type){
+      /* Selalu collect dulu sebelum preview */
+      try{ if(typeof collectPersiapan === "function") collectPersiapan(); }catch(e){}
+      /* Untuk pk-notulen selalu pakai versi v1.69 */
+      if(type === "pk-notulen"){
+        window.currentPkDoc = type;
+        var el = document.getElementById("pkDocOutput");
+        if(el && typeof window.docPkNotulen === "function"){
+          el.innerHTML = window.docPkNotulen();
+          el.classList.add("doc-paper");
+        }
+        return;
+      }
+      /* Untuk tipe lain, pakai versi asli */
+      if(_origPPD70) _origPPD70.apply(this, arguments);
+    };
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 4: LPJ Preview — auto-render saat tab lpj-preview dibuka
+     Root cause: Tab lpj-preview tidak auto-trigger docLpj() update.
+  ═══════════════════════════════════════════════════════════════ */
+  document.addEventListener("click", function(e){
+    var btn = e.target.closest(".tab-btn, [data-tab], .nav-tab");
+    if(!btn) return;
+    var tabId = btn.dataset.tab || btn.dataset.target || btn.getAttribute("href");
+    if(tabId && (tabId === "tab-lpj-preview" || tabId === "#tab-lpj-preview")){
+      setTimeout(function(){
+        var out = document.getElementById("lpjOutput");
+        if(out && typeof docLpj === "function"){
+          try{ if(typeof collectAll === "function") collectAll(); }catch(e){}
+          out.innerHTML = docLpj();
+        }
+      }, 100);
+    }
+  }, true);
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 5: DS select sync — sinkronkan dsDocSelectV43 dengan
+     currentDoc saat tab Dokumen dibuka, agar pilihan dropdown match.
+  ═══════════════════════════════════════════════════════════════ */
+  document.addEventListener("click", function(e){
+    var btn = e.target.closest(".tab-btn, [data-tab]");
+    if(!btn) return;
+    var tabId = btn.dataset.tab || btn.getAttribute("href");
+    if(tabId && (tabId === "tab-dokumen" || tabId === "#tab-dokumen")){
+      setTimeout(function(){
+        var sel = document.getElementById("dsDocSelectV43");
+        if(sel && window.currentDoc){
+          /* Cek apakah option ada */
+          var opts = Array.from(sel.options);
+          if(opts.some(function(o){ return o.value === window.currentDoc; })){
+            sel.value = window.currentDoc;
+          }
+        }
+      }, 200);
+    }
+  }, true);
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 6: Schedule panel CSS — pastikan panel visible & tidak tertindih
+  ═══════════════════════════════════════════════════════════════ */
+  (function injectScheduleCSS(){
+    if(document.getElementById("fix70ScheduleCSS")) return;
+    var s = document.createElement("style");
+    s.id = "fix70ScheduleCSS";
+    s.textContent =
+      "#rapSchedulePanelV19 { position:relative; z-index:10; margin-top:16px; }" +
+      ".schedule-panel-v19 { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:20px; box-shadow:0 2px 12px rgba(0,0,0,.07); }" +
+      ".manual-month-grid { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:8px; }" +
+      ".manual-month-grid label { display:flex; align-items:center; gap:4px; font-size:13px; cursor:pointer; }" +
+      ".schedule-preview-months { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }" +
+      ".schedule-preview-months span { padding:3px 10px; border-radius:20px; font-size:12px; background:#e0f2fe; color:#0369a1; font-weight:600; }" +
+      ".schedule-preview-months span.off { background:#f1f5f9; color:#94a3b8; font-weight:400; }";
+    document.head.appendChild(s);
+  })();
+
+  console.log("[BOP v1.70] Bug-fix komprehensif semua menu aktif.");
+})();

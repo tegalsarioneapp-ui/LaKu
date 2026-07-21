@@ -10901,3 +10901,179 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.71] Fix definitif Atur Jadwal: sentinel -1, guard i<0, scroll rAF, event handler re-wire aktif.");
 })();
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.72 — Fix definitif Atur Jadwal (event delegation + MutationObserver)
+
+   Masalah v1.71: window.renderSchedulePanelV19 override tidak efektif
+   karena renderRap() memanggil renderSchedulePanelV19() via function
+   declaration binding (bukan via window.*), sehingga original tetap jalan.
+
+   Fix v1.72:
+   1. Jangan override — gunakan MutationObserver pada panel untuk mendeteksi
+      kapan panel selesai dirender oleh original renderSchedulePanelV19().
+   2. Setelah render selesai: fix tampilan bulanMulai/bulanSelesai yang kosong.
+   3. Event delegation pada document untuk perubahan #jadwalModeV19 dan
+      [data-jadwal-month-v19] → update preview tanpa perlu re-render full panel.
+════════════════════════════════════════════════════════════════ */
+(function bopFix72(){
+  if(window.__bopFix72) return;
+  window.__bopFix72 = true;
+
+  var _busy72 = false; /* guard agar MutationObserver tidak loop */
+
+  /* ── Helper: ambil index jadwal yang sedang aktif ────────────── */
+  function idx72(){
+    if(!window.data || !data.pengajuan) return -1;
+    var v = data.pengajuan.scheduleEditIndex;
+    if(v === null || v === undefined) return -1;
+    var n = Number(v);
+    return (isNaN(n) || n < 0) ? -1 : n;
+  }
+
+  /* ── Update HANYA bagian preview bulan (tidak re-render panel) ─ */
+  function updatePreview72(){
+    var i = idx72();
+    if(i < 0 || !data.pengajuan.rap[i]) return;
+    var row = data.pengajuan.rap[i];
+    /* Pastikan bulanMulai/bulanSelesai terisi */
+    if(!row.bulanMulai || !row.bulanSelesai) inferMonthRangeV17(row);
+    var scheduled = monthsScheduledV19(row);
+    var months = monthListV17();
+    /* Update span preview */
+    var prev = document.querySelector("#rapSchedulePanelV19 .schedule-preview-months");
+    if(prev){
+      _busy72 = true;
+      prev.innerHTML = months.map(function(m){
+        return '<span class="'+(scheduled.indexOf(m)>=0?"":"off")+'">'+m.replace(" 2026","")+'</span>';
+      }).join("");
+      setTimeout(function(){ _busy72 = false; }, 60);
+    }
+    /* Update internal-schedule-pill di baris tabel */
+    var pill = document.querySelector('.mini-input[data-rap="'+i+',uraian"]');
+    if(pill){
+      var pillEl = pill.parentElement && pill.parentElement.querySelector(".internal-schedule-pill");
+      if(pillEl) pillEl.textContent = scheduleLabelV19(row);
+    }
+  }
+
+  /* ── Fix tampilan Rentang Aktif yang kosong ──────────────────── */
+  function fixRentang72(){
+    var i = idx72();
+    if(i < 0 || !data.pengajuan.rap[i]) return;
+    var row = data.pengajuan.rap[i];
+    /* Normalisasi bulanMulai/bulanSelesai dari field bulan lama */
+    if(!row.bulanMulai || !row.bulanSelesai) inferMonthRangeV17(row);
+    var bm = row.bulanMulai || "Januari 2026";
+    var bs = row.bulanSelesai || bm;
+    /* Cari input Rentang Aktif (disabled input yang berisi " s.d ") */
+    var panel = document.getElementById("rapSchedulePanelV19");
+    if(!panel) return;
+    panel.querySelectorAll("input[disabled]").forEach(function(inp){
+      /* Identifikasi: value berisi "s.d" tapi bulanMulai/bulanSelesai kosong */
+      if(inp.value.indexOf(" s.d ") !== -1){
+        var parts = inp.value.split(" s.d ");
+        var left = (parts[0]||"").trim();
+        var right = (parts[1]||"").trim();
+        /* Jika salah satu kosong → perbaiki */
+        if(!left || !right){
+          _busy72 = true;
+          inp.value = bm + " s.d " + bs;
+          setTimeout(function(){ _busy72 = false; }, 60);
+        }
+      }
+    });
+  }
+
+  /* ── MutationObserver: pantau setiap kali panel dirender ulang ─ */
+  function startObserver72(){
+    var panel = document.getElementById("rapSchedulePanelV19");
+    if(!panel){
+      /* Poll sampai panel ada (dibuat saat pertama kali renderRap) */
+      var tries = 0;
+      var timer = setInterval(function(){
+        var p = document.getElementById("rapSchedulePanelV19");
+        tries++;
+        if(p || tries > 60){
+          clearInterval(timer);
+          if(p) attachObserver72(p);
+        }
+      }, 300);
+      return;
+    }
+    attachObserver72(panel);
+  }
+
+  function attachObserver72(panel){
+    var ob = new MutationObserver(function(){
+      if(_busy72) return;
+      /* Panel baru saja dirender oleh original renderSchedulePanelV19 */
+      setTimeout(function(){
+        fixRentang72();
+        updatePreview72();
+      }, 20);
+    });
+    ob.observe(panel, { childList: true });
+    console.log("[BOP v1.72] MutationObserver terpasang pada rapSchedulePanelV19.");
+  }
+
+  /* ── Event delegation: mode select & bulan checkbox ─────────── */
+  document.addEventListener("change", function(e){
+    var t = e.target;
+    if(!t) return;
+    var isMode  = (t.id === "jadwalModeV19");
+    var isMonth = t.hasAttribute && t.hasAttribute("data-jadwal-month-v19");
+    if(!isMode && !isMonth) return;
+
+    var i = idx72();
+    if(i < 0 || !data.pengajuan.rap[i]) return;
+    var row = data.pengajuan.rap[i];
+
+    var mode   = isMode ? t.value : (document.getElementById("jadwalModeV19")?.value || "manual");
+    var manual = Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; });
+    row.jadwalInternal = { mode: mode, manualMonths: manual };
+
+    /* Simpan ke localStorage */
+    try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e2){}
+
+    /* Update preview tanpa re-render seluruh panel */
+    updatePreview72();
+  }, false);
+
+  /* ── Jalankan observer ───────────────────────────────────────── */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", startObserver72);
+  } else {
+    startObserver72();
+  }
+
+  /* ── Juga patch closeJadwalInternalV19 sentinel ─────────────── */
+  /* (duplikat v1.71 sebagai safety net — satu versi cukup aktif) */
+  if(!window.__bopFix71){
+    window.closeJadwalInternalV19 = function(){
+      try{
+        data.pengajuan.scheduleEditIndex = -1;
+        localStorage.setItem(STORE, JSON.stringify(data));
+        renderRap();
+      }catch(ex){ console.error("[v1.72] closeJadwal:",ex); }
+    };
+    window.openJadwalInternalV19 = function(i){
+      try{
+        updateRapFromInputs();
+        var n = Number(i);
+        if(isNaN(n)||!data.pengajuan.rap[n]) return;
+        data.pengajuan.scheduleEditIndex = n;
+        localStorage.setItem(STORE, JSON.stringify(data));
+        renderRap();
+        notifyChangeV19("Jadwal internal dibuka","Atur pola muncul RAP bulanan.","warning");
+        requestAnimationFrame(function(){
+          requestAnimationFrame(function(){
+            var el = document.getElementById("rapSchedulePanelV19");
+            if(el) el.scrollIntoView({ behavior:"smooth", block:"start" });
+          });
+        });
+      }catch(ex){ console.error("[v1.72] openJadwal:",ex); }
+    };
+  }
+
+  console.log("[BOP v1.72] Event delegation + MutationObserver Atur Jadwal aktif.");
+})();

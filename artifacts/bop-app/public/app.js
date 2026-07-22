@@ -12331,3 +12331,154 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.84] RAP vs Realisasi + Logo RT 005 aktif.");
 })();
 /* END PATCH v1.84 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.85 — KOP Surat Resmi: Fix PDF CSS grid kop-v63
+
+   Masalah: exportPdfDocV38 (v46) dan exportPdfLpjV38 (v38)
+   membuka popup window dengan CSS inline yang tidak memiliki
+   rule .kop-v63-row { display:grid } sehingga logo tampil
+   besar memenuhi lebar halaman, bukan di kiri sejajar teks.
+
+   Fix: Override kedua fungsi export PDF dengan CSS lengkap
+   termasuk semua .kop-v63-* grid styles. Semua print popup
+   lain (modal, card, pengambilan bank) sudah memakai
+   <link href="styles.css"> yang kini sudah punya kop-v63 CSS.
+════════════════════════════════════════════════════════════════ */
+(function bopKopPdfFix85(){
+  if(window.__bopKopPdfFix85) return;
+  window.__bopKopPdfFix85 = true;
+
+  /* ── CSS lengkap KOP v63 untuk popup PDF (pt units) ── */
+  var KOP85_CSS = [
+    /* ── KOP Surat Resmi v63 grid layout ── */
+    '.kop.kop-v63{display:block!important;padding:0 0 10px!important;border-bottom:3px double #000!important;margin-bottom:16px!important}',
+    '.kop-v63-header{font-family:"Times New Roman",serif;font-weight:700;font-size:15pt;text-transform:uppercase;text-align:center;margin:0 0 6px;display:block}',
+    '.kop-v63-row{display:grid!important;grid-template-columns:70px 1fr 70px!important;align-items:center!important;column-gap:12px}',
+    '.kop-v63-logo-wrap{grid-column:1;justify-self:start}',
+    '.kop-v63-logo{width:58px!important;height:58px!important;max-width:58px!important;object-fit:cover!important;display:block!important;border-radius:50%!important;border:2px solid #1e3a5f!important}',
+    '.kop-v63-info{grid-column:2;text-align:center}',
+    '.kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:13pt;text-transform:uppercase;margin:2px 0;text-align:center;display:block}',
+    '.kop-v63-hr{border:none;border-top:1.5px solid #000;margin:6px 0 4px}',
+    '.kop-v63-addr{font-family:"Times New Roman",serif;font-size:9pt;text-align:center;margin:0;display:block}',
+    /* ── Backward compat kop-rule & tanda tangan v63 ── */
+    '.kop-rule{border-top:3px double #000;margin:0 0 14px}',
+    '.signature-space{height:52px;display:block}',
+    '.ttd-grouped-v63{margin-top:22px}',
+    '.ttd-grouped-v63 .ttd-label-v63{text-align:center;font-family:"Times New Roman",serif;margin:0 0 4px;font-size:12pt}',
+    '.ttd-grouped-v63 .ttd-row-v63{display:grid;grid-template-columns:repeat(2,1fr);gap:40px;text-align:center;margin-bottom:18px}',
+    /* ── Old kop classes (backward compat for non-v63 docs) ── */
+    '.kop:not(.kop-v63){display:flex!important;align-items:flex-start!important;gap:10px!important;padding-bottom:8px!important;border-bottom:3px double #000!important;margin-bottom:14px!important}',
+    '.kop-logo-wrap{width:60px;min-width:60px;flex-shrink:0}',
+    '.kop-logo{width:54px!important;height:auto!important;max-height:66px!important;object-fit:contain!important;display:block!important}',
+    '.kop-text{flex:1;text-align:center}',
+    '.kop-logo-spacer{width:60px;min-width:60px;flex-shrink:0}',
+    '.kop h1,.kop-b1{font-family:"Times New Roman",serif!important;font-size:15pt!important;font-weight:bold!important;text-transform:uppercase!important;text-align:center!important;line-height:1.1!important;margin:0!important;display:block!important}',
+    '.kop h2,.kop-b2{font-family:"Times New Roman",serif!important;font-size:12.5pt!important;font-weight:bold!important;text-transform:uppercase!important;text-align:center!important;line-height:1.1!important;margin:1px 0!important;display:block!important}',
+    '.kop p,.kop-addr{font-family:"Times New Roman",serif!important;font-size:9pt!important;text-align:center!important;margin-top:3px!important;display:block!important}'
+  ].join('\n');
+
+  /* ── Base PDF CSS (dokumen + LPJ) ── */
+  var BASE_PDF_CSS = [
+    '@page{size:A4;margin:14mm}',
+    '*{box-sizing:border-box}',
+    'body{margin:0;padding:20px;font-family:"Times New Roman",serif;font-size:12pt;color:#000;background:#fff}',
+    '.official,.official-v36,.official-v37{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26;color:#000}',
+    '.official .title,.official-v36 .title,.official-v37 .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 16px}',
+    'table{border-collapse:collapse;width:100%}',
+    'th,td{border:1px solid #000;padding:5px 8px;font-size:11pt}',
+    '.no-border td,.no-border th,.no-border{border:none!important}',
+    '.col-no-v37{width:8mm!important;text-align:center!important}',
+    '.money-cell-v37{text-align:right!important;white-space:nowrap}',
+    '.identity-table-v37 td:first-child{width:36mm;white-space:nowrap}',
+    '.sign-two-v37 td{width:50%;text-align:center!important;vertical-align:top;border:none!important}',
+    '.sign-right-v37 td{border:none!important}',
+    '.sign-space-v37{height:54px;display:block}',
+    '.center-v37{text-align:center!important}',
+    '.date-right-v37{text-align:right!important}',
+    '.mengetahui-v37{margin-top:14px!important}',
+    'p{margin:7px 0}',
+    'ol{margin:5px 0 8px 22px;padding:0}',
+    'li{margin:4px 0}',
+    '.page-break-v37{page-break-after:always;break-after:page;height:0;border:none}',
+    '.sign-note{font-size:9pt;color:#555}',
+    '.ket-v37{font-size:10pt}'
+  ].join('\n');
+
+  var FULL_PDF_CSS = BASE_PDF_CSS + '\n' + KOP85_CSS;
+
+  /* ── Helper: buka popup print ── */
+  function openPrintPopup(title, innerHtml){
+    var w = window.open('', '_blank', 'width=940,height=1200');
+    if(!w){
+      try{ if(typeof bopToast==="function") bopToast("Popup Diblokir","Izinkan popup di browser lalu coba lagi.","warning"); }catch(e){}
+      return;
+    }
+    w.document.write('<!doctype html><html lang="id"><head>'
+      +'<meta charset="UTF-8"><title>'+title+'</title>'
+      +'<style>'+FULL_PDF_CSS+'</style>'
+      +'</head><body>'+innerHtml+'</body></html>');
+    w.document.close();
+    w.focus();
+    setTimeout(function(){ w.print(); }, 700);
+  }
+
+  /* ── 1. Override exportPdfDocV38 ── */
+  window.exportPdfDocV38 = async function exportPdfDocV85(){
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+    try{
+      var type=(typeof currentDoc!=="undefined"?currentDoc:null)||window.currentDoc||"permohonan";
+      if(typeof previewDoc==="function") previewDoc(type);
+    }catch(e){}
+    await new Promise(function(r){ setTimeout(r, 220); });
+    var out = document.getElementById("docOutput");
+    if(!out || !out.innerHTML.trim()){
+      try{ if(typeof bopToast==="function") bopToast("Dokumen Kosong","Generate dokumen terlebih dahulu.","warning"); }catch(e){}
+      return;
+    }
+    try{ if(typeof bopToast==="function") bopToast("Menyiapkan PDF…","Mohon tunggu sebentar.","info"); }catch(e){}
+    openPrintPopup("Dokumen BOP RT 005", out.innerHTML);
+  };
+
+  /* ── 2. Override exportPdfLpjV38 ── */
+  window.exportPdfLpjV38 = async function exportPdfLpjV85(){
+    try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+    try{
+      var el=document.getElementById("lpjOutput");
+      if(el && typeof docLpj==="function") el.innerHTML = docLpj();
+    }catch(e){}
+    await new Promise(function(r){ setTimeout(r, 220); });
+    var out = document.getElementById("lpjOutput");
+    if(!out || !out.innerHTML.trim()){
+      try{ if(typeof bopToast==="function") bopToast("LPJ Kosong","Generate LPJ terlebih dahulu.","warning"); }catch(e){}
+      return;
+    }
+    try{ if(typeof bopToast==="function") bopToast("Menyiapkan PDF LPJ…","Mohon tunggu sebentar.","info"); }catch(e){}
+    openPrintPopup("LPJ BOP RT 005", out.innerHTML);
+  };
+
+  /* ── 3. Re-bind tombol export ── */
+  function rebindExportBtns85(){
+    var btnDoc = document.getElementById("exportPdfDocV38");
+    if(btnDoc) btnDoc.onclick = window.exportPdfDocV38;
+    var btnLpj = document.getElementById("exportPdfLpjV38");
+    if(btnLpj) btnLpj.onclick = window.exportPdfLpjV38;
+  }
+  if(document.readyState !== "loading") setTimeout(rebindExportBtns85, 400);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(rebindExportBtns85, 400); });
+
+  /* ── 4. Inject kop-v63 CSS ke screen juga (jaga-jaga) ── */
+  function injectScreenKop85(){
+    if(document.getElementById("bopKopPdfFix85Scr")) return;
+    var st = document.createElement("style");
+    st.id = "bopKopPdfFix85Scr";
+    st.textContent = KOP85_CSS + '\n@media print{.kop-v63-row{display:grid!important;grid-template-columns:70px 1fr 70px!important}.kop-v63-logo{width:58px!important;height:58px!important;max-width:58px!important}}';
+    document.head.appendChild(st);
+  }
+  if(document.readyState !== "loading") injectScreenKop85();
+  else document.addEventListener("DOMContentLoaded", injectScreenKop85);
+
+  console.log("[BOP v1.85] KOP Surat Resmi PDF grid fix aktif — logo kiri, teks center di semua dokumen.");
+})();
+/* END PATCH v1.85 */

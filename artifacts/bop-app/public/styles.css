@@ -1888,3 +1888,79 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
   .tracker-kirim-table-v40 th:nth-child(6),
   .tracker-kirim-table-v40 td:nth-child(6) { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════
+   KOP SURAT RESMI v1.85 — Layout Instansi Pemerintah
+   Logo kiri sejajar, teks KOP center, garis pemisah
+   ═══════════════════════════════════════════════════ */
+.kop.kop-v63 {
+  display: block !important;
+  padding: 0 0 10px !important;
+  border-bottom: 3px double #000 !important;
+  margin-bottom: 16px !important;
+  text-align: center;
+}
+.kop-v63-header {
+  font-family: "Times New Roman", Times, serif;
+  font-weight: 700;
+  font-size: 1.05em;
+  text-transform: uppercase;
+  text-align: center;
+  margin: 0 0 6px;
+  display: block;
+}
+.kop-v63-row {
+  display: grid !important;
+  grid-template-columns: 74px 1fr 74px !important;
+  align-items: center !important;
+  column-gap: 14px;
+}
+.kop-v63-logo-wrap {
+  grid-column: 1;
+  justify-self: start;
+  display: flex;
+  align-items: center;
+}
+.kop-v63-logo {
+  width: 62px !important;
+  height: 62px !important;
+  object-fit: cover !important;
+  display: block !important;
+  border-radius: 50% !important;
+  border: 2px solid #1e3a5f;
+  box-shadow: 0 1px 4px rgba(0,0,0,.15);
+  max-width: 62px !important;
+}
+.kop-v63-info {
+  grid-column: 2;
+  text-align: center;
+}
+.kop-v63-line1 {
+  font-family: "Times New Roman", Times, serif;
+  font-weight: 700;
+  font-size: 0.97em;
+  text-transform: uppercase;
+  margin: 2px 0;
+  text-align: center;
+  display: block;
+}
+.kop-v63-hr {
+  border: none;
+  border-top: 1.5px solid #000;
+  margin: 6px 0 4px;
+}
+.kop-v63-addr {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 0.77em;
+  text-align: center;
+  margin: 0;
+  display: block;
+}
+@media print {
+  .kop.kop-v63 { border-bottom: 3px double #000 !important; }
+  .kop-v63-row { display: grid !important; grid-template-columns: 74px 1fr 74px !important; }
+  .kop-v63-logo { width: 58px !important; height: 58px !important; max-width: 58px !important; }
+  .kop-v63-header { font-size: 14pt !important; }
+  .kop-v63-line1  { font-size: 12pt !important; }
+  .kop-v63-addr   { font-size: 8.5pt !important; }
+}

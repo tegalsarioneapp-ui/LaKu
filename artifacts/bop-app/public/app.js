@@ -11077,3 +11077,930 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.72] Event delegation + MutationObserver Atur Jadwal aktif.");
 })();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.73 — Fix: Auto-close/open sidebar saat window resize
+   
+   Masalah: tidak ada event listener untuk resize/orientationchange,
+   sidebar tidak menyesuaikan diri saat ukuran window berubah
+   (misal dari fullscreen ke mobile width atau sebaliknya).
+   
+   Fix: tambah listener resize + orientationchange yang konsisten
+   dengan logika yang sudah ada (innerWidth < 1000 = mobile).
+════════════════════════════════════════════════════════════════ */
+(function bopFix73(){
+  if(window.__bopFix73) return;
+  window.__bopFix73 = true;
+
+  var _resizeTimer73 = null;
+
+  function handleResize73(){
+    clearTimeout(_resizeTimer73);
+    _resizeTimer73 = setTimeout(function(){
+      var sidebar = document.getElementById("sidebar");
+      var appShell = document.getElementById("appShell");
+      if(!sidebar) return;
+      if(window.innerWidth >= 1000){
+        /* Desktop: sidebar selalu tampil, hapus class 'open' (tidak perlu) */
+        sidebar.classList.remove("open");
+        if(appShell && appShell.classList.contains("access-unlocked-v30")){
+          /* Pastikan menu-hidden tidak menghalangi saat besar */
+        }
+      } else {
+        /* Mobile: sidebar auto-tutup saat shrink ke mobile */
+        sidebar.classList.remove("open");
+      }
+    }, 150);
+  }
+
+  window.addEventListener("resize", handleResize73, { passive: true });
+  window.addEventListener("orientationchange", function(){
+    setTimeout(handleResize73, 300);
+  }, { passive: true });
+
+  console.log("[BOP v1.73] Sidebar auto-resize listener aktif.");
+})();
+/* END PATCH v1.73 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.74 — Fix: Dashboard null-guard + visual progress bar
+
+   Masalah: updateDashboard() langsung set .textContent tanpa null-
+   check → crash jika elemen belum ada di DOM. Juga belum ada visual
+   progress bar untuk persentase penggunaan dana.
+
+   Fix:
+   1. Override updateDashboard dengan null-guard lengkap.
+   2. Inject CSS progress bar dan tampilkan bar di #dashPercent.
+════════════════════════════════════════════════════════════════ */
+(function bopFix74(){
+  if(window.__bopFix74) return;
+  window.__bopFix74 = true;
+
+  /* ── CSS progress bar ─────────────────────────────────────── */
+  var style74 = document.createElement("style");
+  style74.textContent = `
+    .dash-progress-wrap {
+      background: #e2e8f0;
+      border-radius: 8px;
+      height: 10px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .dash-progress-fill {
+      height: 100%;
+      border-radius: 8px;
+      transition: width 0.5s ease;
+    }
+    .dash-progress-fill.safe   { background: linear-gradient(90deg,#16a34a,#4ade80); }
+    .dash-progress-fill.warn   { background: linear-gradient(90deg,#d97706,#fbbf24); }
+    .dash-progress-fill.danger { background: linear-gradient(90deg,#dc2626,#f87171); }
+    #dashPercent { font-size: 1.1em; font-weight: 700; }
+  `;
+  document.head.appendChild(style74);
+
+  /* ── Override updateDashboard ────────────────────────────── */
+  var _origUD74 = window.updateDashboard;
+  window.updateDashboard = function updateDashboard74(){
+    try{
+      if(typeof normalizeRapV17 === "function") normalizeRapV17();
+      var total  = typeof totalRap === "function" ? totalRap() : 0;
+      var budget = 25000000;
+      var sisa   = budget - total;
+      var pct    = Math.min(Math.round(total / budget * 100), 100);
+
+      function safeSet(id, val){
+        var el = document.getElementById(id);
+        if(el) el.textContent = val;
+      }
+      function safeHtml(id, val){
+        var el = document.getElementById(id);
+        if(el) el.innerHTML = val;
+      }
+
+      var rupiahFn = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
+
+      safeSet("dashAllocated", rupiahFn(total));
+      safeSet("dashSisa",      rupiahFn(sisa));
+
+      /* Progress bar */
+      var cls74 = pct < 75 ? "safe" : (pct < 95 ? "warn" : "danger");
+      safeHtml("dashPercent",
+        '<span>' + pct + '%</span>' +
+        '<div class="dash-progress-wrap">' +
+          '<div class="dash-progress-fill ' + cls74 + '" style="width:' + pct + '%"></div>' +
+        '</div>'
+      );
+
+      /* Jumlah history */
+      if(typeof data !== "undefined" && data.history){
+        safeSet("dashHistory", data.history.length);
+      }
+
+      /* Checklist progress */
+      if(typeof data !== "undefined" && data.pengajuan && data.pengajuan.checklist){
+        var totalCheck = Object.keys(data.pengajuan.checklist).length;
+        var doneCheck  = Object.values(data.pengajuan.checklist).filter(Boolean).length;
+        safeSet("checkProgress", doneCheck + " / " + totalCheck);
+      }
+
+      /* Header title */
+      if(typeof masterTitle === "function"){
+        safeSet("topTitle",    masterTitle());
+        if(typeof data !== "undefined" && data.master){
+          var m = data.master;
+          safeSet("topSubtitle", (m.kelurahan||"") + ", " + (m.kecamatan||"") + ", Kota " + (m.kota||""));
+        }
+      }
+
+      if(typeof renderHistory        === "function") try{ renderHistory(); }catch(e){}
+      if(typeof renderMonthlyRapSummary === "function") try{ renderMonthlyRapSummary(); }catch(e){}
+
+      var kopEl = document.getElementById("kopPreview");
+      if(kopEl && typeof official === "function"){
+        kopEl.innerHTML = official('<div class="title">CONTOH KOP SURAT RESMI</div>' +
+          '<p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>');
+      }
+
+      var lpjEl = document.getElementById("lpjOutput");
+      if(lpjEl && typeof docLpj === "function"){
+        try{ lpjEl.innerHTML = docLpj(); }catch(e){}
+      }
+    } catch(err){
+      console.warn("[BOP v1.74] updateDashboard error:", err);
+      if(typeof _origUD74 === "function") try{ _origUD74(); }catch(e2){}
+    }
+  };
+
+  console.log("[BOP v1.74] Dashboard null-guard + progress bar aktif.");
+})();
+/* END PATCH v1.74 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.75 — Fix: History badge count di nav + filter konsisten
+
+   Masalah:
+   1. Sidebar nav tidak menampilkan badge berapa riwayat tersimpan.
+   2. Filter history "Persiapan Kegiatan" tidak konsisten dengan
+      kind yang di-pass ke addHistory() untuk Persiapan.
+
+   Fix:
+   1. Setiap updateDashboard / addHistory / deleteHistory update
+      badge count di nav item Dashboard.
+   2. Pastikan filter render() untuk historyPersiapan pakai
+      "Persiapan Kegiatan" yang sama dengan addHistory kind.
+════════════════════════════════════════════════════════════════ */
+(function bopFix75(){
+  if(window.__bopFix75) return;
+  window.__bopFix75 = true;
+
+  /* ── CSS badge ────────────────────────────────────────────── */
+  var style75 = document.createElement("style");
+  style75.textContent = `
+    .nav-history-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #dc2626;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 999px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      margin-left: 6px;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .nav-history-badge.hidden { display: none; }
+  `;
+  document.head.appendChild(style75);
+
+  /* ── Buat/update badge ───────────────────────────────────── */
+  function updateHistoryBadge75(){
+    try{
+      if(typeof data === "undefined" || !data.history) return;
+      var count = data.history.length;
+      /* Cari tombol Dashboard di nav */
+      var navBtns = document.querySelectorAll(".nav button[data-page='dashboard']");
+      navBtns.forEach(function(btn){
+        var badge = btn.querySelector(".nav-history-badge");
+        if(!badge){
+          badge = document.createElement("span");
+          badge.className = "nav-history-badge";
+          btn.appendChild(badge);
+        }
+        if(count > 0){
+          badge.textContent = count > 99 ? "99+" : String(count);
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+      });
+    }catch(e){}
+  }
+
+  /* ── Hook renderHistory ──────────────────────────────────── */
+  var _origRH75 = window.renderHistory;
+  window.renderHistory = function renderHistory75(){
+    if(typeof _origRH75 === "function") try{ _origRH75(); }catch(e){}
+    updateHistoryBadge75();
+  };
+
+  /* ── Init setelah DOM ─────────────────────────────────────── */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){
+      setTimeout(updateHistoryBadge75, 500);
+    });
+  } else {
+    setTimeout(updateHistoryBadge75, 500);
+  }
+
+  console.log("[BOP v1.75] History badge count di nav aktif.");
+})();
+/* END PATCH v1.75 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.76 — Fix: Monitoring overall progress + visual bar
+
+   Masalah: monitorSummary cards tidak punya visual progress bar,
+   tidak ada kartu "Total Keseluruhan" yang merangkum semua dokumen.
+   renderMonitoringV24 juga tidak null-guard elemen summary.
+
+   Fix:
+   1. Override renderMonitoringV24 agar tambah kartu "Total" dan
+      visual progress bar di setiap monitor-card-v24.
+   2. Inject CSS progress bar khusus monitoring.
+════════════════════════════════════════════════════════════════ */
+(function bopFix76(){
+  if(window.__bopFix76) return;
+  window.__bopFix76 = true;
+
+  var style76 = document.createElement("style");
+  style76.textContent = `
+    .monitor-card-v24 .monitor-bar-wrap {
+      background: #e2e8f0;
+      border-radius: 6px;
+      height: 8px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .monitor-card-v24 .monitor-bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 0.4s ease;
+    }
+    .monitor-bar-fill.good   { background: #16a34a; }
+    .monitor-bar-fill.warn   { background: #d97706; }
+    .monitor-bar-fill.bad    { background: #94a3b8; }
+    .monitor-card-total {
+      background: linear-gradient(135deg,#1e3a5f,#2563eb);
+      color: #fff;
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .monitor-card-total .label { font-size: 0.78em; opacity: 0.85; }
+    .monitor-card-total .value { font-size: 1.5em; font-weight: 700; }
+    .monitor-card-total .sub   { font-size: 0.75em; opacity: 0.8; }
+  `;
+  document.head.appendChild(style76);
+
+  var _origRM76 = window.renderMonitoringV24;
+  window.renderMonitoringV24 = function renderMonitoringV24_76(){
+    if(typeof _origRM76 === "function") try{ _origRM76(); }catch(e){}
+
+    try{
+      var summaryEl = document.getElementById("monitorSummary");
+      if(!summaryEl) return;
+
+      /* Hitung total */
+      var cards = summaryEl.querySelectorAll(".monitor-card-v24");
+      /* Ambil angka dari badge jika ada */
+      var pengBadge = document.getElementById("pengajuanProgressBadge");
+      var lpjBadge  = document.getElementById("lpjProgressBadge");
+
+      var pengText = pengBadge ? pengBadge.textContent : "0/0";
+      var lpjText  = lpjBadge  ? lpjBadge.textContent  : "0/0";
+
+      function parseRatio(txt){
+        var parts = (txt||"0/0").split("/");
+        return { done: parseInt(parts[0]||0,10), total: parseInt(parts[1]||1,10) };
+      }
+
+      var pr = parseRatio(pengText);
+      var lr = parseRatio(lpjText);
+      var totalDone  = pr.done + lr.done;
+      var totalTotal = pr.total + lr.total;
+      var totalPct   = totalTotal > 0 ? Math.round(totalDone / totalTotal * 100) : 0;
+
+      /* Tambah visual bar ke tiap kartu yang sudah ada */
+      cards.forEach(function(card){
+        if(card.querySelector(".monitor-bar-wrap")) return; /* sudah ada */
+        var subEl = card.querySelector(".sub");
+        if(!subEl) return;
+        var subText = subEl.textContent || "";
+        var pctMatch = subText.match(/(\d+)%/);
+        if(!pctMatch) return;
+        var pct = parseInt(pctMatch[1], 10);
+        var cls = pct === 100 ? "good" : (pct > 0 ? "warn" : "bad");
+        var bar = document.createElement("div");
+        bar.className = "monitor-bar-wrap";
+        bar.innerHTML = '<div class="monitor-bar-fill ' + cls + '" style="width:' + pct + '%"></div>';
+        card.appendChild(bar);
+      });
+
+      /* Tambah kartu Total jika belum ada */
+      if(!document.getElementById("monitorTotalCard76")){
+        var totalCard = document.createElement("div");
+        totalCard.id = "monitorTotalCard76";
+        totalCard.className = "monitor-card-total";
+        totalCard.innerHTML =
+          '<div class="label">Total Keseluruhan</div>' +
+          '<div class="value">' + totalDone + '/' + totalTotal + '</div>' +
+          '<div class="sub">' + totalPct + '% administrasi selesai</div>';
+        summaryEl.appendChild(totalCard);
+      } else {
+        var existing = document.getElementById("monitorTotalCard76");
+        existing.querySelector(".value").textContent = totalDone + "/" + totalTotal;
+        existing.querySelector(".sub").textContent   = totalPct + "% administrasi selesai";
+      }
+    }catch(e2){}
+  };
+
+  console.log("[BOP v1.76] Monitoring overall progress + visual bar aktif.");
+})();
+/* END PATCH v1.76 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.77 — Fix: Setting live KOP preview realtime
+
+   Masalah: KOP preview di halaman Setting (#kopPreview) hanya
+   diupdate saat updateDashboard() dipanggil. Saat user mengetik
+   di field Nama RT/RW/Ketua/Alamat, preview tidak berubah realtime.
+
+   Fix: tambah event delegation pada input/select di #page-setting
+   yang trigger refresh kopPreview dengan debounce 400ms.
+════════════════════════════════════════════════════════════════ */
+(function bopFix77(){
+  if(window.__bopFix77) return;
+  window.__bopFix77 = true;
+
+  var _debounce77 = null;
+
+  function refreshKopPreview77(){
+    try{
+      /* Kumpulkan data master terbaru dari input */
+      if(typeof collectAll === "function") collectAll();
+      else if(typeof collectPersiapan === "function") collectPersiapan();
+
+      var kopEl = document.getElementById("kopPreview");
+      if(!kopEl) return;
+      if(typeof official === "function" && typeof kopHTML === "function"){
+        kopEl.innerHTML = official(
+          '<div class="title">CONTOH KOP SURAT RESMI</div>' +
+          '<p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>'
+        );
+      } else if(typeof official === "function"){
+        kopEl.innerHTML = official(
+          '<div class="title">CONTOH KOP SURAT RESMI</div>' +
+          '<p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>'
+        );
+      }
+    }catch(e){}
+  }
+
+  document.addEventListener("input", function(e){
+    var page = document.getElementById("page-setting");
+    if(!page || !page.contains(e.target)) return;
+    /* Hanya field master/kop yang relevan */
+    var relevantIds = ["masterRt","masterRw","masterKelurahan","masterKecamatan","masterKota",
+                       "masterKetua","masterSekretaris","masterBendahara","masterAlamat",
+                       "kopNamaOrg","kopAlamat","kopTelepon","kopEmail"];
+    var id = e.target.id || "";
+    if(!relevantIds.includes(id) && !id.startsWith("master") && !id.startsWith("kop")) return;
+    clearTimeout(_debounce77);
+    _debounce77 = setTimeout(refreshKopPreview77, 400);
+  }, false);
+
+  console.log("[BOP v1.77] Setting live KOP preview realtime aktif.");
+})();
+/* END PATCH v1.77 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.78 — Fix: RAP over-budget warning banner
+
+   Masalah: tidak ada peringatan visual saat total RAP melebihi
+   Rp 25.000.000. User bisa input berlebih tanpa sadar.
+
+   Fix:
+   1. Tambah banner warning di bawah tabel RAP saat total > budget.
+   2. Warnai sel total merah saat over-budget.
+   3. Update warning setiap kali renderRap() atau updateDashboard().
+════════════════════════════════════════════════════════════════ */
+(function bopFix78(){
+  if(window.__bopFix78) return;
+  window.__bopFix78 = true;
+
+  var BUDGET_78 = 25000000;
+
+  var style78 = document.createElement("style");
+  style78.textContent = `
+    #rapBudgetWarning78 {
+      display: none;
+      background: #fef2f2;
+      border: 1.5px solid #dc2626;
+      color: #991b1b;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin: 8px 0;
+      font-size: 0.93em;
+      font-weight: 500;
+    }
+    #rapBudgetWarning78.visible { display: block; }
+    #rapBudgetWarning78.safe {
+      background: #f0fdf4;
+      border-color: #16a34a;
+      color: #166534;
+    }
+    .rap-total-over { color: #dc2626 !important; font-weight: 700; }
+  `;
+  document.head.appendChild(style78);
+
+  function ensureWarningBanner78(){
+    if(document.getElementById("rapBudgetWarning78")) return;
+    var rapTable = document.getElementById("rapTable");
+    if(!rapTable) return;
+    var banner = document.createElement("div");
+    banner.id = "rapBudgetWarning78";
+    rapTable.parentNode.insertBefore(banner, rapTable.nextSibling);
+  }
+
+  function updateWarning78(){
+    try{
+      ensureWarningBanner78();
+      var banner = document.getElementById("rapBudgetWarning78");
+      if(!banner) return;
+      var total = typeof totalRap === "function" ? totalRap() : 0;
+      var sisa  = BUDGET_78 - total;
+      var rupiahFn = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
+
+      /* Update warna sel total */
+      var totalCell = document.getElementById("rapTotalCell");
+      if(totalCell){
+        if(total > BUDGET_78) totalCell.classList.add("rap-total-over");
+        else                  totalCell.classList.remove("rap-total-over");
+      }
+
+      if(total > BUDGET_78){
+        banner.className = "visible";
+        banner.innerHTML = "⚠ Total RAP <strong>" + rupiahFn(total) + "</strong> melebihi pagu anggaran " +
+          rupiahFn(BUDGET_78) + " sebesar <strong>" + rupiahFn(total - BUDGET_78) + "</strong>. " +
+          "Harap sesuaikan rincian RAP agar tidak melebihi pagu.";
+      } else if(total > 0){
+        banner.className = "visible safe";
+        banner.innerHTML = "✓ Total RAP <strong>" + rupiahFn(total) + "</strong>. " +
+          "Sisa pagu: <strong>" + rupiahFn(sisa) + "</strong>.";
+      } else {
+        banner.className = "";
+      }
+    }catch(e){}
+  }
+
+  /* ── Hook renderRap ─────────────────────────────────────── */
+  var _origRR78 = window.renderRap;
+  window.renderRap = function renderRap78(){
+    if(typeof _origRR78 === "function") try{ _origRR78(); }catch(e){}
+    setTimeout(updateWarning78, 50);
+  };
+
+  /* ── Init ────────────────────────────────────────────────── */
+  if(document.readyState !== "loading") setTimeout(updateWarning78, 1000);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(updateWarning78, 1000); });
+
+  console.log("[BOP v1.78] RAP over-budget warning banner aktif.");
+})();
+/* END PATCH v1.78 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.79 — Fix: Persiapan Kegiatan konfirmasi hapus + scroll
+
+   Masalah:
+   1. deletePkPeserta/deletePkAction tidak ada konfirmasi → hapus
+      tidak sengaja sulit di-undo.
+   2. addPkPeserta/addPkAction tidak scroll ke baris baru → user
+      tidak tahu baris baru muncul di mana.
+
+   Fix: override ke-4 fungsi dengan konfirmasi bopConfirm dan
+   scroll ke baris terakhir setelah add.
+════════════════════════════════════════════════════════════════ */
+(function bopFix79(){
+  if(window.__bopFix79) return;
+  window.__bopFix79 = true;
+
+  /* ── Scroll ke baris terakhir tabel ─────────────────────── */
+  function scrollToLastRow79(tableId){
+    setTimeout(function(){
+      var tb = document.getElementById(tableId);
+      if(!tb) return;
+      var rows = tb.querySelectorAll("tr");
+      if(rows.length > 0){
+        var last = rows[rows.length - 1];
+        last.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        /* Focus input pertama di baris baru */
+        var inp = last.querySelector("input");
+        if(inp) inp.focus();
+      }
+    }, 120);
+  }
+
+  /* ── addPkPeserta ────────────────────────────────────────── */
+  var _origAddPes79 = window.addPkPeserta;
+  window.addPkPeserta = function addPkPeserta79(){
+    if(typeof _origAddPes79 === "function") _origAddPes79();
+    scrollToLastRow79("pkPesertaTable");
+  };
+
+  /* ── addPkAction ─────────────────────────────────────────── */
+  var _origAddAct79 = window.addPkAction;
+  window.addPkAction = function addPkAction79(){
+    if(typeof _origAddAct79 === "function") _origAddAct79();
+    scrollToLastRow79("pkActionTable");
+  };
+
+  /* ── deletePkPeserta — tambah konfirmasi ─────────────────── */
+  var _origDelPes79 = window.deletePkPeserta;
+  window.deletePkPeserta = function deletePkPeserta79(i){
+    var confirmFn = typeof bopConfirm === "function"
+      ? bopConfirm("Hapus Peserta", "Yakin ingin menghapus peserta ini?", "warning", "Hapus", "Batal")
+      : Promise.resolve(confirm("Hapus peserta ini?"));
+    confirmFn.then(function(ok){
+      if(!ok) return;
+      if(typeof _origDelPes79 === "function") _origDelPes79(i);
+    });
+  };
+
+  /* ── deletePkAction — tambah konfirmasi ──────────────────── */
+  var _origDelAct79 = window.deletePkAction;
+  window.deletePkAction = function deletePkAction79(i){
+    var confirmFn = typeof bopConfirm === "function"
+      ? bopConfirm("Hapus Tindak Lanjut", "Yakin ingin menghapus item ini?", "warning", "Hapus", "Batal")
+      : Promise.resolve(confirm("Hapus item ini?"));
+    confirmFn.then(function(ok){
+      if(!ok) return;
+      if(typeof _origDelAct79 === "function") _origDelAct79(i);
+    });
+  };
+
+  console.log("[BOP v1.79] Persiapan konfirmasi hapus + scroll ke baris baru aktif.");
+})();
+/* END PATCH v1.79 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.80 — Fix: Browser tab title update saat navigasi
+
+   Masalah: document.title tidak diupdate konsisten saat user
+   berpindah menu. Tab browser selalu menampilkan judul default
+   sehingga sulit membedakan halaman mana yang aktif.
+
+   Fix: hook showOnlyPageV31 agar update document.title sesuai
+   nama halaman yang aktif.
+════════════════════════════════════════════════════════════════ */
+(function bopFix80(){
+  if(window.__bopFix80) return;
+  window.__bopFix80 = true;
+
+  var PAGE_TITLES_80 = {
+    dashboard:   "Dashboard — BOP RT 005",
+    pengajuan:   "Pengajuan Dana — BOP RT 005",
+    persiapan:   "Persiapan Kegiatan — BOP RT 005",
+    lpj:         "LPJ / SPJ — BOP RT 005",
+    moku:        "MoKu Mobile — BOP RT 005",
+    monitoring:  "Monitoring Administrasi — BOP RT 005",
+    setting:     "Setting — BOP RT 005",
+    akses:       "LaKu Warga — BOP RT 005"
+  };
+
+  var _origSOP80 = window.showOnlyPageV31;
+  window.showOnlyPageV31 = function showOnlyPageV31_80(page){
+    if(typeof _origSOP80 === "function") _origSOP80(page);
+    try{
+      var rtLabel = "";
+      if(typeof masterTitle === "function") rtLabel = " | " + masterTitle();
+      var title = PAGE_TITLES_80[page] || ("BOP RT 005 — " + page);
+      document.title = title + rtLabel;
+    }catch(e){}
+  };
+
+  console.log("[BOP v1.80] Browser tab title update saat navigasi aktif.");
+})();
+/* END PATCH v1.80 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.81 — Fix: LPJ auto-sync saldoAwal + kalkulasi saldo akhir
+
+   Masalah:
+   1. Field #lpjSaldoAwal harus selalu 25.000.000 (pagu BOP) namun
+      sering kosong atau tidak terisi otomatis.
+   2. Saldo akhir (= saldoAwal - totalPengeluaran) tidak auto-kalkulasi
+      dan tidak ditampilkan di form LPJ.
+
+   Fix:
+   1. Setiap fillInputs() → set lpjSaldoAwal = 25.000.000 jika kosong.
+   2. Setiap update expense → kalkulasi dan tampilkan saldo akhir.
+   3. Inject field display saldo akhir jika belum ada.
+════════════════════════════════════════════════════════════════ */
+(function bopFix81(){
+  if(window.__bopFix81) return;
+  window.__bopFix81 = true;
+
+  var PAGU_81 = 25000000;
+
+  /* ── CSS saldo akhir ──────────────────────────────────────── */
+  var style81 = document.createElement("style");
+  style81.textContent = `
+    #lpjSaldoAkhirDisplay81 {
+      background: #f0fdf4;
+      border: 1.5px solid #16a34a;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin: 8px 0;
+      font-size: 0.95em;
+      color: #166534;
+      font-weight: 600;
+    }
+    #lpjSaldoAkhirDisplay81.minus {
+      background: #fef2f2;
+      border-color: #dc2626;
+      color: #991b1b;
+    }
+  `;
+  document.head.appendChild(style81);
+
+  function updateLpjSaldo81(){
+    try{
+      var saldoInput = document.getElementById("lpjSaldoAwal");
+      if(saldoInput && (!saldoInput.value || Number(saldoInput.value) === 0)){
+        saldoInput.value = PAGU_81;
+        if(typeof data !== "undefined" && data.lpj) data.lpj.saldoAwal = PAGU_81;
+        try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){}
+      }
+
+      var saldoAwal = saldoInput ? Number(saldoInput.value || PAGU_81) : PAGU_81;
+      var totalPeng = typeof totalExpense === "function" ? totalExpense() : 0;
+      var saldoAkhir = saldoAwal - totalPeng;
+      var rupiahFn  = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
+
+      /* Cari/buat elemen display saldo akhir */
+      var expTable = document.getElementById("expenseTable");
+      if(expTable){
+        var disp = document.getElementById("lpjSaldoAkhirDisplay81");
+        if(!disp){
+          disp = document.createElement("div");
+          disp.id = "lpjSaldoAkhirDisplay81";
+          expTable.parentNode.insertBefore(disp, expTable.nextSibling);
+        }
+        disp.className = saldoAkhir < 0 ? "minus" : "";
+        disp.innerHTML = (saldoAkhir >= 0 ? "✓" : "⚠") +
+          " Saldo Akhir (Pagu − Pengeluaran): <strong>" + rupiahFn(saldoAkhir) + "</strong>" +
+          " &nbsp;|&nbsp; Pengeluaran: " + rupiahFn(totalPeng) +
+          " &nbsp;|&nbsp; Pagu: " + rupiahFn(saldoAwal);
+      }
+    }catch(e){}
+  }
+
+  /* ── Hook fillInputs ─────────────────────────────────────── */
+  var _origFI81 = window.fillInputs;
+  window.fillInputs = function fillInputs81(){
+    if(typeof _origFI81 === "function") _origFI81();
+    setTimeout(updateLpjSaldo81, 80);
+  };
+
+  /* ── Hook renderExpenses ─────────────────────────────────── */
+  var _origRE81 = window.renderExpenses;
+  window.renderExpenses = function renderExpenses81(){
+    if(typeof _origRE81 === "function") _origRE81();
+    setTimeout(updateLpjSaldo81, 80);
+  };
+
+  /* ── Init ────────────────────────────────────────────────── */
+  if(document.readyState !== "loading") setTimeout(updateLpjSaldo81, 1200);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(updateLpjSaldo81, 1200); });
+
+  console.log("[BOP v1.81] LPJ auto-sync saldoAwal + kalkulasi saldo akhir aktif.");
+})();
+/* END PATCH v1.81 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.82 — Fix: Export PDF null-guard + loading indicator
+
+   Masalah: exportPdfDocV38 / exportPdfLpjV38 bisa crash jika:
+   1. #docOutput / #lpjOutput kosong atau tidak ada.
+   2. Swal tidak tersedia.
+   Juga tidak ada indikator loading saat proses PDF berjalan.
+
+   Fix: wrap export functions dengan null-guard, tampilkan
+   bopToast "Menyiapkan PDF…" sebelum export, dan catch error
+   yang informatif.
+════════════════════════════════════════════════════════════════ */
+(function bopFix82(){
+  if(window.__bopFix82) return;
+  window.__bopFix82 = true;
+
+  function withLoadingToast82(label, fn){
+    return async function(){
+      try{
+        if(typeof bopToast === "function")
+          bopToast("Menyiapkan " + label, "Mohon tunggu sebentar…", "info");
+      }catch(e){}
+      try{
+        await fn();
+      }catch(err){
+        console.error("[BOP v1.82] Export error:", err);
+        try{
+          if(typeof bopToast === "function")
+            bopToast("Gagal Export", "Terjadi kesalahan saat membuat " + label + ". Coba generate dokumen terlebih dahulu.", "error");
+        }catch(e2){}
+      }
+    };
+  }
+
+  /* ── Patch exportPdfDocV38 ───────────────────────────────── */
+  var _origEPD82 = window.exportPdfDocV38;
+  window.exportPdfDocV38 = withLoadingToast82("PDF Dokumen", async function(){
+    var out = document.getElementById("docOutput");
+    if(!out || !out.innerHTML.trim()){
+      if(typeof previewDoc === "function" && typeof currentDoc !== "undefined")
+        previewDoc(currentDoc);
+      out = document.getElementById("docOutput");
+    }
+    if(!out || !out.innerHTML.trim()){
+      throw new Error("docOutput kosong");
+    }
+    if(typeof _origEPD82 === "function") await _origEPD82();
+    else window.print();
+  });
+
+  /* ── Patch exportPdfLpjV38 ───────────────────────────────── */
+  var _origEPL82 = window.exportPdfLpjV38;
+  window.exportPdfLpjV38 = withLoadingToast82("PDF LPJ", async function(){
+    var out = document.getElementById("lpjOutput");
+    if(!out || !out.innerHTML.trim()){
+      if(typeof docLpj === "function"){
+        var el = document.getElementById("lpjOutput");
+        if(el) el.innerHTML = docLpj();
+      }
+      out = document.getElementById("lpjOutput");
+    }
+    if(!out || !out.innerHTML.trim()){
+      throw new Error("lpjOutput kosong");
+    }
+    if(typeof _origEPL82 === "function") await _origEPL82();
+    else window.print();
+  });
+
+  /* ── Re-bind tombol export ───────────────────────────────── */
+  function rebindExportBtns82(){
+    var btnDoc = document.getElementById("exportPdfDocV38");
+    if(btnDoc) btnDoc.onclick = window.exportPdfDocV38;
+    var btnLpj = document.getElementById("exportPdfLpjV38");
+    if(btnLpj) btnLpj.onclick = window.exportPdfLpjV38;
+  }
+  if(document.readyState !== "loading") setTimeout(rebindExportBtns82, 600);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(rebindExportBtns82, 600); });
+
+  console.log("[BOP v1.82] Export PDF null-guard + loading indicator aktif.");
+})();
+/* END PATCH v1.82 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.83 — Fix komprehensif final: debounce RAP input +
+                 mobile overflow tabel + tooltip monitoring status
+
+   Masalah:
+   1. Input RAP (data-rap) tidak di-debounce → setiap keystroke
+      trigger renderRap() yang berat dan menyebabkan cursor jump.
+   2. Tabel RAP dan Pengeluaran overflow di layar mobile (< 600px)
+      tanpa scrollable wrapper.
+   3. Monitoring tidak ada tooltip untuk status pill sehingga user
+      awam tidak tahu arti "upload", "selesai", "belum", "proses".
+
+   Fix:
+   1. Debounce input[data-rap] 350ms (terpisah dari debounce v1.59).
+   2. Inject CSS overflow-x:auto pada wrapper tabel.
+   3. Inject CSS tooltip pada .monitor-status-pill-v24.
+════════════════════════════════════════════════════════════════ */
+(function bopFix83(){
+  if(window.__bopFix83) return;
+  window.__bopFix83 = true;
+
+  /* ══ 1. CSS: Mobile tabel overflow + monitoring tooltip ═══ */
+  var style83 = document.createElement("style");
+  style83.textContent = `
+    /* Mobile tabel overflow */
+    @media (max-width: 640px) {
+      #rapTable,
+      .rap-wide-table,
+      #expenseTable,
+      .expense-table,
+      .monitoring-table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+      }
+      .rap-wide-table th,
+      .rap-wide-table td {
+        white-space: nowrap;
+        font-size: 0.82em;
+      }
+    }
+
+    /* Monitoring status tooltip */
+    .monitor-status-pill-v24 {
+      position: relative;
+      cursor: help;
+    }
+    .monitor-status-pill-v24::after {
+      content: attr(data-tooltip83);
+      position: absolute;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 0.75em;
+      padding: 4px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 999;
+    }
+    .monitor-status-pill-v24:hover::after { opacity: 1; }
+  `;
+  document.head.appendChild(style83);
+
+  /* ══ 2. Debounce input[data-rap] 350ms ════════════════════ */
+  var _rapDebounce83  = null;
+  var _origRR83 = window.renderRap;
+
+  document.addEventListener("input", function(e){
+    var t = e.target;
+    if(!t || !t.dataset || !t.dataset.rap) return;
+    /* Batalkan renderRap yang terjadwal dari listener asli */
+    clearTimeout(_rapDebounce83);
+    _rapDebounce83 = setTimeout(function(){
+      if(typeof updateRapFromInputs === "function") updateRapFromInputs();
+      try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(ex){}
+      if(typeof renderRap === "function") renderRap();
+    }, 350);
+  }, true /* capture agar jalan sebelum listener bubble asli */);
+
+  /* ══ 3. Inject tooltip pada monitoring pills ══════════════ */
+  var STATUS_TIPS_83 = {
+    belum:   "Belum dikerjakan",
+    proses:  "Sedang dalam proses",
+    selesai: "Dokumen sudah selesai",
+    upload:  "Dokumen sudah diunggah/diserahkan",
+    revisi:  "Perlu revisi"
+  };
+
+  function injectMonitoringTooltips83(){
+    var pills = document.querySelectorAll(".monitor-status-pill-v24:not([data-tooltip83])");
+    pills.forEach(function(pill){
+      var txt = (pill.textContent || "").trim().toLowerCase();
+      var tip = STATUS_TIPS_83[txt] || txt;
+      pill.setAttribute("data-tooltip83", tip);
+    });
+  }
+
+  /* Hook renderMonitoringV24 agar tooltip selalu inject */
+  var _origRM83 = window.renderMonitoringV24;
+  window.renderMonitoringV24 = function renderMonitoringV24_83(){
+    if(typeof _origRM83 === "function") try{ _origRM83(); }catch(e){}
+    setTimeout(injectMonitoringTooltips83, 80);
+  };
+
+  /* Init */
+  if(document.readyState !== "loading") setTimeout(injectMonitoringTooltips83, 1000);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(injectMonitoringTooltips83, 1000); });
+
+  console.log("[BOP v1.83] Komprehensif final: debounce RAP + mobile overflow + monitoring tooltip aktif.");
+})();
+/* END PATCH v1.83 */

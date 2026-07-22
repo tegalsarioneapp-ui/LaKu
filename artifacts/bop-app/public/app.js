@@ -309,7 +309,7 @@ function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw|
 
 function kopHTML(){
   const k=data.kop;
-  return `<div class="kop"><div class="kop-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang"></div><div class="kop-text"><div class="kop-b1">${k.baris1}</div><div class="kop-b2">${k.baris2}</div><div class="kop-b2">${k.baris3}</div><div class="kop-b2">${k.baris4}</div><div class="kop-addr">${k.alamat||data.master.alamat||""}</div></div><div class="kop-logo-spacer"></div></div>`;
+  return `<div class="kop"><div class="kop-logo-wrap"><img src="assets/logo-rt005.png" class="kop-logo" alt="Logo RT 005 RW 012"></div><div class="kop-text"><div class="kop-b1">${k.baris1}</div><div class="kop-b2">${k.baris2}</div><div class="kop-b2">${k.baris3}</div><div class="kop-b2">${k.baris4}</div><div class="kop-addr">${k.alamat||data.master.alamat||""}</div></div><div class="kop-logo-spacer"></div></div>`;
 }
 
 
@@ -9471,7 +9471,7 @@ ${KOP_PDF_CSS}
     return '<div class="kop kop-v63">'+
       '<div class="kop-v63-header">'+esc63(b1)+'</div>'+
       '<div class="kop-v63-row">'+
-        '<div class="kop-v63-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-v63-logo" alt="Logo Kota Semarang"></div>'+
+        '<div class="kop-v63-logo-wrap"><img src="assets/logo-rt005.png" class="kop-v63-logo" alt="Logo RT 005 RW 012"></div>'+
         '<div class="kop-v63-info">'+
           '<div class="kop-v63-line1">'+esc63(b2)+'</div>'+
           '<div class="kop-v63-line1">'+esc63(b3)+'</div>'+
@@ -9493,7 +9493,7 @@ ${KOP_PDF_CSS}
       .kop-v63-header{font-family:"Times New Roman",serif;font-weight:700;font-size:18px;text-transform:uppercase;text-align:center;margin:0 0 6px}
       .kop-v63-row{display:grid;grid-template-columns:74px 1fr 74px;align-items:center;column-gap:14px}
       .kop-v63-logo-wrap{grid-column:1;justify-self:start}
-      .kop-v63-logo{width:60px;max-height:74px;object-fit:contain;display:block}
+      .kop-v63-logo{width:62px;height:62px;object-fit:cover;display:block;border-radius:50%;border:2px solid #1e3a5f;box-shadow:0 1px 4px rgba(0,0,0,.15)}
       .kop-v63-info{grid-column:2;text-align:center}
       .kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:15px;text-transform:uppercase;margin:2px 0;text-align:center}
       .kop-v63-hr{border-top:1.5px solid #000;margin:6px 0 4px}
@@ -9505,7 +9505,7 @@ ${KOP_PDF_CSS}
       @media(max-width:560px){.ttd-grouped-v63 .ttd-row-v63{grid-template-columns:1fr;gap:16px}.kop-v63-row{grid-template-columns:50px 1fr 50px;column-gap:8px}}
       @media print{
         .kop.kop-v63{border-bottom:3px double #000!important}
-        .kop-v63-logo{width:56px!important;max-height:68px!important}
+        .kop-v63-logo{width:58px!important;height:58px!important;object-fit:cover!important;border-radius:50%!important;border:2px solid #1e3a5f!important}
         .ttd-grouped-v63 .ttd-row-v63{page-break-inside:avoid;break-inside:avoid}
       }
     `;
@@ -11688,6 +11688,7 @@ ${KOP_PDF_CSS}
     lpj:         "LPJ / SPJ — BOP RT 005",
     moku:        "MoKu Mobile — BOP RT 005",
     monitoring:  "Monitoring Administrasi — BOP RT 005",
+    rapreal:     "RAP vs Realisasi — BOP RT 005",
     setting:     "Setting — BOP RT 005",
     akses:       "LaKu Warga — BOP RT 005"
   };
@@ -12004,3 +12005,329 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.83] Komprehensif final: debounce RAP + mobile overflow + monitoring tooltip aktif.");
 })();
 /* END PATCH v1.83 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.84 — Menu RAP vs Realisasi + Logo RT 005 Fix
+
+   Fitur baru:
+   1. Halaman "RAP vs Realisasi" — membandingkan RAP 1 Tahun
+      dengan realisasi pengeluaran dari data LPJ/SPJ.
+   2. KPI summary: Total RAP, Total Realisasi, Selisih, % Realisasi.
+   3. Tabel rincian per mata anggaran RAP dengan match fuzzy ke
+      pengeluaran LPJ berdasarkan kesamaan kata kunci.
+   4. Tabel detail pengeluaran LPJ.
+   5. Cetak / Export PDF halaman RAP vs Realisasi.
+   6. Logo sidebar + topbar + KOP sudah ganti ke logo-rt005.png.
+════════════════════════════════════════════════════════════════ */
+(function bopFix84(){
+  if(window.__bopFix84) return;
+  window.__bopFix84 = true;
+
+  var BUDGET_84 = 25000000;
+
+  /* ── Helpers ──────────────────────────────────────────────── */
+  function rp(n){ return typeof rupiah === "function" ? rupiah(Number(n||0)) : "Rp"+(Number(n||0)).toLocaleString("id-ID"); }
+  function esc84(s){ var d=document.createElement("div"); d.textContent=String(s||""); return d.innerHTML; }
+  function safe(id){ return document.getElementById(id); }
+  function setText(id,v){ var el=safe(id); if(el) el.textContent=v; }
+  function setHtml(id,v){ var el=safe(id); if(el) el.innerHTML=v; }
+
+  /* ── Fuzzy match: apakah kalimat A mengandung kata dari B ── */
+  function fuzzyMatch84(source, target){
+    if(!source || !target) return false;
+    var sWords = source.toLowerCase().replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(w=>w.length>3);
+    var tLower = target.toLowerCase();
+    var hits = sWords.filter(w => tLower.includes(w));
+    return hits.length >= Math.min(1, Math.ceil(sWords.length * 0.3));
+  }
+
+  /* ── Ambil data RAP ───────────────────────────────────────── */
+  function getRapItems84(){
+    try{
+      if(typeof normalizeRapV17 === "function") normalizeRapV17();
+      return (data.pengajuan.rap || []).filter(r => r && (r.uraian || r.jumlah));
+    }catch(e){ return []; }
+  }
+
+  /* ── Ambil pengeluaran LPJ ───────────────────────────────── */
+  function getLpjItems84(){
+    try{
+      return (data.lpj.pengeluaran || []).filter(r => r && (r[1] || r[2]));
+    }catch(e){ return []; }
+  }
+
+  /* ── Match pengeluaran ke setiap RAP item ─────────────────── */
+  function matchRealisasi84(rapItems, lpjItems){
+    /* Tandai lpj yang sudah diklaim */
+    var claimed = new Array(lpjItems.length).fill(false);
+    return rapItems.map(function(rap){
+      var rapLabel = (rap.uraian || "") + " " + (rap.kategori || "") + " " + (rap.subKategori || "");
+      var matched = [];
+      lpjItems.forEach(function(lpj, idx){
+        if(claimed[idx]) return;
+        var lpjLabel = (lpj[1] || "") + " " + (lpj[3] || ""); /* kegiatan + keterangan */
+        if(fuzzyMatch84(rapLabel, lpjLabel) || fuzzyMatch84(lpjLabel, rapLabel)){
+          matched.push({ jumlah: Number(lpj[2]||0), desc: lpj[1]||"" });
+          claimed[idx] = true;
+        }
+      });
+      var totalMatch = matched.reduce(function(s,m){ return s+m.jumlah; }, 0);
+      return { rap: rap, realisasi: totalMatch, matched: matched };
+    });
+  }
+
+  /* ── Render halaman RAP vs Realisasi ─────────────────────── */
+  function renderRapReal84(){
+    var rapItems  = getRapItems84();
+    var lpjItems  = getLpjItems84();
+
+    /* Kalkulasi total */
+    var totalRap  = rapItems.reduce(function(s,r){ return s+Number(r.jumlah||0); }, 0);
+    var totalLpj  = lpjItems.reduce(function(s,r){ return s+Number(r[2]||0); }, 0);
+    var selisih   = totalRap - totalLpj;
+    var pct       = totalRap > 0 ? Math.min(Math.round(totalLpj/totalRap*100), 999) : 0;
+
+    /* KPI */
+    setText("rrTotalRap",  rp(totalRap));
+    setText("rrTotalReal", rp(totalLpj));
+    setText("rrSelisih",   rp(Math.abs(selisih)));
+    setText("rrPersen",    pct+"%");
+
+    /* Progress bar keseluruhan */
+    var barEl = safe("rrProgressBar");
+    if(barEl){
+      var barPct = Math.min(pct, 100);
+      barEl.style.width = barPct + "%";
+      barEl.className = "rr-bar-fill" + (pct > 100 ? " over" : (pct === 100 ? " full" : ""));
+    }
+    setText("rrProgressLabel", pct + "% Realisasi");
+
+    /* Tabel RAP per mata anggaran */
+    var rows84 = matchRealisasi84(rapItems, lpjItems);
+    var tbody = safe("rapRealTbody");
+    if(tbody){
+      tbody.innerHTML = rows84.length ? rows84.map(function(r,i){
+        var rapJ   = Number(r.rap.jumlah||0);
+        var real   = r.realisasi;
+        var sel    = rapJ - real;
+        var p      = rapJ > 0 ? Math.round(real/rapJ*100) : 0;
+        var barCls = p > 100 ? "over" : (p >= 90 ? "good" : "warn");
+        var stsCls, stsLabel;
+        if(rapJ === 0 && real === 0){ stsCls = "rr-status-nol"; stsLabel = "Belum ada"; }
+        else if(real === 0){ stsCls = "rr-status-nol"; stsLabel = "Belum realisasi"; }
+        else if(real > rapJ){ stsCls = "rr-status-lebih"; stsLabel = "Lebih "+rp(real-rapJ); }
+        else if(Math.abs(sel) < 1000){ stsCls = "rr-status-sesuai"; stsLabel = "Sesuai ✓"; }
+        else { stsCls = "rr-status-kurang"; stsLabel = "Kurang "+rp(sel); }
+        return `<tr>
+          <td style="text-align:center">${i+1}</td>
+          <td>${esc84(r.rap.uraian||"—")}</td>
+          <td style="text-align:center"><small>${esc84(r.rap.kategori||"")}</small></td>
+          <td style="text-align:right">${rp(rapJ)}</td>
+          <td style="text-align:right">${rp(real)}</td>
+          <td style="text-align:right;color:${sel>=0?"#166534":"#991b1b"}">${rp(Math.abs(sel))}</td>
+          <td class="rr-pct-cell">
+            <span style="font-weight:700">${p}%</span>
+            <div class="rr-mini-bar-wrap"><div class="rr-mini-bar-fill ${barCls}" style="width:${Math.min(p,100)}%"></div></div>
+          </td>
+          <td><span class="${stsCls}">${stsLabel}</span></td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8">Belum ada data RAP. Tambahkan RAP 1 Tahun terlebih dahulu.</td></tr>`;
+
+      /* Footer total */
+      setHtml("rrFootRap",  `<b>${rp(totalRap)}</b>`);
+      setHtml("rrFootReal", `<b>${rp(totalLpj)}</b>`);
+      setHtml("rrFootSel",  `<b style="color:${selisih>=0?'#166534':'#991b1b'}">${rp(Math.abs(selisih))}</b>`);
+      setHtml("rrFootPct",  `<b>${pct}%</b>`);
+    }
+
+    /* Tabel LPJ detail */
+    var lpjTbody = safe("rapRealLpjTbody");
+    if(lpjTbody){
+      lpjTbody.innerHTML = lpjItems.length ? lpjItems.map(function(r,i){
+        return `<tr>
+          <td style="text-align:center">${i+1}</td>
+          <td>${esc84(r[0]||"—")}</td>
+          <td>${esc84(r[1]||"—")}</td>
+          <td style="text-align:right">${rp(r[2])}</td>
+          <td>${esc84(r[3]||"—")}</td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="5" style="text-align:center;padding:20px;color:#94a3b8">Belum ada data pengeluaran LPJ.</td></tr>`;
+      setHtml("rrLpjTotal", `<b>${rp(totalLpj)}</b>`);
+      setText("rrLpjCount", lpjItems.length + " item");
+    }
+  }
+
+  /* ── Generate dokumen cetak RAP vs Realisasi ─────────────── */
+  function docRapReal84(){
+    var rapItems = getRapItems84();
+    var lpjItems = getLpjItems84();
+    var totalRap = rapItems.reduce(function(s,r){ return s+Number(r.jumlah||0); }, 0);
+    var totalLpj = lpjItems.reduce(function(s,r){ return s+Number(r[2]||0); }, 0);
+    var selisih  = totalRap - totalLpj;
+    var pct      = totalRap > 0 ? Math.round(totalLpj/totalRap*100) : 0;
+    var rows84   = matchRealisasi84(rapItems, lpjItems);
+    var m        = (typeof data !== "undefined" && data.master) ? data.master : {};
+    var kop      = (typeof official === "function") ? official('') : '';
+
+    var tbody = rows84.map(function(r,i){
+      var rapJ = Number(r.rap.jumlah||0);
+      var real = r.realisasi;
+      var sel  = rapJ - real;
+      var p    = rapJ > 0 ? Math.round(real/rapJ*100) : 0;
+      var stsLabel = real===0 ? "Belum" : (real>rapJ ? "Lebih" : (Math.abs(sel)<1000 ? "Sesuai" : "Kurang"));
+      return `<tr>
+        <td style="text-align:center;border:1px solid #000">${i+1}</td>
+        <td style="border:1px solid #000">${esc84(r.rap.uraian||"—")}</td>
+        <td style="border:1px solid #000">${esc84(r.rap.kategori||"—")}</td>
+        <td style="text-align:right;border:1px solid #000">${rp(rapJ)}</td>
+        <td style="text-align:right;border:1px solid #000">${rp(real)}</td>
+        <td style="text-align:right;border:1px solid #000">${rp(Math.abs(sel))}</td>
+        <td style="text-align:center;border:1px solid #000">${p}%</td>
+        <td style="text-align:center;border:1px solid #000">${stsLabel}</td>
+      </tr>`;
+    }).join("");
+
+    var kopHtml = "";
+    try{ kopHtml = (typeof kopHTML === "function") ? kopHTML() : ""; }catch(e){}
+
+    return `<div class="official" style="font-family:'Times New Roman',serif;font-size:12pt">
+      ${kopHtml}
+      <div class="title" style="text-align:center;font-weight:700;font-size:14pt;margin:16px 0 4px">
+        LAPORAN PERBANDINGAN RAP DAN REALISASI ANGGARAN
+      </div>
+      <p style="text-align:center;margin:0 0 16px">
+        RT ${esc84(m.rt||"005")} RW ${esc84(m.rw||"012")} Kelurahan ${esc84(m.kelurahan||"Tegalsari")} — Tahun 2026
+      </p>
+
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11pt">
+        <thead>
+          <tr style="background:#1e3a5f;color:#fff">
+            <th style="border:1px solid #000;padding:5px 8px;text-align:center">No</th>
+            <th style="border:1px solid #000;padding:5px 8px">Uraian Kegiatan</th>
+            <th style="border:1px solid #000;padding:5px 8px">Kategori</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:right">Anggaran RAP</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:right">Realisasi</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:right">Selisih</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:center">%</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tbody || '<tr><td colspan="8" style="text-align:center;border:1px solid #000">Belum ada data RAP.</td></tr>'}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;background:#f1f5f9">
+            <td colspan="3" style="border:1px solid #000;padding:5px 8px">TOTAL</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:right">${rp(totalRap)}</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:right">${rp(totalLpj)}</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:right">${rp(Math.abs(selisih))}</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:center">${pct}%</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:center">—</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <p style="margin:4px 0">Keterangan:</p>
+      <ul style="margin:4px 0 16px;padding-left:20px;font-size:11pt">
+        <li>Total Anggaran RAP: <b>${rp(totalRap)}</b></li>
+        <li>Total Realisasi Pengeluaran: <b>${rp(totalLpj)}</b></li>
+        <li>Selisih (Sisa): <b>${rp(Math.abs(selisih))}</b> ${selisih>=0?"(anggaran masih ada)":"(realisasi melebihi RAP)"}</li>
+        <li>Persentase Realisasi: <b>${pct}%</b></li>
+      </ul>
+
+      <div class="ttd-2" style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:32px;font-size:11pt">
+        <div style="text-align:center">
+          <p>Mengetahui,</p>
+          <p>Ketua RT ${esc84(m.rt||"005")} RW ${esc84(m.rw||"012")}</p>
+          <br><br><br>
+          <p><b><u>${esc84(m.ketua||"................................")}</u></b></p>
+        </div>
+        <div style="text-align:center">
+          <p>Semarang, ................................ 2026</p>
+          <p>Bendahara RT</p>
+          <br><br><br>
+          <p><b><u>${esc84(m.bendahara||"................................")}</u></b></p>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ── Bind tombol di halaman RAP vs Realisasi ─────────────── */
+  function bindRapReal84(){
+    var btnRefresh = safe("rapRealRefresh");
+    if(btnRefresh) btnRefresh.onclick = function(){
+      try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+      renderRapReal84();
+      if(typeof bopToast==="function") bopToast("Diperbarui","Data RAP vs Realisasi diperbarui.","success");
+    };
+
+    var btnPrint = safe("rapRealPrint");
+    if(btnPrint) btnPrint.onclick = function(){
+      var outEl = safe("rapRealDocOutput");
+      if(outEl){
+        outEl.innerHTML = docRapReal84();
+        outEl.style.display = "";
+      }
+      try{
+        if(typeof bopToast==="function") bopToast("Menyiapkan Cetak","Dokumen siap dicetak.","info");
+        setTimeout(function(){ window.print(); }, 400);
+      }catch(e){ window.print(); }
+    };
+
+    var btnPdf = safe("rapRealExportPdf");
+    if(btnPdf) btnPdf.onclick = async function(){
+      var outEl = safe("rapRealDocOutput");
+      if(outEl){
+        outEl.innerHTML = docRapReal84();
+        outEl.style.display = "";
+      }
+      if(typeof bopToast==="function") bopToast("Menyiapkan PDF","Membuka dialog cetak/simpan PDF…","info");
+      try{
+        if(typeof exportPdfDocV38==="function"){
+          /* Copy konten ke docOutput untuk export */
+          var docOut = safe("docOutput");
+          if(docOut && outEl){ docOut.innerHTML = outEl.innerHTML; docOut.style.display=""; docOut.style.visibility="visible"; docOut.style.position="static"; docOut.style.left="0"; docOut.style.top="0"; }
+          await exportPdfDocV38();
+        } else {
+          window.print();
+        }
+      }catch(ex){ window.print(); }
+    };
+  }
+
+  /* ── Hook goPage ─────────────────────────────────────────── */
+  var _origGP84 = window.goPage;
+  window.goPage = async function goPage84(page){
+    if(typeof _origGP84==="function") await _origGP84(page);
+    if(page === "rapreal"){
+      try{
+        if(typeof collectAll==="function") collectAll();
+        renderRapReal84();
+      }catch(e){ console.warn("[BOP v1.84] renderRapReal error:", e); }
+    }
+  };
+
+  /* ── Auto-render saat kunjungi halaman ───────────────────── */
+  function initRapReal84(){
+    bindRapReal84();
+    /* Render jika halaman sudah aktif */
+    var pg = safe("page-rapreal");
+    if(pg && pg.classList.contains("active")){
+      try{ renderRapReal84(); }catch(e){}
+    }
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initRapReal84, 800); });
+  } else {
+    setTimeout(initRapReal84, 800);
+  }
+
+  /* ── Export untuk akses global ───────────────────────────── */
+  window.renderRapReal84  = renderRapReal84;
+  window.docRapReal84     = docRapReal84;
+
+  console.log("[BOP v1.84] RAP vs Realisasi + Logo RT 005 aktif.");
+})();
+/* END PATCH v1.84 */

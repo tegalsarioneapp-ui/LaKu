@@ -26,7 +26,7 @@
   <div class="app-shell access-lock-v30" id="appShell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Kota Semarang" class="brand-logo">
+        <img src="assets/logo-rt005.png" alt="Logo RT 005 RW 012" class="brand-logo">
         <div>
           <h1 class="brand-name-laku">LaKu Warga</h1>
           <p class="brand-tagline-laku">Laporan &amp; Dokumentasi Online Warga</p>
@@ -41,6 +41,7 @@
         <button data-page="lpj">Laporan Pertanggungjawaban</button>
         <button data-page="moku">MoKu Mobile</button>
         <button data-page="monitoring">Monitoring Administrasi</button>
+        <button data-page="rapreal">📊 RAP vs Realisasi</button>
         <button data-page="setting">Setting</button>
       </nav>
 
@@ -53,7 +54,7 @@
     <main class="main">
       <header class="topbar">
         <button class="icon-btn" id="hamburger" title="Tampilkan/sembunyikan menu">☰</button>
-        <img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Kota Semarang" class="top-logo">
+        <img src="assets/logo-rt005.png" alt="Logo RT 005 RW 012" class="top-logo">
         <div class="top-id">
           <strong id="topTitle">RT 005 RW 012</strong>
           <span id="topSubtitle">Tegalsari, Candisari, Kota Semarang</span>
@@ -1033,6 +1034,141 @@
 
         <div class="doc-paper monitoring-print-preview-v24" id="monitoringPrintOutput"></div>
       </section>
+
+      <!-- ══════════════ RAP vs REALISASI ══════════════ -->
+      <section class="page" id="page-rapreal">
+        <div class="section-title">
+          <div>
+            <h2>📊 RAP vs Realisasi</h2>
+            <p>Perbandingan Rencana Anggaran Penggunaan (RAP) dengan realisasi pengeluaran dari LPJ/SPJ per periode.</p>
+          </div>
+          <div class="action-row">
+            <button class="primary" id="rapRealRefresh">🔄 Perbarui</button>
+            <button class="secondary" id="rapRealPrint">🖨 Cetak</button>
+            <button class="secondary" id="rapRealExportPdf">⬇ PDF</button>
+          </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div class="dbx-kpi-row" id="rapRealKpiRow">
+          <div class="dbx-kpi-card" style="--kpi-accent:#3b82f6">
+            <div class="dbx-kpi-icon" style="background:rgba(59,130,246,.15);color:#3b82f6">📋</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Total RAP (Anggaran)</span>
+              <strong class="dbx-kpi-val" id="rrTotalRap">Rp0</strong>
+              <small class="dbx-kpi-sub">Sesuai RAP 1 Tahun</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#10b981">
+            <div class="dbx-kpi-icon" style="background:rgba(16,185,129,.15);color:#10b981">💸</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Total Realisasi</span>
+              <strong class="dbx-kpi-val" id="rrTotalReal">Rp0</strong>
+              <small class="dbx-kpi-sub">Dari LPJ Pengeluaran</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#f59e0b">
+            <div class="dbx-kpi-icon" style="background:rgba(245,158,11,.15);color:#f59e0b">⚖</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">Selisih (Sisa)</span>
+              <strong class="dbx-kpi-val" id="rrSelisih">Rp0</strong>
+              <small class="dbx-kpi-sub">RAP − Realisasi</small>
+            </div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#8b5cf6">
+            <div class="dbx-kpi-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">📈</div>
+            <div class="dbx-kpi-body">
+              <span class="dbx-kpi-label">% Realisasi</span>
+              <strong class="dbx-kpi-val" id="rrPersen">0%</strong>
+              <small class="dbx-kpi-sub">dari total RAP</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress Bar Keseluruhan -->
+        <div class="panel" id="rrProgressPanel">
+          <div class="panel-head">
+            <h3>Progress Realisasi Keseluruhan</h3>
+            <span id="rrProgressLabel" class="dbx-badge">0%</span>
+          </div>
+          <div class="rr-bar-wrap">
+            <div class="rr-bar-fill" id="rrProgressBar" style="width:0%"></div>
+          </div>
+          <div class="rr-bar-legend">
+            <span class="rr-leg rr-leg-rap">■ RAP</span>
+            <span class="rr-leg rr-leg-real">■ Realisasi</span>
+            <span class="rr-leg rr-leg-sisa">■ Sisa</span>
+          </div>
+        </div>
+
+        <!-- Tabel RAP vs Realisasi -->
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Rincian per Mata Anggaran RAP</h3>
+            <small class="hint">Realisasi dicocokkan otomatis dari deskripsi pengeluaran LPJ</small>
+          </div>
+          <div class="table-wrap">
+            <table id="rapRealTable">
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>Uraian Kegiatan</th>
+                  <th>Kategori</th>
+                  <th>Anggaran RAP</th>
+                  <th>Realisasi LPJ</th>
+                  <th>Selisih</th>
+                  <th>%</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="rapRealTbody"></tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3"><b>TOTAL</b></td>
+                  <td id="rrFootRap"><b>Rp0</b></td>
+                  <td id="rrFootReal"><b>Rp0</b></td>
+                  <td id="rrFootSel"><b>Rp0</b></td>
+                  <td id="rrFootPct"><b>0%</b></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tabel Pengeluaran LPJ (Detail) -->
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Detail Pengeluaran LPJ</h3>
+            <span id="rrLpjCount" class="dbx-badge">0 item</span>
+          </div>
+          <div class="table-wrap">
+            <table id="rapRealLpjTable">
+              <thead>
+                <tr>
+                  <th>No</th>
+                  <th>Tanggal</th>
+                  <th>Kegiatan / Pengeluaran</th>
+                  <th>Jumlah</th>
+                  <th>Keterangan</th>
+                </tr>
+              </thead>
+              <tbody id="rapRealLpjTbody"></tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="3"><b>Total Pengeluaran</b></td>
+                  <td id="rrLpjTotal"><b>Rp0</b></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Printable Output -->
+        <div class="doc-paper" id="rapRealDocOutput" style="display:none;margin-top:16px"></div>
+      </section>
+      <!-- ═══════════════════════════════════════════ -->
 
       <section class="page" id="page-setting">
         <div class="section-title">

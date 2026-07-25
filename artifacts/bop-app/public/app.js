@@ -12690,3 +12690,62 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.85] KOP PDF Fix + DS Guard + Sidebar aktif. Logo KIRI, tinggi proporsional baris text KOP.");
 })();
 /* END PATCH v1.85 */
+
+/* ================================================================
+   PATCH v1.86 — Fix Online Status: sidebar + topbar sinkron
+   Masalah: TS_KEY tidak di-set saat server jawab 304 Not Modified
+   → sidebar selalu tampil "Offline" meski server terhubung.
+   Fix: hanya tambah logika baru, tidak ubah kode yang ada.
+   ================================================================ */
+(function bopOnlineFixV86(){
+  if(window.__bopOnlineFixV86) return;
+  window.__bopOnlineFixV86 = true;
+
+  const TS_KEY  = "bop_pg_updated_v40";
+  const VER_KEY = "bop_pg_version_v40";
+
+  /* Perbarui .side-note langsung jika server terhubung */
+  function syncSidebarNote(){
+    const txt = document.getElementById("topbarStatusText");
+    if(!txt || txt.textContent !== "Online Mode") return;
+
+    /* Jika TS_KEY kosong (belum pernah ada full sync), isi sekarang */
+    if(!localStorage.getItem(TS_KEY)){
+      localStorage.setItem(TS_KEY, new Date().toISOString());
+    }
+
+    /* Perbarui elemen .side-note agar tampil status PostgreSQL */
+    const note = document.querySelector(".side-note");
+    if(!note) return;
+    const ts  = localStorage.getItem(TS_KEY);
+    const ver = localStorage.getItem(VER_KEY);
+    note.innerHTML =
+      "<b>\u2601 PostgreSQL</b><br><small>v" + (ver || "?") + " \u2014 " +
+      new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) +
+      "</small>";
+    note.style.color = "#15803d";
+  }
+
+  /* Jalankan setelah bootLoad selesai (~2 detik), lalu setiap 10 detik */
+  function start(){
+    setTimeout(syncSidebarNote, 2000);
+    setInterval(syncSidebarNote, 10000);
+
+    /* MutationObserver: begitu topbar berubah ke "Online Mode" → langsung sync */
+    const txt = document.getElementById("topbarStatusText");
+    if(txt){
+      new MutationObserver(function(){
+        if(txt.textContent === "Online Mode") syncSidebarNote();
+      }).observe(txt, { childList: true, characterData: true, subtree: true });
+    }
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+
+  console.log("[BOP v1.86] Online status fix aktif \u2014 sidebar sinkron dengan topbar.");
+})();
+/* END PATCH v1.86 */

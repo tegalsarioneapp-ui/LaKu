@@ -832,15 +832,22 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
     });
 
     const observer  = new MutationObserver(() => { clearTimeout(_dsDebounce); _dsDebounce = setTimeout(() => {
+      /* Guard: skip saat previewDoc sedang aktif me-render ulang */
+      if (window.__bopPreviewDocActive) return;
+      /* Guard: skip saat user punya editan belum tersimpan di editor */
+      if (isModified) {
+        const page85 = getPage();
+        if (page85 && page85.innerHTML.trim() && currentDocType) {
+          draftSet(currentDocType, page85.innerHTML);
+        }
+        return;
+      }
       const html = docOutput.innerHTML.trim();
       if (html && html !== lastContent) {
         lastContent = html;
-        /* Determine active doc type from active doc-btn */
         const activeBtn = document.querySelector(".doc-btn.active[data-doc]");
         const type      = activeBtn?.dataset?.doc || currentDocType || "permohonan";
         loadDoc(type, html);
-
-        /* Scroll the studio into view */
         const wrap = $("docStudioWrap");
         if (wrap) {
           setTimeout(() => wrap.scrollIntoView({ behavior: "smooth", block: "start" }), 80);

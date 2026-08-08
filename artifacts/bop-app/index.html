@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="document-studio/document-studio.css" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/document-studio/document-studio.css" />
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <!-- PATCH 012 - Runtime API config for Vercel + Railway -->
@@ -1270,9 +1270,30 @@
     </main>
   </div>
 
-  <script src="app.js?v=20260721c"></script>
-  <script src="document-studio/document-studio.js"></script>
-  <script src="patches/modules-v40.js"></script>
+  <script>
+    /* Load legacy scripts in-order without Vite HTML bundling warnings. */
+    (function loadLegacyScripts() {
+      var list = [
+        "/app.js?v=20260721c",
+        "/document-studio/document-studio.js",
+        "/patches/modules-v40.js"
+      ];
+
+      function injectAt(i) {
+        if (i >= list.length) return;
+        var s = document.createElement("script");
+        s.src = list[i];
+        s.onload = function() { injectAt(i + 1); };
+        s.onerror = function() {
+          console.error("[BOP] Gagal memuat script:", list[i]);
+          injectAt(i + 1);
+        };
+        document.body.appendChild(s);
+      }
+
+      injectAt(0);
+    })();
+  </script>
   <script>
     /* Guide toggle v30 — panduan cards collapsible */
     document.querySelectorAll('.guide-toggle-v30').forEach(function(btn){

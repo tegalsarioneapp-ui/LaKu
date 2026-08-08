@@ -4125,6 +4125,8 @@ async function goPage(page){
 
   /* ─── Topbar status (Online / Offline / Memeriksa) ────────── */
   let _lastOnline = null;
+  let _probeOkStreak = 0;
+  let _probeFailStreak = 0;
   function setTopbarStatus(online){
     const dot  = document.getElementById("topbarDot");
     const txt  = document.getElementById("topbarStatusText");
@@ -4135,6 +4137,19 @@ async function goPage(page){
       else        bopToast("⚠ Koneksi Terputus", "Mode offline — data tetap tersimpan lokal.", "warning");
     }
     _lastOnline = online;
+  }
+
+  // Hindari status flapping: butuh 2 gagal berturut-turut sebelum Offline.
+  function markProbeResult(isOk){
+    if(isOk){
+      _probeOkStreak++;
+      _probeFailStreak = 0;
+      if(_probeOkStreak >= 1) setTopbarStatus(true);
+      return;
+    }
+    _probeFailStreak++;
+    _probeOkStreak = 0;
+    if(_probeFailStreak >= 2) setTopbarStatus(false);
   }
 
   /* ─── Badge sync kecil di pojok kanan atas ─────────────────── */
@@ -4427,7 +4442,7 @@ async function goPage(page){
 
       if(res.status === 304){
         /* Versi sama — tidak perlu update, tapi server online */
-        setTopbarStatus(true);
+        markProbeResult(true);
         setBadge("☁ ✓","#15803d");
         setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),2000);
         return;
@@ -4436,13 +4451,13 @@ async function goPage(page){
       if(!res.ok){
         /* Server error — graceful: tetap pakai localStorage */
         console.warn(TAG,"bootLoad HTTP",res.status);
-        setTopbarStatus(false);
+        markProbeResult(false);
         setBadge("☁","rgba(0,0,0,.55)");
         return;
       }
 
       const result = await res.json();
-      setTopbarStatus(true);
+      markProbeResult(true);
 
       if(!result.ok || !result.data){
         /* Server kosong — upload data lokal (inisialisasi awal) */
@@ -4474,7 +4489,7 @@ async function goPage(page){
     } catch(e){
       /* Tidak bisa reach server — graceful offline */
       console.warn(TAG,"bootLoad gagal (offline?):",e.message);
-      setTopbarStatus(false);
+      markProbeResult(false);
       setBadge("☁","rgba(0,0,0,.55)");
     }
   }
@@ -4489,9 +4504,9 @@ async function goPage(page){
         headers,
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(5000) } : {}),
       });
-      if(res.status === 304){ setTopbarStatus(true); return; }
-      if(!res.ok){ setTopbarStatus(false); return; }
-      setTopbarStatus(true);
+      if(res.status === 304){ markProbeResult(true); return; }
+      if(!res.ok){ markProbeResult(false); return; }
+      markProbeResult(true);
       const result = await res.json();
       if(!result.ok || !result.data) return;
       const serverVer = result.version || 0;
@@ -4501,7 +4516,7 @@ async function goPage(page){
         if(typeof bopToast==="function") bopToast("☁ Data Diperbarui","Data terbaru (v"+serverVer+") dimuat dari server.","info");
       }
     } catch(e){
-      setTopbarStatus(false);
+      markProbeResult(false);
     }
   }
 

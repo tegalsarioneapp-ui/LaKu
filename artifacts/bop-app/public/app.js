@@ -4444,9 +4444,12 @@ async function goPage(page){
   /* ─── Terapkan data server ke memori + cache ────────────────── */
   function applyServerData(result){
     if(!result || !result.data) return;
-    const serverData = result.data;
+    const serverData = JSON.parse(JSON.stringify(result.data));
     if(typeof data !== "undefined" && serverData && typeof serverData === "object"){
-      try{ Object.assign(data, JSON.parse(JSON.stringify(serverData))); }catch(e){}
+      try{
+        data = serverData;
+        window.data = data;
+      }catch(e){}
     }
     _origSetItem(STORE, JSON.stringify(serverData));
     localStorage.setItem(VER_KEY, String(result.version  || 0));
@@ -4511,16 +4514,8 @@ async function goPage(page){
         return;
       }
 
-      const serverVer = result.version || 0;
-      if(serverVer > localVer){
-        /* Server lebih baru — muat */
-        applyServerData(result);
-      } else {
-        /* Lokal sama atau lebih baru */
-        setBadge("☁ ✓","#15803d");
-        setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),2000);
-        updateSidebarNote();
-      }
+      /* Server adalah sumber tunggal: selalu ganti cache lokal saat online. */
+      applyServerData(result);
     } catch(e){
       /* Tidak bisa reach server — graceful offline */
       console.warn(TAG,"bootLoad gagal (offline?):",e.message);
@@ -4546,11 +4541,8 @@ async function goPage(page){
       markProbeResult(true);
       const result = await res.json();
       if(!result.ok || !result.data) return;
-      const serverVer = result.version || 0;
-      const localVer2 = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      if(serverVer > localVer2){
-        applyServerData(result);
-      }
+      /* Jangan percaya metadata versi lokal; terapkan snapshot server yang sama di semua device. */
+      applyServerData(result);
     } catch(e){
       markProbeResult(false);
     }

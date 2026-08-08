@@ -97,12 +97,7 @@ router.get("/bop/data", async (req, res) => {
         }
         const row = result.rows[0];
         const serverVersion = String(row.version);
-        // Kirim 304 Not Modified jika client sudah punya versi terbaru
-        const clientEtag = req.headers["if-none-match"];
-        if (clientEtag && clientEtag === serverVersion) {
-            res.status(304).end();
-            return;
-        }
+        // Jangan kirim 304 agar aman untuk skenario cross-origin + CORS antar domain.
         res.setHeader("ETag", serverVersion);
         res.setHeader("Cache-Control", "no-store");
         res.json({

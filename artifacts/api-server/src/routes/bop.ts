@@ -4,23 +4,21 @@
  * Frontend tetap menggunakan localStorage sebagai offline cache.
  */
 import { Router } from "express";
-import { pool } from "@workspace/db";
-
+import { pool } from "../lib/db.js";
 const router = Router();
 const RT_KEY = "rt005rw012";
 
 // Pastikan CORS selalu ada, termasuk pada response 304 Not Modified.
-router.use((req: any, res: any, next: any) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, If-None-Match");
-  if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
-  }
-  next();
+router.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, If-None-Match");
+    if (req.method === "OPTIONS") {
+        res.status(204).end();
+        return;
+    }
+    next();
 });
-
 /* ─── SQL untuk membuat semua tabel BOP (idempotent) ────────── */
 const CREATE_TABLES_SQL = `
   CREATE TABLE IF NOT EXISTS bop_data (
@@ -67,103 +65,101 @@ const CREATE_TABLES_SQL = `
     updated_at    TIMESTAMPTZ
   );
 `;
-
-async function runInitDb(): Promise<void> {
-  await pool.query(CREATE_TABLES_SQL);
+async function runInitDb() {
+    await pool.query(CREATE_TABLES_SQL);
 }
-
 /* Helper: parse body dari text/plain atau application/json (untuk sendBeacon) */
-async function parseFlexibleBody(req: any): Promise<{ data?: unknown; clientVersion?: number } | null> {
-  try {
-    if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
-      return req.body as { data?: unknown; clientVersion?: number };
+async function parseFlexibleBody(req) {
+    try {
+        if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
+            return req.body;
+        }
+        // sendBeacon mengirim sebagai text/plain atau application/octet-stream
+        const raw = req.body?.toString?.() ?? "";
+        if (raw)
+            return JSON.parse(raw);
     }
-    // sendBeacon mengirim sebagai text/plain atau application/octet-stream
-    const raw = req.body?.toString?.() ?? "";
-    if (raw) return JSON.parse(raw);
-  } catch (e) { /* ignore parse errors */ }
-  return null;
+    catch (e) { /* ignore parse errors */ }
+    return null;
 }
-
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/data
    Ambil data BOP terkini dari database.
    Mendukung ETag (If-None-Match = client version) untuk 304 responses.
    Response: { ok, data, updatedAt, version }
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/data", async (req: any, res: any) => {
-  try {
-    const result = await pool.query(
-      `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
-      [RT_KEY]
-    );
-    if (result.rows.length === 0) {
-      res.json({ ok: true, data: null, updatedAt: null, version: 0 });
-      return;
+router.get("/bop/data", async (req, res) => {
+    try {
+        const result = await pool.query(`SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]);
+        if (result.rows.length === 0) {
+            res.json({ ok: true, data: null, updatedAt: null, version: 0 });
+            return;
+        }
+        const row = result.rows[0];
+        const serverVersion = String(row.version);
+        // Jangan kirim 304 agar aman untuk skenario cross-origin + CORS antar domain.
+        res.setHeader("ETag", serverVersion);
+        res.setHeader("Cache-Control", "no-store");
+        res.json({
+            ok: true,
+            data: row.data,
+            updatedAt: row.updated_at,
+            version: row.version,
+        });
     }
-    const row = result.rows[0];
-    const serverVersion = String(row.version);
-
-    // Kirim 304 Not Modified jika client sudah punya versi terbaru
-    const clientEtag = req.headers["if-none-match"];
-    if (clientEtag && clientEtag === serverVersion) {
-      res.status(304).end();
-      return;
+    catch (e) {
+        req.log.error(e);
+        res.status(500).json({ ok: false, error: "Gagal membaca data BOP" });
     }
-
-    res.setHeader("ETag", serverVersion);
-    res.setHeader("Cache-Control", "no-store");
-    res.json({
-      ok: true,
-      data: row.data,
-      updatedAt: row.updated_at,
-      version: row.version,
-    });
-  } catch (e) {
-    (req as any).log.error(e);
-    res.status(500).json({ ok: false, error: "Gagal membaca data BOP" });
-  }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    PUT /api/bop/data
    Simpan/update data BOP (upsert).
    Body: { data: object, clientVersion?: number }
    Response: { ok, updatedAt, version }
 ═══════════════════════════════════════════════════════════════ */
-router.put("/bop/data", async (req: any, res: any) => {
-  try {
-    const { data, clientVersion } = req.body as {
-      data: unknown;
-      clientVersion?: number;
-    };
-    if (!data || typeof data !== "object") {
-      res.status(400).json({ ok: false, error: "Field 'data' wajib berupa object" });
-      return;
-    }
-
-    const result = await pool.query(
-      `INSERT INTO bop_data (rt_key, data, version, updated_at)
+router.put("/bop/data", async (req, res) => {
+    try {
+        const { data, baseVersion, clientVersion } = req.body;
+        if (!data || typeof data !== "object") {
+            res.status(400).json({ ok: false, error: "Field 'data' wajib berupa object" });
+            return;
+        }
+        const expectedVersion = Number.isInteger(baseVersion)
+            ? baseVersion
+            : (Number.isInteger(clientVersion) ? clientVersion - 1 : 0);
+        const result = await pool.query(`INSERT INTO bop_data (rt_key, data, version, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (rt_key) DO UPDATE
          SET data       = EXCLUDED.data,
              version    = bop_data.version + 1,
              updated_at = NOW()
-       RETURNING updated_at, version`,
-      [RT_KEY, JSON.stringify(data), clientVersion ?? 1]
-    );
-
-    res.json({
-      ok: true,
-      updatedAt: result.rows[0].updated_at,
-      version: result.rows[0].version,
-    });
-  } catch (e) {
-    (req as any).log.error(e);
-    res.status(500).json({ ok: false, error: "Gagal menyimpan data BOP" });
-  }
+       WHERE bop_data.version = $4
+       RETURNING updated_at, version`, [RT_KEY, JSON.stringify(data), expectedVersion + 1, expectedVersion]);
+        if (result.rows.length === 0) {
+            const current = await pool.query(`SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]);
+            const row = current.rows[0];
+            res.status(409).json({
+                ok: false,
+                error: "VERSION_CONFLICT",
+                message: "Data server sudah lebih baru dari perangkat ini.",
+                serverVersion: row?.version ?? 0,
+                updatedAt: row?.updated_at ?? null,
+                data: row?.data ?? null,
+            });
+            return;
+        }
+        res.json({
+            ok: true,
+            updatedAt: result.rows[0].updated_at,
+            version: result.rows[0].version,
+        });
+    }
+    catch (e) {
+        req.log.error(e);
+        res.status(500).json({ ok: false, error: "Gagal menyimpan data BOP" });
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    POST /api/bop/data-beacon
    Endpoint khusus navigator.sendBeacon (beforeunload).
@@ -171,284 +167,239 @@ router.put("/bop/data", async (req: any, res: any) => {
    Kita parse manual karena Express json() tidak handle non-JSON content-type.
    Response: { ok } (204 agar ringan)
 ═══════════════════════════════════════════════════════════════ */
-router.post("/bop/data-beacon", async (req: any, res: any) => {
-  try {
-    const body = await parseFlexibleBody(req);
-    if (!body?.data || typeof body.data !== "object") {
-      res.status(204).end();
-      return;
-    }
-    await pool.query(
-      `INSERT INTO bop_data (rt_key, data, version, updated_at)
+router.post("/bop/data-beacon", async (req, res) => {
+    try {
+        const body = await parseFlexibleBody(req);
+        if (!body?.data || typeof body.data !== "object") {
+            res.status(204).end();
+            return;
+        }
+        const expectedVersion = Number.isInteger(body.baseVersion)
+            ? body.baseVersion
+            : (Number.isInteger(body.clientVersion) ? body.clientVersion - 1 : 0);
+        await pool.query(`INSERT INTO bop_data (rt_key, data, version, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (rt_key) DO UPDATE
          SET data       = EXCLUDED.data,
              version    = bop_data.version + 1,
-             updated_at = NOW()`,
-      [RT_KEY, JSON.stringify(body.data), body.clientVersion ?? 1]
-    );
-    res.status(204).end();
-  } catch (e) {
-    (req as any).log.error(e);
-    res.status(204).end(); // sendBeacon tidak peduli response, tetap 204
-  }
+             updated_at = NOW()
+       WHERE bop_data.version = $4`, [RT_KEY, JSON.stringify(body.data), expectedVersion + 1, expectedVersion]);
+        res.status(204).end();
+    }
+    catch (e) {
+        req.log.error(e);
+        res.status(204).end(); // sendBeacon tidak peduli response, tetap 204
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/history
    Ambil semua entri riwayat dokumen.
    Query params: ?limit=100&offset=0&kind=Pengajuan
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/history", async (req: any, res: any) => {
-  try {
-    const limit  = Math.min(Number(req.query["limit"]  ?? 200), 500);
-    const offset = Number(req.query["offset"] ?? 0);
-    const kind   = req.query["kind"] as string | undefined;
-
-    const params: unknown[] = [limit, offset];
-    const whereClause = kind ? `WHERE kind = $3` : "";
-    if (kind) params.push(kind);
-
-    const result = await pool.query(
-      `SELECT id, kind, doc_type, label, html, created_at
+router.get("/bop/history", async (req, res) => {
+    try {
+        const limit = Math.min(Number(req.query["limit"] ?? 200), 500);
+        const offset = Number(req.query["offset"] ?? 0);
+        const kind = req.query["kind"];
+        const params = [limit, offset];
+        const whereClause = kind ? `WHERE kind = $3` : "";
+        if (kind)
+            params.push(kind);
+        const result = await pool.query(`SELECT id, kind, doc_type, label, html, created_at
        FROM bop_history
        ${whereClause}
        ORDER BY created_at DESC
-       LIMIT $1 OFFSET $2`,
-      params
-    );
-
-    res.json({ ok: true, history: result.rows });
-  } catch (e) {
-    (req as any).log.error(e);
-    res.status(500).json({ ok: false, error: "Gagal membaca riwayat" });
-  }
+       LIMIT $1 OFFSET $2`, params);
+        res.json({ ok: true, history: result.rows });
+    }
+    catch (e) {
+        req.log.error(e);
+        res.status(500).json({ ok: false, error: "Gagal membaca riwayat" });
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    POST /api/bop/history
    Tambah entri riwayat dokumen.
    Body: { kind, docType, label, html }
 ═══════════════════════════════════════════════════════════════ */
-router.post("/bop/history", async (req: any, res: any) => {
-  try {
-    const { kind, docType, label, html } = req.body as {
-      kind: string;
-      docType: string;
-      label: string;
-      html: string;
-    };
-    if (!kind || !label) {
-      res.status(400).json({ ok: false, error: "kind dan label wajib diisi" });
-      return;
-    }
-    const result = await pool.query(
-      `INSERT INTO bop_history (kind, doc_type, label, html)
+router.post("/bop/history", async (req, res) => {
+    try {
+        const { kind, docType, label, html } = req.body;
+        if (!kind || !label) {
+            res.status(400).json({ ok: false, error: "kind dan label wajib diisi" });
+            return;
+        }
+        const result = await pool.query(`INSERT INTO bop_history (kind, doc_type, label, html)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, created_at`,
-      [kind, docType ?? null, label, html ?? null]
-    );
-    res.json({
-      ok: true,
-      id: result.rows[0].id,
-      createdAt: result.rows[0].created_at,
-    });
-  } catch (e) {
-    (req as any).log.error(e);
-    res.status(500).json({ ok: false, error: "Gagal menyimpan riwayat" });
-  }
+       RETURNING id, created_at`, [kind, docType ?? null, label, html ?? null]);
+        res.json({
+            ok: true,
+            id: result.rows[0].id,
+            createdAt: result.rows[0].created_at,
+        });
+    }
+    catch (e) {
+        req.log.error(e);
+        res.status(500).json({ ok: false, error: "Gagal menyimpan riwayat" });
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/bop/history/:id
    Hapus entri riwayat berdasarkan ID.
 ═══════════════════════════════════════════════════════════════ */
-router.delete("/bop/history/:id", async (req: any, res: any) => {
-  try {
-    const id = Number(req.params["id"]);
-    if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({ ok: false, error: "ID tidak valid" });
-      return;
+router.delete("/bop/history/:id", async (req, res) => {
+    try {
+        const id = Number(req.params["id"]);
+        if (!Number.isInteger(id) || id <= 0) {
+            res.status(400).json({ ok: false, error: "ID tidak valid" });
+            return;
+        }
+        const result = await pool.query(`DELETE FROM bop_history WHERE id = $1 RETURNING id`, [id]);
+        if (result.rowCount === 0) {
+            res.status(404).json({ ok: false, error: "Riwayat tidak ditemukan" });
+            return;
+        }
+        res.json({ ok: true });
     }
-    const result = await pool.query(
-      `DELETE FROM bop_history WHERE id = $1 RETURNING id`,
-      [id]
-    );
-    if (result.rowCount === 0) {
-      res.status(404).json({ ok: false, error: "Riwayat tidak ditemukan" });
-      return;
+    catch (e) {
+        req.log.error(e);
+        res.status(500).json({ ok: false, error: "Gagal menghapus riwayat" });
     }
-    res.json({ ok: true });
-  } catch (e) {
-    (req as any).log.error(e);
-    res.status(500).json({ ok: false, error: "Gagal menghapus riwayat" });
-  }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/ping
    Test koneksi DB mentah — selalu return JSON, tidak pernah throw.
    Digunakan oleh Setup Otomatis untuk diagnosa cepat.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/ping", async (req: any, res: any) => {
-  const dbUrl = process.env.DATABASE_URL || "(tidak diset)";
-  const host  = (() => { try { return new URL(dbUrl).hostname; } catch { return dbUrl.slice(0, 30); } })();
-  try {
-    const r = await pool.query("SELECT NOW() as now, version() as ver");
-    res.json({
-      ok:      true,
-      host,
-      now:     r.rows[0].now,
-      pgVer:   String(r.rows[0].ver).split(" ").slice(0, 2).join(" "),
-      ssl:     !host.includes(".railway.internal"),
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ ok: false, host, error: msg });
-  }
+router.get("/bop/ping", async (req, res) => {
+    const dbUrl = process.env.DATABASE_URL || "(tidak diset)";
+    const host = (() => { try {
+        return new URL(dbUrl).hostname;
+    }
+    catch {
+        return dbUrl.slice(0, 30);
+    } })();
+    try {
+        const r = await pool.query("SELECT NOW() as now, version() as ver");
+        res.json({
+            ok: true,
+            host,
+            now: r.rows[0].now,
+            pgVer: String(r.rows[0].ver).split(" ").slice(0, 2).join(" "),
+            ssl: !host.includes(".railway.internal"),
+        });
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(500).json({ ok: false, host, error: msg });
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/status
    Cek ketersediaan database + statistik ringkas.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/status", async (req: any, res: any) => {
-  try {
-    const [dataRow, histCount] = await Promise.all([
-      pool.query(
-        `SELECT updated_at, version FROM bop_data WHERE rt_key = $1`,
-        [RT_KEY]
-          const { data, baseVersion, clientVersion } = req.body as {
-      pool.query(`SELECT COUNT(*) as count FROM bop_history`),
-            baseVersion?: number;
-    ]);
-    res.json({
-      ok:           true,
-      hasData:      dataRow.rows.length > 0,
-      updatedAt:    dataRow.rows[0]?.updated_at ?? null,
-      version:      dataRow.rows[0]?.version ?? 0,
-      historyCount: Number(histCount.rows[0].count),
-
-          const expectedVersion = Number.isInteger(baseVersion)
-            ? baseVersion
-            : (Number.isInteger(clientVersion) ? clientVersion - 1 : 0);
-    });
-  } catch (e) {
-    (req as any).log.error(e);
-    const msg = e instanceof Error ? e.message : String(e);
-    /* Kalau tabel belum ada, coba auto-init dulu lalu retry sekali */
-    if (msg.includes("does not exist") || msg.includes("relation")) {
-      try {
-                   updated_at = NOW()
-             WHERE bop_data.version = $4
-        const [d2, h2] = await Promise.all([
-            [RT_KEY, JSON.stringify(data), expectedVersion + 1, expectedVersion]
-          pool.query(`SELECT COUNT(*) as count FROM bop_history`),
-
-          if (result.rows.length === 0) {
-            const current = await pool.query(
-              `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
-              [RT_KEY]
-            );
-            const row = current.rows[0];
-            res.status(409).json({
-              ok: false,
-              error: "VERSION_CONFLICT",
-              message: "Data server sudah lebih baru dari perangkat ini.",
-              serverVersion: row?.version ?? 0,
-              updatedAt: row?.updated_at ?? null,
-              data: row?.data ?? null,
-            });
-            return;
-          }
-
+router.get("/bop/status", async (req, res) => {
+    try {
+        const [dataRow, histCount] = await Promise.all([
+            pool.query(`SELECT updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]),
+            pool.query(`SELECT COUNT(*) as count FROM bop_history`),
         ]);
         res.json({
-          ok:           true,
-          hasData:      d2.rows.length > 0,
-          updatedAt:    d2.rows[0]?.updated_at ?? null,
-          version:      d2.rows[0]?.version ?? 0,
-          historyCount: Number(h2.rows[0].count),
-          autoInited:   true,
+            ok: true,
+            hasData: dataRow.rows.length > 0,
+            updatedAt: dataRow.rows[0]?.updated_at ?? null,
+            version: dataRow.rows[0]?.version ?? 0,
+            historyCount: Number(histCount.rows[0].count),
         });
-        return;
-      } catch (e2) {
-        const msg2 = e2 instanceof Error ? e2.message : String(e2);
-        res.status(500).json({ ok: false, error: "Auto-init gagal: " + msg2 });
-        return;
-      }
-
-          const expectedVersion = Number.isInteger(body.baseVersion)
-            ? body.baseVersion
-            : (Number.isInteger(body.clientVersion) ? body.clientVersion - 1 : 0);
     }
-    res.status(500).json({ ok: false, error: msg });
-  }
+    catch (e) {
+        req.log.error(e);
+        const msg = e instanceof Error ? e.message : String(e);
+        /* Kalau tabel belum ada, coba auto-init dulu lalu retry sekali */
+        if (msg.includes("does not exist") || msg.includes("relation")) {
+            try {
+                await runInitDb();
+                const [d2, h2] = await Promise.all([
+                    pool.query(`SELECT updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]),
+                    pool.query(`SELECT COUNT(*) as count FROM bop_history`),
+                ]);
+                res.json({
+                    ok: true,
+                    hasData: d2.rows.length > 0,
+                    updatedAt: d2.rows[0]?.updated_at ?? null,
+                    version: d2.rows[0]?.version ?? 0,
+                    historyCount: Number(h2.rows[0].count),
+                    autoInited: true,
+                });
+                return;
+            }
+            catch (e2) {
+                const msg2 = e2 instanceof Error ? e2.message : String(e2);
+                res.status(500).json({ ok: false, error: "Auto-init gagal: " + msg2 });
+                return;
+            }
+        }
+        res.status(500).json({ ok: false, error: msg });
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    GET|POST /api/bop/init-db
-                   updated_at = NOW()
-             WHERE bop_data.version = $4`,
-            [RT_KEY, JSON.stringify(body.data), expectedVersion + 1, expectedVersion]
-router.get("/bop/init-db", async (req: any, res: any) => {
-  try {
-    await runInitDb();
-    res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ ok: false, error: msg });
-  }
+   Buat semua tabel (idempotent). Aman dijalankan berkali-kali.
+═══════════════════════════════════════════════════════════════ */
+router.get("/bop/init-db", async (req, res) => {
+    try {
+        await runInitDb();
+        res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(500).json({ ok: false, error: msg });
+    }
 });
-
-router.post("/bop/init-db", async (req: any, res: any) => {
-  try {
-    await runInitDb();
-    res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
-  } catch (e) {
-    (req as any).log.error(e);
-    const msg = e instanceof Error ? e.message : String(e);
-    res.status(500).json({ ok: false, error: msg });
-  }
+router.post("/bop/init-db", async (req, res) => {
+    try {
+        await runInitDb();
+        res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
+    }
+    catch (e) {
+        req.log.error(e);
+        const msg = e instanceof Error ? e.message : String(e);
+        res.status(500).json({ ok: false, error: msg });
+    }
 });
-
 /* ═══════════════════════════════════════════════════════════════
    GET /api/bop/server-url
    Mengembalikan URL publik server ini agar browser baru bisa
    auto-discover tanpa perlu konfigurasi manual.
    Railway mengeset RAILWAY_PUBLIC_DOMAIN atau SERVER_URL.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/server-url", (req: any, res: any) => {
-  const fromEnv =
-    process.env.SERVER_URL ||
-    process.env.RAILWAY_PUBLIC_DOMAIN ||
-    process.env.VERCEL_URL ||
-    "";
-
-  let serverUrl = fromEnv ? fromEnv.replace(/\/+$/, "") : "";
-  if (serverUrl && !/^https?:\/\//i.test(serverUrl)) {
-    serverUrl = "https://" + serverUrl;
-  }
-
-  /* Fallback: rekonstruksi dari header request */
-  if (!serverUrl) {
-    const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-    const host  = (req.headers["x-forwarded-host"] as string) || req.headers.host || "";
-    if (host) serverUrl = proto + "://" + host;
-  }
-
-  res.setHeader("Cache-Control", "public, max-age=300");
-  res.json({ ok: true, serverUrl });
+router.get("/bop/server-url", (req, res) => {
+    const fromEnv = process.env.SERVER_URL ||
+        process.env.RAILWAY_PUBLIC_DOMAIN ||
+        process.env.VERCEL_URL ||
+        "";
+    let serverUrl = fromEnv ? fromEnv.replace(/\/+$/, "") : "";
+    if (serverUrl && !/^https?:\/\//i.test(serverUrl)) {
+        serverUrl = "https://" + serverUrl;
+    }
+    /* Fallback: rekonstruksi dari header request */
+    if (!serverUrl) {
+        const proto = req.headers["x-forwarded-proto"] || "https";
+        const host = req.headers["x-forwarded-host"] || req.headers.host || "";
+        if (host)
+            serverUrl = proto + "://" + host;
+    }
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.json({ ok: true, serverUrl });
 });
-
 export default router;
-
-export async function autoInitDb(): Promise<void> {
-  try {
-    await runInitDb();
-    console.info("[BOP] Database tables initialized (auto-init).");
-  } catch (e) {
-    console.error("[BOP] Auto-init DB failed:", e);
-    /* Jangan throw — biarkan server tetap jalan meski DB belum siap */
-  }
+export async function autoInitDb() {
+    try {
+        await runInitDb();
+        console.info("[BOP] Database tables initialized (auto-init).");
+    }
+    catch (e) {
+        console.error("[BOP] Auto-init DB failed:", e);
+        /* Jangan throw — biarkan server tetap jalan meski DB belum siap */
+    }
 }

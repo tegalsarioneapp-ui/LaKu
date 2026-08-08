@@ -3,10 +3,10 @@
  * Menggantikan implementasi file JSON lama.
  * Backward-compatible: endpoint path sama, backend pakai bop_data table.
  */
-import { Router, type IRouter } from "express";
+import { Router } from "express";
 import { pool } from "@workspace/db";
 
-const router: IRouter = Router();
+const router = Router();
 const RT_KEY = "rt005rw012";
 
 /* ── GET /api/sync/status ──────────────────────────────────────

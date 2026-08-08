@@ -1,11 +1,11 @@
-import { Router, type IRouter } from "express";
+import { Router } from "express";
 import { ZipArchive } from "archiver";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const router: IRouter = Router();
+const router = Router();
 
 const BOP_PUBLIC_DIR = path.resolve(
   __dirname,

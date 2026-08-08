@@ -12847,7 +12847,7 @@ ${KOP_PDF_CSS}
       return '' +
         '<div class="kop official-letterhead">' +
           '<div class="letterhead-logo">' +
-            '<img src="assets/logo-rt005.png" alt="Logo RT 005 RW 012">' +
+            '<img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Pemkot Semarang">' +
           '</div>' +
           '<div class="letterhead-text">' +
             '<div class="line city">' + esc87(line1) + '</div>' +
@@ -13025,3 +13025,73 @@ ${KOP_PDF_CSS}
     console.log("[BOP v1.87] Stabilizer aktif: menu lebih rapi, cetak A4 bersih, KOP konsisten.");
   })();
   /* END PATCH v1.87 */
+
+/* ================================================================
+   PATCH v1.88 — Persiapan Kegiatan: renderer dokumen final
+   Tujuan:
+   1) Pastikan semua preview pk-* memakai generator terbaru (window.*).
+   2) Hindari fallback ke mapping fungsi lama yang membuat hasil cetak tidak konsisten.
+   ================================================================ */
+(function bopPersiapanDocFixV88(){
+  if(window.__bopPersiapanDocFixV88) return;
+  window.__bopPersiapanDocFixV88 = true;
+
+  function pickPkDocFnV88(type){
+    var map = {
+      "pk-undangan": window.docPkUndangan,
+      "pk-hadir": window.docPkHadir,
+      "pk-notulen": window.docPkNotulen,
+      "pk-kuitansi": window.docPkKuitansi
+    };
+    return map[type] || window.docPkHadir || window.docPkNotulen || window.docPkUndangan || window.docPkKuitansi;
+  }
+
+  window.previewPkDoc = function previewPkDocV88(type){
+    var selected = type || window.currentPkDoc || "pk-hadir";
+
+    try{ if(typeof ensurePersiapan === "function") ensurePersiapan(); }catch(_e){}
+    try{ if(typeof collectPersiapan === "function") collectPersiapan(); }catch(_e){}
+
+    window.currentPkDoc = selected;
+    try{ currentPkDoc = selected; }catch(_e){}
+
+    try{
+      document.querySelectorAll(".pk-doc-btn").forEach(function(btn){
+        btn.classList.toggle("active", btn.dataset && btn.dataset.pkdoc === selected);
+      });
+    }catch(_e){}
+
+    var fn = pickPkDocFnV88(selected);
+    var html = "";
+    try{
+      html = (typeof fn === "function") ? fn() : "";
+    }catch(err){
+      html = '<div class="official"><p>Gagal memuat dokumen persiapan: ' + String(err && err.message ? err.message : err) + '</p></div>';
+    }
+
+    if(html && html.indexOf('class="official"') === -1 && typeof official === "function"){
+      try{ html = official(html); }catch(_e){}
+    }
+
+    var out = document.getElementById("pkDocOutput");
+    if(out){
+      out.innerHTML = html || "";
+      out.classList.add("doc-paper");
+    }
+  };
+
+  function initV88(){
+    try{
+      window.previewPkDoc(window.currentPkDoc || "pk-hadir");
+    }catch(_e){}
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initV88, 350); });
+  } else {
+    setTimeout(initV88, 350);
+  }
+
+  console.log("[BOP v1.88] Persiapan Kegiatan dokumen renderer final aktif.");
+})();
+/* END PATCH v1.88 */

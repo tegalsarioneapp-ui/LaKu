@@ -61,7 +61,7 @@ async function runInitDb(): Promise<void> {
 }
 
 /* Helper: parse body dari text/plain atau application/json (untuk sendBeacon) */
-async function parseFlexibleBody(req: import("express").Request): Promise<{ data?: unknown; clientVersion?: number } | null> {
+async function parseFlexibleBody(req: any): Promise<{ data?: unknown; clientVersion?: number } | null> {
   try {
     if (req.body && typeof req.body === "object" && !Buffer.isBuffer(req.body)) {
       return req.body as { data?: unknown; clientVersion?: number };
@@ -79,7 +79,7 @@ async function parseFlexibleBody(req: import("express").Request): Promise<{ data
    Mendukung ETag (If-None-Match = client version) untuk 304 responses.
    Response: { ok, data, updatedAt, version }
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/data", async (req, res) => {
+router.get("/bop/data", async (req: any, res: any) => {
   try {
     const result = await pool.query(
       `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
@@ -119,7 +119,7 @@ router.get("/bop/data", async (req, res) => {
    Body: { data: object, clientVersion?: number }
    Response: { ok, updatedAt, version }
 ═══════════════════════════════════════════════════════════════ */
-router.put("/bop/data", async (req, res) => {
+router.put("/bop/data", async (req: any, res: any) => {
   try {
     const { data, clientVersion } = req.body as {
       data: unknown;
@@ -159,7 +159,7 @@ router.put("/bop/data", async (req, res) => {
    Kita parse manual karena Express json() tidak handle non-JSON content-type.
    Response: { ok } (204 agar ringan)
 ═══════════════════════════════════════════════════════════════ */
-router.post("/bop/data-beacon", async (req, res) => {
+router.post("/bop/data-beacon", async (req: any, res: any) => {
   try {
     const body = await parseFlexibleBody(req);
     if (!body?.data || typeof body.data !== "object") {
@@ -187,7 +187,7 @@ router.post("/bop/data-beacon", async (req, res) => {
    Ambil semua entri riwayat dokumen.
    Query params: ?limit=100&offset=0&kind=Pengajuan
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/history", async (req, res) => {
+router.get("/bop/history", async (req: any, res: any) => {
   try {
     const limit  = Math.min(Number(req.query["limit"]  ?? 200), 500);
     const offset = Number(req.query["offset"] ?? 0);
@@ -218,7 +218,7 @@ router.get("/bop/history", async (req, res) => {
    Tambah entri riwayat dokumen.
    Body: { kind, docType, label, html }
 ═══════════════════════════════════════════════════════════════ */
-router.post("/bop/history", async (req, res) => {
+router.post("/bop/history", async (req: any, res: any) => {
   try {
     const { kind, docType, label, html } = req.body as {
       kind: string;
@@ -251,7 +251,7 @@ router.post("/bop/history", async (req, res) => {
    DELETE /api/bop/history/:id
    Hapus entri riwayat berdasarkan ID.
 ═══════════════════════════════════════════════════════════════ */
-router.delete("/bop/history/:id", async (req, res) => {
+router.delete("/bop/history/:id", async (req: any, res: any) => {
   try {
     const id = Number(req.params["id"]);
     if (!Number.isInteger(id) || id <= 0) {
@@ -278,7 +278,7 @@ router.delete("/bop/history/:id", async (req, res) => {
    Test koneksi DB mentah — selalu return JSON, tidak pernah throw.
    Digunakan oleh Setup Otomatis untuk diagnosa cepat.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/ping", async (req, res) => {
+router.get("/bop/ping", async (req: any, res: any) => {
   const dbUrl = process.env.DATABASE_URL || "(tidak diset)";
   const host  = (() => { try { return new URL(dbUrl).hostname; } catch { return dbUrl.slice(0, 30); } })();
   try {
@@ -300,7 +300,7 @@ router.get("/bop/ping", async (req, res) => {
    GET /api/bop/status
    Cek ketersediaan database + statistik ringkas.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/status", async (req, res) => {
+router.get("/bop/status", async (req: any, res: any) => {
   try {
     const [dataRow, histCount] = await Promise.all([
       pool.query(
@@ -350,7 +350,7 @@ router.get("/bop/status", async (req, res) => {
    GET|POST /api/bop/init-db
    Buat semua tabel (idempotent). Aman dijalankan berkali-kali.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/init-db", async (req, res) => {
+router.get("/bop/init-db", async (req: any, res: any) => {
   try {
     await runInitDb();
     res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
@@ -360,7 +360,7 @@ router.get("/bop/init-db", async (req, res) => {
   }
 });
 
-router.post("/bop/init-db", async (req, res) => {
+router.post("/bop/init-db", async (req: any, res: any) => {
   try {
     await runInitDb();
     res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
@@ -377,7 +377,7 @@ router.post("/bop/init-db", async (req, res) => {
    auto-discover tanpa perlu konfigurasi manual.
    Railway mengeset RAILWAY_PUBLIC_DOMAIN atau SERVER_URL.
 ═══════════════════════════════════════════════════════════════ */
-router.get("/bop/server-url", (req, res) => {
+router.get("/bop/server-url", (req: any, res: any) => {
   const fromEnv =
     process.env.SERVER_URL ||
     process.env.RAILWAY_PUBLIC_DOMAIN ||

@@ -7,6 +7,7 @@ Dokumen ini adalah panduan lengkap deploy backend `api-server` ke Vercel dari no
 1. Backend berjalan sebagai Vercel Serverless Function di `api/[...path].ts`.
 2. Semua endpoint backend menggunakan prefix `/api/*`.
 3. Project ini berbentuk monorepo pnpm (workspace), jadi konfigurasi root directory harus benar.
+4. Vercel akan auto-detect folder `api/`, jadi tidak perlu config runtime custom.
 
 ## Prasyarat
 
@@ -33,8 +34,8 @@ Gunakan project Vercel terpisah untuk backend.
 5. Deploy.
 
 Catatan:
-1. `vercel.json` untuk routing API sudah tersedia di folder backend.
-2. Handler serverless sudah memakai `bodyParser: false` agar payload `sendBeacon` tetap terbaca.
+1. Handler serverless sudah memakai `bodyParser: false` agar payload `sendBeacon` tetap terbaca.
+2. File `api/[...path].ts` akan langsung dipakai oleh Vercel tanpa routing tambahan.
 
 ## Verifikasi Setelah Deploy
 

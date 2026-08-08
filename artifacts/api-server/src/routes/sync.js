@@ -4,7 +4,7 @@
  * Backward-compatible: endpoint path sama, backend pakai bop_data table.
  */
 import { Router } from "express";
-import { pool } from "@workspace/db";
+import { pool } from "../lib/db.js";
 const router = Router();
 const RT_KEY = "rt005rw012";
 /* ── GET /api/sync/status ──────────────────────────────────────

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { pool } from "@workspace/db";
+import { pool } from "../lib/db.js";
 const router = Router();
 /* ── Pastikan unique index ada agar UPSERT bisa berjalan ─────── */
 /* Dijalankan lazy saat pertama kali route dipanggil, bukan saat module load */

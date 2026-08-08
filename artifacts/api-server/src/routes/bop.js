@@ -4,7 +4,7 @@
  * Frontend tetap menggunakan localStorage sebagai offline cache.
  */
 import { Router } from "express";
-import { pool } from "@workspace/db";
+import { pool } from "../lib/db.js";
 const router = Router();
 const RT_KEY = "rt005rw012";
 /* ─── SQL untuk membuat semua tabel BOP (idempotent) ────────── */

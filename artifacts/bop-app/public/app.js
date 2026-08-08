@@ -12,8 +12,8 @@
     return s;
   }
 
-  /* Prioritas: 1) Vite define (baked at build), 2) localStorage */
-  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem(LS_API_KEY) || "");
+  /* Mulai dari define env; localStorage hanya fallback terakhir agar tidak split antar-browser */
+  const base = cleanBase(window.BOP_API_BASE);
   window.BOP_API_BASE = base;
 
   window.__bopSetApiBase = function(url){
@@ -44,55 +44,89 @@
     return nativeFetch(input, init);
   };
 
+  async function pingBase(candidate, timeoutMs = 4000){
+    const c = cleanBase(candidate);
+    if(!c && c !== "") return false;
+    const url = c ? (c + "/api/bop/ping") : "/api/bop/ping";
+    try{
+      const r = await nativeFetch(url, {
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(timeoutMs) } : {})
+      });
+      return r.ok;
+    } catch(_e){
+      return false;
+    }
+  }
+
   /* ── Auto-discovery: jalankan sekali saat startup ─────────── */
   async function autoDiscover(){
-    /* Jika sudah ada URL yang valid, cukup verifikasi saja */
-    if (window.BOP_API_BASE){
-      try{
-        const r = await nativeFetch(window.BOP_API_BASE + "/api/bop/ping", {
-          signal: AbortSignal.timeout(5000)
-        });
-        if(r.ok){ console.info("[BOP AutoDiscover] URL terverifikasi:", window.BOP_API_BASE); return; }
-      } catch(e){ /* lanjut ke langkah berikutnya */ }
-    }
+    const envBase = cleanBase(window.BOP_API_BASE || "");
+    const storedBase = cleanBase(localStorage.getItem(LS_API_KEY) || "");
 
-    /* Langkah 1: Coba relative /api (works on Replit, same-origin, Vite dev) */
-    try{
-      const r = await nativeFetch("/api/bop/ping", { signal: AbortSignal.timeout(4000) });
-      if(r.ok){
-        console.info("[BOP AutoDiscover] Relative /api OK");
-        window.BOP_API_BASE = "";
-        window.__bopRelativeOk = true;
+    /* Langkah 0: ENV base jika valid */
+    if(envBase){
+      if(await pingBase(envBase, 5000)){
+        window.__bopSetApiBase(envBase);
+        console.info("[BOP AutoDiscover] URL dari ENV terverifikasi:", envBase);
         return;
       }
-    } catch(e){ /* tidak bisa reach /api secara relative */ }
+    }
 
-    /* Langkah 2: Baca /api-config.json (di-generate oleh Vite build dari env VITE_API_BASE) */
+    /* Langkah 1: api-config.json adalah sumber kanonik antar-browser */
+    let cfgBase = "";
     try{
-      const r = await nativeFetch("/api-config.json", { signal: AbortSignal.timeout(4000) });
+      const r = await nativeFetch("/api-config.json", {
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
       if(r.ok){
         const cfg = await r.json();
-        const url = cleanBase(cfg.apiBase || "");
-        if(url){
-          window.__bopSetApiBase(url);
-          console.info("[BOP AutoDiscover] URL dari api-config.json:", url);
-          return;
-        }
+        cfgBase = cleanBase(cfg.apiBase || "");
       }
     } catch(e){ /* file tidak ada atau tidak valid */ }
 
-    /* Langkah 3: Tanya server sendiri via /api/bop/server-url (fallback terakhir) */
+    if(cfgBase){
+      if(await pingBase(cfgBase, 5000)){
+        window.__bopSetApiBase(cfgBase);
+        console.info("[BOP AutoDiscover] URL dari api-config.json:", cfgBase);
+        return;
+      }
+    }
+
+    /* Langkah 2: Coba relative /api (works on same-origin deployment) */
+    if(await pingBase("", 4000)){
+      window.BOP_API_BASE = "";
+      localStorage.removeItem(LS_API_KEY);
+      window.__bopRelativeOk = true;
+      console.info("[BOP AutoDiscover] Relative /api OK");
+      return;
+    }
+
+    /* Langkah 3: fallback localStorage lama, tapi harus valid */
+    if(storedBase && await pingBase(storedBase, 5000)){
+      window.__bopSetApiBase(storedBase);
+      console.info("[BOP AutoDiscover] URL fallback localStorage terverifikasi:", storedBase);
+      return;
+    }
+
+    /* Langkah 4: Tanya server sendiri via /api/bop/server-url */
     try{
-      const r = await nativeFetch("/api/bop/server-url", { signal: AbortSignal.timeout(4000) });
+      const r = await nativeFetch("/api/bop/server-url", {
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
       if(r.ok){
         const d = await r.json();
         const url = cleanBase(d.serverUrl || "");
-        if(url && url !== cleanBase(window.location.origin)){
+        if(url){
           window.__bopSetApiBase(url);
           console.info("[BOP AutoDiscover] URL dari server-url endpoint:", url);
+          return;
         }
       }
     } catch(e){ /* tidak bisa */ }
+
+    /* Tidak ada kandidat valid: mode local/offline */
+    window.BOP_API_BASE = "";
+    localStorage.removeItem(LS_API_KEY);
 
     console.info("[BOP AutoDiscover] Selesai. API Base:", window.BOP_API_BASE || "(relative)");
 

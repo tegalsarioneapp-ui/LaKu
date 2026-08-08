@@ -4431,6 +4431,16 @@ async function goPage(page){
   window.bopPgPullNowV40 = manualPull;
   window.bopSyncPullV39  = manualPull;
 
+  function isCrossOriginApiBase(){
+    try{
+      const base = String(window.BOP_API_BASE || "").trim();
+      if(!base) return false;
+      return new URL(base, window.location.href).origin !== window.location.origin;
+    } catch(_e){
+      return false;
+    }
+  }
+
   /* ─── Terapkan data server ke memori + cache ────────────────── */
   function applyServerData(result){
     if(!result || !result.data) return;
@@ -4463,9 +4473,11 @@ async function goPage(page){
     setBadge("☁ …","rgba(0,0,0,.55)");
     try{
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const headers  = localVer > 0 ? { "If-None-Match": String(localVer) } : {};
+      const useEtag  = !isCrossOriginApiBase();
+      const headers  = (useEtag && localVer > 0) ? { "If-None-Match": String(localVer) } : {};
       const res = await fetch("/api/bop/data", {
         headers,
+        cache: "no-store",
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(7000) } : {}),
       });
 
@@ -4522,9 +4534,11 @@ async function goPage(page){
     if(pushInFlight || pushTimer) return;
     try{
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const headers  = localVer > 0 ? { "If-None-Match": String(localVer) } : {};
+      const useEtag  = !isCrossOriginApiBase();
+      const headers  = (useEtag && localVer > 0) ? { "If-None-Match": String(localVer) } : {};
       const res = await fetch("/api/bop/data", {
         headers,
+        cache: "no-store",
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(5000) } : {}),
       });
       if(res.status === 304){ markProbeResult(true); return; }

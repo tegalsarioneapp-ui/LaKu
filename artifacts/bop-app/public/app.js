@@ -12749,3 +12749,223 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.86] Online status fix aktif \u2014 sidebar sinkron dengan topbar.");
 })();
 /* END PATCH v1.86 */
+
+  /* ================================================================
+     PATCH v1.87 — Stabilizer Menu + Cetak Dokumen A4
+     Tujuan:
+     1) Satu struktur KOP yang konsisten untuk semua dokumen.
+     2) Satu jalur cetak A4 bersih yang tidak ikut mencetak UI aplikasi.
+     3) Sidebar/menu desktop-mobile lebih stabil dan mudah dipakai.
+     ================================================================ */
+  (function bopStabilizerV87(){
+    if(window.__bopStabilizerV87) return;
+    window.__bopStabilizerV87 = true;
+
+    function esc87(v){
+      return String(v == null ? "" : v)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function getStore87(){
+      const d = window.data || {};
+      return {
+        kop: d.kop || {},
+        master: d.master || {}
+      };
+    }
+
+    function buildOfficialLetterhead87(){
+      const store = getStore87();
+      const k = store.kop;
+      const m = store.master;
+
+      const line1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
+      const line2 = k.baris2 || "KECAMATAN CANDISARI";
+      const line3 = k.baris3 || "KELURAHAN TEGALSARI";
+      const line4 = k.baris4 || "RW 012 RT 005";
+      const addrRaw = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
+      const addr = /^sekretariat/i.test(addrRaw) ? addrRaw : ("Sekretariat: " + addrRaw);
+
+      return '' +
+        '<div class="kop official-letterhead">' +
+          '<div class="letterhead-logo">' +
+            '<img src="assets/logo-rt005.png" alt="Logo RT 005 RW 012">' +
+          '</div>' +
+          '<div class="letterhead-text">' +
+            '<div class="line city">' + esc87(line1) + '</div>' +
+            '<div class="line">' + esc87(line2) + '</div>' +
+            '<div class="line">' + esc87(line3) + '</div>' +
+            '<div class="line rt">' + esc87(line4) + '</div>' +
+            '<div class="address">' + esc87(addr) + '</div>' +
+          '</div>' +
+          '<div class="letterhead-spacer" aria-hidden="true"></div>' +
+        '</div>' +
+        '<div class="letterhead-rule"></div>';
+    }
+
+    window.kopHTML = function kopHTMLv87(){
+      return buildOfficialLetterhead87();
+    };
+
+    const PRINT_CSS_V87 = [
+      '@page{size:A4 portrait;margin:15mm 18mm 15mm 18mm}',
+      '*{box-sizing:border-box}',
+      'html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}',
+      'body{font-family:Arial,sans-serif!important;font-size:12pt!important;line-height:1.35!important}',
+      '.print-page{width:174mm!important;margin:0 auto!important;padding:0!important}',
+      '.official{font-family:Arial,sans-serif!important;color:#000!important;font-size:12pt!important;line-height:1.35!important}',
+      '.official .title{text-align:center!important;font-weight:700!important;text-transform:uppercase!important;margin:8mm 0 4mm!important}',
+      '.official p{margin:2.2mm 0!important}',
+      '.official table{width:100%!important;border-collapse:collapse!important;table-layout:fixed!important}',
+      '.official table.no-border{table-layout:auto!important}',
+      '.official th,.official td{border:1px solid #000!important;padding:1.8mm 2mm!important;vertical-align:top!important;word-break:normal!important;overflow-wrap:normal!important}',
+      '.official .no-border,.official .no-border td,.official .no-border th{border:0!important;background:transparent!important}',
+      '.official tr,.official p,.official .official-letterhead,.official .letterhead-rule{page-break-inside:avoid!important;break-inside:avoid!important}',
+      '.official img{max-width:100%!important;height:auto!important}',
+      '.official-letterhead{position:relative!important;display:block!important;min-height:32mm!important;width:100%!important;margin:0!important;padding:0!important}',
+      '.letterhead-logo{position:absolute!important;left:0!important;top:0!important;width:24mm!important;height:28mm!important;display:flex!important;align-items:flex-start!important;justify-content:center!important}',
+      '.letterhead-logo img{width:20mm!important;max-width:20mm!important;height:auto!important;max-height:26mm!important;object-fit:contain!important;border:none!important;box-shadow:none!important;border-radius:0!important}',
+      '.letterhead-text{width:100%!important;text-align:center!important;padding-left:28mm!important;padding-right:28mm!important;box-sizing:border-box!important;white-space:normal!important;writing-mode:horizontal-tb!important}',
+      '.letterhead-text .line{font-family:Arial,sans-serif!important;font-weight:700!important;font-size:12pt!important;line-height:1.15!important;letter-spacing:0!important;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}',
+      '.letterhead-text .city{font-size:13pt!important}',
+      '.letterhead-text .rt{font-size:12pt!important}',
+      '.letterhead-text .address{margin-top:3mm!important;font-size:9pt!important;font-weight:400!important;line-height:1.2!important;white-space:normal!important}',
+      '.letterhead-spacer{position:absolute!important;right:0!important;top:0!important;width:24mm!important;height:28mm!important}',
+      '.letterhead-rule{border-bottom:1.5px solid #000!important;margin:2mm 0 4mm!important;width:100%!important}',
+      '.ttd-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:16mm!important;text-align:center!important;margin-top:8mm!important}',
+      '.ttd-3{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8mm!important;text-align:center!important;margin-top:8mm!important}',
+      '.ttd-4{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6mm!important;text-align:center!important;margin-top:8mm!important}',
+      '.signature-space{height:18mm!important}'
+    ].join('');
+
+    function resolvePrintHtml87(target){
+      let t = target;
+      if(t !== "lpj" && t !== "pk") t = "doc";
+
+      if(typeof collectAll === "function"){
+        try{ collectAll(); }catch(_e){}
+      }
+
+      if(t === "lpj"){
+        try{
+          if(typeof docLpj === "function") return docLpj();
+        }catch(_e){}
+        return (document.getElementById("lpjOutput")?.innerHTML || "").trim();
+      }
+
+      if(t === "pk"){
+        try{
+          if(typeof collectPersiapan === "function") collectPersiapan();
+        }catch(_e){}
+        try{
+          if(typeof previewPkDoc === "function") previewPkDoc(window.currentPkDoc || "pk-hadir");
+        }catch(_e){}
+        return (document.getElementById("pkDocOutput")?.innerHTML || "").trim();
+      }
+
+      try{
+        if(typeof previewDoc === "function") previewDoc(window.currentDoc || "permohonan");
+      }catch(_e){}
+      return (document.getElementById("docOutput")?.innerHTML || "").trim();
+    }
+
+    window.cleanPrint = function cleanPrintV87(target){
+      const html = resolvePrintHtml87(target);
+      if(!html){
+        if(typeof bopAlert === "function"){
+          bopAlert("Cetak", "Tidak ada dokumen untuk dicetak.", "warning");
+        }
+        return;
+      }
+
+      const old = document.getElementById("printFrameV87");
+      if(old) old.remove();
+
+      const frame = document.createElement("iframe");
+      frame.id = "printFrameV87";
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none";
+      document.body.appendChild(frame);
+
+      const doc = frame.contentDocument || frame.contentWindow.document;
+      doc.open();
+      doc.write('<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Dokumen BOP</title><style>' + PRINT_CSS_V87 + '</style></head><body><div class="print-page">' + html + '</div></body></html>');
+      doc.close();
+
+      setTimeout(function(){
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+      }, 350);
+
+      setTimeout(function(){
+        try{ frame.remove(); }catch(_e){}
+      }, 60000);
+    };
+
+    window.cleanPrintPk = function cleanPrintPkV87(){
+      window.cleanPrint("pk");
+    };
+
+    function initMenuStabilizer87(){
+      const shell = document.getElementById("appShell");
+      const sidebar = document.getElementById("sidebar");
+      const hamburger = document.getElementById("hamburger");
+      if(!shell || !sidebar || !hamburger) return;
+
+      const desktopMq = window.matchMedia("(min-width: 1000px)");
+      const isDesktop = function(){ return desktopMq.matches; };
+
+      function applyInitialState(){
+        if(isDesktop()){
+          shell.classList.remove("menu-hidden");
+          sidebar.classList.remove("open");
+        } else {
+          shell.classList.add("menu-hidden");
+          sidebar.classList.remove("open");
+        }
+      }
+
+      function toggleMenu(){
+        if(isDesktop()){
+          shell.classList.toggle("menu-hidden");
+        } else {
+          sidebar.classList.toggle("open");
+        }
+      }
+
+      hamburger.onclick = null;
+      hamburger.addEventListener("click", function(e){
+        e.preventDefault();
+        toggleMenu();
+      });
+
+      document.addEventListener("click", function(e){
+        if(isDesktop()) return;
+        const target = e.target;
+        const insideSidebar = sidebar.contains(target);
+        const insideToggle = hamburger.contains(target);
+        if(!insideSidebar && !insideToggle){
+          sidebar.classList.remove("open");
+        }
+      });
+
+      document.querySelectorAll(".nav button").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          if(!isDesktop()) sidebar.classList.remove("open");
+        });
+      });
+
+      window.addEventListener("resize", applyInitialState);
+      applyInitialState();
+    }
+
+    if(document.readyState === "loading"){
+      document.addEventListener("DOMContentLoaded", initMenuStabilizer87);
+    } else {
+      initMenuStabilizer87();
+    }
+
+    console.log("[BOP v1.87] Stabilizer aktif: menu lebih rapi, cetak A4 bersih, KOP konsisten.");
+  })();
+  /* END PATCH v1.87 */

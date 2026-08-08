@@ -1783,6 +1783,188 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
   border-radius: 99px;
   white-space: nowrap;
 }
+
+/* ================================================================
+   PATCH v1.87 — Final Clean Menu + Dokumen Print Override
+   ================================================================ */
+
+/* KOP resmi tunggal untuk preview dan dokumen */
+.official .official-letterhead,
+.official-letterhead{
+  position:relative!important;
+  width:100%!important;
+  min-height:32mm!important;
+  display:block!important;
+  font-family:Arial,sans-serif!important;
+  margin:0!important;
+  padding:0!important;
+  writing-mode:horizontal-tb!important;
+}
+
+.official .letterhead-logo,
+.letterhead-logo{
+  position:absolute!important;
+  left:0!important;
+  top:0!important;
+  width:24mm!important;
+  height:28mm!important;
+  display:flex!important;
+  align-items:flex-start!important;
+  justify-content:center!important;
+}
+
+.official .letterhead-logo img,
+.letterhead-logo img{
+  width:20mm!important;
+  height:auto!important;
+  max-width:20mm!important;
+  max-height:26mm!important;
+  object-fit:contain!important;
+  border:0!important;
+  border-radius:0!important;
+  box-shadow:none!important;
+}
+
+.official .letterhead-text,
+.letterhead-text{
+  width:100%!important;
+  text-align:center!important;
+  padding-left:28mm!important;
+  padding-right:28mm!important;
+  box-sizing:border-box!important;
+  white-space:normal!important;
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+  writing-mode:horizontal-tb!important;
+}
+
+.official .letterhead-text .line,
+.letterhead-text .line{
+  font-family:Arial,sans-serif!important;
+  font-weight:700!important;
+  font-size:12pt!important;
+  line-height:1.15!important;
+  letter-spacing:0!important;
+  white-space:nowrap!important;
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+}
+
+.official .letterhead-text .city,
+.letterhead-text .city{
+  font-size:13pt!important;
+}
+
+.official .letterhead-text .rt,
+.letterhead-text .rt{
+  font-size:12pt!important;
+}
+
+.official .letterhead-text .address,
+.letterhead-text .address{
+  margin-top:3mm!important;
+  font-size:9pt!important;
+  font-weight:400!important;
+  line-height:1.2!important;
+  white-space:normal!important;
+}
+
+.official .letterhead-spacer,
+.letterhead-spacer{
+  position:absolute!important;
+  right:0!important;
+  top:0!important;
+  width:24mm!important;
+  height:28mm!important;
+}
+
+.official .letterhead-rule,
+.letterhead-rule{
+  border-bottom:1.5px solid #000!important;
+  margin-top:2mm!important;
+  margin-bottom:4mm!important;
+  width:100%!important;
+}
+
+/* Pastikan layout dokumen tidak memecah kata secara agresif */
+.official,
+.official *{
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+}
+
+.official table{
+  table-layout:fixed!important;
+}
+
+.official table.no-border,
+.official table.no-border *{
+  table-layout:auto!important;
+}
+
+/* Fallback jika user memicu print browser langsung */
+@media print{
+  @page{size:A4 portrait;margin:15mm 18mm 15mm 18mm}
+
+  html,body{
+    margin:0!important;
+    padding:0!important;
+    background:#fff!important;
+    font-family:Arial,sans-serif!important;
+  }
+
+  .sidebar,
+  .topbar,
+  .toolbar,
+  .editor-toolbar,
+  .generate-panel,
+  .app-menu,
+  button,
+  .no-print,
+  .monthly-print-panel,
+  .toast-stack-v19,
+  .module-guide-v20,
+  .guide-wrapper-v30,
+  .guide-toggle-v30{
+    display:none!important;
+  }
+
+  .document-page,
+  .print-area,
+  .official-document,
+  .doc-paper,
+  #docOutput,
+  #pkDocOutput,
+  #lpjOutput{
+    width:174mm!important;
+    max-width:174mm!important;
+    min-height:auto!important;
+    margin:0 auto!important;
+    padding:0!important;
+    background:#fff!important;
+    border:0!important;
+    box-shadow:none!important;
+    overflow:visible!important;
+    font-family:Arial,sans-serif!important;
+    font-size:12pt!important;
+  }
+
+  .official-letterhead,
+  .letterhead-rule,
+  .ttd-grid,
+  .ttd-3,
+  .ttd-4,
+  .official tr,
+  .official p{
+    page-break-inside:avoid!important;
+    break-inside:avoid!important;
+  }
+
+  .official img{
+    max-width:100%!important;
+    height:auto!important;
+  }
+}
 .keg-body-v40 { padding: 16px; background: #fff; }
 .keg-expense-table-v40 { width: 100%; border-collapse: collapse; }
 .keg-expense-table-v40 th,

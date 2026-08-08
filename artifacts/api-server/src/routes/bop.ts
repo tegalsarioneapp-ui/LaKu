@@ -108,7 +108,7 @@ router.get("/bop/data", async (req, res) => {
       version: row.version,
     });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal membaca data BOP" });
   }
 });
@@ -147,7 +147,7 @@ router.put("/bop/data", async (req, res) => {
       version: result.rows[0].version,
     });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan data BOP" });
   }
 });
@@ -177,7 +177,7 @@ router.post("/bop/data-beacon", async (req, res) => {
     );
     res.status(204).end();
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(204).end(); // sendBeacon tidak peduli response, tetap 204
   }
 });
@@ -208,7 +208,7 @@ router.get("/bop/history", async (req, res) => {
 
     res.json({ ok: true, history: result.rows });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal membaca riwayat" });
   }
 });
@@ -242,7 +242,7 @@ router.post("/bop/history", async (req, res) => {
       createdAt: result.rows[0].created_at,
     });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan riwayat" });
   }
 });
@@ -268,7 +268,7 @@ router.delete("/bop/history/:id", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menghapus riwayat" });
   }
 });
@@ -317,7 +317,7 @@ router.get("/bop/status", async (req, res) => {
       historyCount: Number(histCount.rows[0].count),
     });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     const msg = e instanceof Error ? e.message : String(e);
     /* Kalau tabel belum ada, coba auto-init dulu lalu retry sekali */
     if (msg.includes("does not exist") || msg.includes("relation")) {
@@ -365,7 +365,7 @@ router.post("/bop/init-db", async (req, res) => {
     await runInitDb();
     res.json({ ok: true, message: "Semua tabel berhasil dibuat / sudah ada." });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     const msg = e instanceof Error ? e.message : String(e);
     res.status(500).json({ ok: false, error: msg });
   }

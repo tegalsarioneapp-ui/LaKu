@@ -34,7 +34,7 @@ router.post("/db/bop-sync", async (req, res) => {
     );
     res.json({ ok: true, id: result.rows[0].id, createdAt: result.rows[0].created_at });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan snapshot BOP" });
   }
 });
@@ -96,7 +96,7 @@ router.post("/db/photos", async (req, res) => {
       client.release();
     }
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan foto" });
   }
 });
@@ -151,7 +151,7 @@ router.post("/db/results-sync", async (req, res) => {
       client.release();
     }
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal sinkronisasi hasil" });
   }
 });
@@ -173,7 +173,7 @@ router.get("/db/stats", async (req, res) => {
       resultsCount:   Number(results.rows[0].count)
     });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal membaca statistik" });
   }
 });

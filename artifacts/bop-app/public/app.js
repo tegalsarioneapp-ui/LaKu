@@ -4319,9 +4319,26 @@ async function goPage(page){
       const res = await fetch("/api/bop/data", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: parsed, clientVersion: localVer + 1 }),
+        body: JSON.stringify({ data: parsed, baseVersion: localVer }),
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
       });
+      if(res.status === 409){
+        let conflictPayload = null;
+        try{ conflictPayload = await res.json(); }catch(_e){}
+        if(conflictPayload?.data){
+          applyServerData({
+            ok: true,
+            data: conflictPayload.data,
+            version: conflictPayload.serverVersion || localVer,
+            updatedAt: conflictPayload.updatedAt || new Date().toISOString()
+          });
+          if(typeof bopToast === "function"){
+            bopToast("Sinkronisasi Diperbarui","Perangkat ini tertinggal. Data terbaru server dimuat otomatis.","info");
+          }
+          return;
+        }
+        throw new Error("HTTP 409");
+      }
       if(!res.ok) throw new Error("HTTP " + res.status);
       const result = await res.json();
       localStorage.setItem(VER_KEY, String(result.version));
@@ -4500,7 +4517,7 @@ async function goPage(page){
     try{
       const parsed   = JSON.parse(raw);
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const payload  = JSON.stringify({ data: parsed, clientVersion: localVer + 1 });
+      const payload  = JSON.stringify({ data: parsed, baseVersion: localVer });
       const blob     = new Blob([payload], { type: "application/json" });
       if(navigator.sendBeacon) navigator.sendBeacon("/api/bop/data-beacon", blob);
     } catch(e){}
@@ -5165,20 +5182,33 @@ function printCssV22(){
         try{
           const STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
           const VER_KEY_  = "bop_pg_version_v40";
+          const TS_KEY_   = "bop_pg_updated_v40";
           const raw = localStorage.getItem(STORE_KEY);
           if(!raw) return;
-          localStorage.removeItem(VER_KEY_);
+          const baseVersion = parseInt(localStorage.getItem(VER_KEY_) || "0", 10);
           fetch("/api/bop/data", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: JSON.parse(raw), clientVersion: Date.now() }),
+            body: JSON.stringify({ data: JSON.parse(raw), baseVersion }),
             ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {})
           }).then(r => r.json()).then(res => {
             if(res.ok){
               localStorage.setItem(VER_KEY_, String(res.version));
+              localStorage.setItem(TS_KEY_, res.updatedAt || new Date().toISOString());
               localStorage.setItem("bop_pg_ts_v40", res.updatedAt || new Date().toISOString());
               if(typeof bopToast === "function")
                 bopToast("Restore + Sync OK","Data lokal berhasil dipulihkan dan disimpan ke server.","success");
+            } else if(res?.error === "VERSION_CONFLICT"){
+              if(typeof window.bopApplyServerDataV42 === "function"){
+                window.bopApplyServerDataV42({
+                  ok: true,
+                  data: res.data,
+                  version: res.serverVersion || baseVersion,
+                  updatedAt: res.updatedAt || new Date().toISOString()
+                });
+              }
+              if(typeof bopToast === "function")
+                bopToast("Restore Ditunda","Server lebih baru. Data terbaru server dimuat agar tidak saling timpa.","warning");
             }
           }).catch(()=>{});
         } catch(err){ console.warn("[BOP RestoreSyncFix]", err); }

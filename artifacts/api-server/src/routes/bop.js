@@ -113,18 +113,35 @@ router.get("/bop/data", async (req, res) => {
 ═══════════════════════════════════════════════════════════════ */
 router.put("/bop/data", async (req, res) => {
     try {
-        const { data, clientVersion } = req.body;
+        const { data, baseVersion, clientVersion } = req.body;
         if (!data || typeof data !== "object") {
             res.status(400).json({ ok: false, error: "Field 'data' wajib berupa object" });
             return;
         }
+        const expectedVersion = Number.isInteger(baseVersion)
+            ? baseVersion
+            : (Number.isInteger(clientVersion) ? clientVersion - 1 : 0);
         const result = await pool.query(`INSERT INTO bop_data (rt_key, data, version, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (rt_key) DO UPDATE
          SET data       = EXCLUDED.data,
              version    = bop_data.version + 1,
              updated_at = NOW()
-       RETURNING updated_at, version`, [RT_KEY, JSON.stringify(data), clientVersion ?? 1]);
+       WHERE bop_data.version = $4
+       RETURNING updated_at, version`, [RT_KEY, JSON.stringify(data), expectedVersion + 1, expectedVersion]);
+        if (result.rows.length === 0) {
+            const current = await pool.query(`SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]);
+            const row = current.rows[0];
+            res.status(409).json({
+                ok: false,
+                error: "VERSION_CONFLICT",
+                message: "Data server sudah lebih baru dari perangkat ini.",
+                serverVersion: row?.version ?? 0,
+                updatedAt: row?.updated_at ?? null,
+                data: row?.data ?? null,
+            });
+            return;
+        }
         res.json({
             ok: true,
             updatedAt: result.rows[0].updated_at,
@@ -150,12 +167,16 @@ router.post("/bop/data-beacon", async (req, res) => {
             res.status(204).end();
             return;
         }
+        const expectedVersion = Number.isInteger(body.baseVersion)
+            ? body.baseVersion
+            : (Number.isInteger(body.clientVersion) ? body.clientVersion - 1 : 0);
         await pool.query(`INSERT INTO bop_data (rt_key, data, version, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (rt_key) DO UPDATE
          SET data       = EXCLUDED.data,
              version    = bop_data.version + 1,
-             updated_at = NOW()`, [RT_KEY, JSON.stringify(body.data), body.clientVersion ?? 1]);
+             updated_at = NOW()
+       WHERE bop_data.version = $4`, [RT_KEY, JSON.stringify(body.data), expectedVersion + 1, expectedVersion]);
         res.status(204).end();
     }
     catch (e) {

@@ -306,8 +306,9 @@ router.get("/bop/status", async (req: any, res: any) => {
       pool.query(
         `SELECT updated_at, version FROM bop_data WHERE rt_key = $1`,
         [RT_KEY]
-      ),
+          const { data, baseVersion, clientVersion } = req.body as {
       pool.query(`SELECT COUNT(*) as count FROM bop_history`),
+            baseVersion?: number;
     ]);
     res.json({
       ok:           true,
@@ -315,6 +316,10 @@ router.get("/bop/status", async (req: any, res: any) => {
       updatedAt:    dataRow.rows[0]?.updated_at ?? null,
       version:      dataRow.rows[0]?.version ?? 0,
       historyCount: Number(histCount.rows[0].count),
+
+          const expectedVersion = Number.isInteger(baseVersion)
+            ? baseVersion
+            : (Number.isInteger(clientVersion) ? clientVersion - 1 : 0);
     });
   } catch (e) {
     (req as any).log.error(e);
@@ -322,10 +327,29 @@ router.get("/bop/status", async (req: any, res: any) => {
     /* Kalau tabel belum ada, coba auto-init dulu lalu retry sekali */
     if (msg.includes("does not exist") || msg.includes("relation")) {
       try {
-        await runInitDb();
+                   updated_at = NOW()
+             WHERE bop_data.version = $4
         const [d2, h2] = await Promise.all([
-          pool.query(`SELECT updated_at, version FROM bop_data WHERE rt_key = $1`, [RT_KEY]),
+            [RT_KEY, JSON.stringify(data), expectedVersion + 1, expectedVersion]
           pool.query(`SELECT COUNT(*) as count FROM bop_history`),
+
+          if (result.rows.length === 0) {
+            const current = await pool.query(
+              `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
+              [RT_KEY]
+            );
+            const row = current.rows[0];
+            res.status(409).json({
+              ok: false,
+              error: "VERSION_CONFLICT",
+              message: "Data server sudah lebih baru dari perangkat ini.",
+              serverVersion: row?.version ?? 0,
+              updatedAt: row?.updated_at ?? null,
+              data: row?.data ?? null,
+            });
+            return;
+          }
+
         ]);
         res.json({
           ok:           true,
@@ -341,6 +365,10 @@ router.get("/bop/status", async (req: any, res: any) => {
         res.status(500).json({ ok: false, error: "Auto-init gagal: " + msg2 });
         return;
       }
+
+          const expectedVersion = Number.isInteger(body.baseVersion)
+            ? body.baseVersion
+            : (Number.isInteger(body.clientVersion) ? body.clientVersion - 1 : 0);
     }
     res.status(500).json({ ok: false, error: msg });
   }
@@ -348,8 +376,9 @@ router.get("/bop/status", async (req: any, res: any) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET|POST /api/bop/init-db
-   Buat semua tabel (idempotent). Aman dijalankan berkali-kali.
-═══════════════════════════════════════════════════════════════ */
+                   updated_at = NOW()
+             WHERE bop_data.version = $4`,
+            [RT_KEY, JSON.stringify(body.data), expectedVersion + 1, expectedVersion]
 router.get("/bop/init-db", async (req: any, res: any) => {
   try {
     await runInitDb();

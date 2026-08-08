@@ -4133,10 +4133,6 @@ async function goPage(page){
     const txt  = document.getElementById("topbarStatusText");
     if(dot) dot.style.background = online ? "#16a34a" : online === null ? "#94a3b8" : "#dc2626";
     if(txt) txt.textContent      = online ? "Online Mode" : online === null ? "Memeriksa..." : "Offline Mode";
-    if(_lastOnline !== null && _lastOnline !== online && typeof bopToast === "function"){
-      if(online)  bopToast("☁ Terhubung ke Server", "Sinkronisasi data aktif.", "success");
-      else        bopToast("⚠ Koneksi Terputus", "Mode offline — data tetap tersimpan lokal.", "warning");
-    }
     _lastOnline = online;
   }
 
@@ -4157,35 +4153,16 @@ async function goPage(page){
 
   /* ─── Badge sync kecil di pojok kanan atas ─────────────────── */
   function injectBadge(){
-    if(document.getElementById("pgSyncBadge")) return;
-    const b = document.createElement("div");
-    b.id = "pgSyncBadge";
-    b.title = "Klik untuk info status sinkronisasi";
-    b.style.cssText = "position:fixed;top:10px;right:14px;z-index:9999;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;cursor:pointer;user-select:none;transition:background .3s,opacity .3s;opacity:.85";
-    b.textContent = "☁ …";
-    b.onclick = showSyncInfo;
-    document.body.appendChild(b);
+    const b = document.getElementById("pgSyncBadge");
+    if (b) b.remove();
   }
 
   function setBadge(txt, color){
-    const b = document.getElementById("pgSyncBadge");
-    if(!b) return;
-    b.textContent = txt;
-    b.style.background = color || "rgba(0,0,0,.55)";
+    return;
   }
 
   function showSyncInfo(){
-    const ver   = localStorage.getItem(VER_KEY) || "-";
-    const ts    = localStorage.getItem(TS_KEY);
-    const tsStr = ts ? new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
-    const fn = typeof bopAlert === "function" ? bopAlert : (t,m) => alert(t+"\n"+m);
-    fn("☁ Status Sinkronisasi BOP",
-      "<b>Database:</b> PostgreSQL (Railway)<br>" +
-      "<b>Versi data:</b> " + ver + "<br>" +
-      "<b>Terakhir sync:</b> " + tsStr + "<br><br>" +
-      "<small>Data disimpan otomatis setiap perubahan (delay 2 detik).<br>" +
-      "Saat buka di perangkat lain, data terbaru akan dimuat otomatis.</small>",
-    "info");
+    return;
   }
 
   /* ─── Update sidebar note ───────────────────────────────────── */
@@ -4370,7 +4347,6 @@ async function goPage(page){
     if(!raw){ if(typeof bopAlert==="function") bopAlert("Tidak Ada Data","Tidak ada data lokal untuk disimpan.","warning"); return; }
     setBadge("☁ ↑", "#1e40af");
     await doPush(raw);
-    if(typeof bopToast==="function") bopToast("Tersimpan","Data berhasil disimpan ke server.","success");
   }
   window.bopPgPushNowV40 = manualPush;
   window.bopSyncPushV39  = manualPush;
@@ -4394,7 +4370,6 @@ async function goPage(page){
         : confirm("Ambil data dari server? Data lokal akan diganti.");
       if(!ok){ setBadge("☁","rgba(0,0,0,.55)"); return; }
       applyServerData(result);
-      if(typeof bopToast==="function") bopToast("Data Dimuat","Data berhasil diambil dari server.","success");
     } catch(e){
       console.warn(TAG,"Pull gagal:",e.message);
       setBadge("☁ !","#b91c1c");
@@ -4477,12 +4452,6 @@ async function goPage(page){
       if(serverVer > localVer){
         /* Server lebih baru — muat */
         applyServerData(result);
-        if(typeof bopToast==="function"){
-          bopToast("Data Dimuat dari Server",
-            "Versi " + serverVer + " — " +
-            new Date(result.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
-          "info");
-        }
       } else {
         /* Lokal sama atau lebih baru */
         setBadge("☁ ✓","#15803d");
@@ -4516,7 +4485,6 @@ async function goPage(page){
       const localVer2 = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
       if(serverVer > localVer2){
         applyServerData(result);
-        if(typeof bopToast==="function") bopToast("☁ Data Diperbarui","Data terbaru (v"+serverVer+") dimuat dari server.","info");
       }
     } catch(e){
       markProbeResult(false);

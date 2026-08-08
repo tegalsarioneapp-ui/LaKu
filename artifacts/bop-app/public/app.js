@@ -4225,7 +4225,7 @@ async function goPage(page){
             const dp = await rp.json();
             if(!dp.ok){
               step("❌ <b>Koneksi database gagal.</b><br>Host: <code>"+(dp.host||"?")+"</code><br>Error: <b>"+(dp.error||"Tidak diketahui")+"</b><br><small>Pastikan DATABASE_URL sudah benar di Railway dan service Postgres sudah terhubung ke service API di Railway dashboard.</small>", "#b91c1c");
-              setTopbarStatus(false);
+              markProbeResult(false);
               autoSetupBtn.disabled = false;
               autoSetupBtn.textContent = "🚀 Setup Otomatis";
               return;
@@ -4234,7 +4234,7 @@ async function goPage(page){
             pingOk = true;
           } catch(pe){
             step("❌ <b>Tidak bisa reach server Railway:</b> "+pe.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
-            setTopbarStatus(false);
+            markProbeResult(false);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
@@ -4250,7 +4250,7 @@ async function goPage(page){
           if(d1.ok){
             const ts = d1.updatedAt ? new Date(d1.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
             step("✅ <b>Server &amp; database sudah OK!</b><br>Koneksi: PostgreSQL (Railway)<br>Punya data: "+(d1.hasData?"Ya":"Tidak")+"<br>Versi: "+(d1.version||0)+"<br>Terakhir update: "+ts+"<br>Riwayat: "+(d1.historyCount||0)+" entri"+(d1.autoInited?" <i>(tabel baru dibuat otomatis)</i>":""), "#15803d");
-            setTopbarStatus(true);
+            markProbeResult(true);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
@@ -4266,7 +4266,7 @@ async function goPage(page){
 
           if(!d2.ok){
             step("❌ <b>Buat tabel gagal:</b> "+(d2.error||"Tidak diketahui")+"<br><small>Koneksi DB OK tapi tidak bisa buat tabel. Cek apakah user DB punya hak akses CREATE TABLE.</small>", "#b91c1c");
-            setTopbarStatus(false);
+            markProbeResult(false);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
@@ -4282,15 +4282,15 @@ async function goPage(page){
 
           if(d3.ok){
             step("✅ <b>Setup selesai! Server &amp; database siap digunakan.</b><br>Tabel berhasil dibuat dari awal.<br>Punya data: "+(d3.hasData?"Ya":"Tidak")+"<br>Sekarang kamu bisa klik <b>☁️ Simpan ke Server</b> untuk upload data.", "#15803d");
-            setTopbarStatus(true);
+            markProbeResult(true);
           } else {
             step("⚠ <b>Tabel dibuat tapi verifikasi akhir gagal:</b> "+(d3.error||"")+"<br><small>Coba klik Setup Otomatis sekali lagi dalam beberapa detik.</small>", "#b45309");
-            setTopbarStatus(false);
+            markProbeResult(false);
           }
 
         } catch(e){
           step("❌ <b>Tidak bisa reach server Railway:</b> "+e.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
-          setTopbarStatus(false);
+          markProbeResult(false);
         }
 
         autoSetupBtn.disabled = false;
@@ -4328,7 +4328,7 @@ async function goPage(page){
       localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
       setBadge("☁ ✓", "#15803d");
       setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
-      setTopbarStatus(true);
+      markProbeResult(true);
       updateSidebarNote();
       updateSyncPanel();
     } catch(e){
@@ -4394,7 +4394,7 @@ async function goPage(page){
     if(typeof updateDashboard==="function"){ try{ updateDashboard(); }catch(e){} }
     setBadge("☁ ✓","#15803d");
     setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),3000);
-    setTopbarStatus(true);
+    markProbeResult(true);
     updateSidebarNote();
     updateSyncPanel();
   }

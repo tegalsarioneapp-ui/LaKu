@@ -1791,10 +1791,12 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 /* KOP resmi tunggal untuk preview dan dokumen */
 .official .official-letterhead,
 .official-letterhead{
-  position:relative!important;
+  position:static!important;
   width:100%!important;
-  min-height:32mm!important;
-  display:block!important;
+  min-height:27mm!important;
+  display:grid!important;
+  grid-template-columns:18mm minmax(0,1fr) 18mm!important;
+  align-items:start!important;
   font-family:Arial,sans-serif!important;
   margin:0!important;
   padding:0!important;
@@ -1803,22 +1805,20 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 
 .official .letterhead-logo,
 .letterhead-logo{
-  position:absolute!important;
-  left:0!important;
-  top:0!important;
-  width:24mm!important;
-  height:28mm!important;
+  position:static!important;
+  width:18mm!important;
+  height:22mm!important;
   display:flex!important;
   align-items:flex-start!important;
-  justify-content:center!important;
+  justify-content:flex-start!important;
 }
 
 .official .letterhead-logo img,
 .letterhead-logo img{
-  width:20mm!important;
-  height:auto!important;
-  max-width:20mm!important;
-  max-height:26mm!important;
+  width:15mm!important;
+  height:15mm!important;
+  max-width:15mm!important;
+  max-height:15mm!important;
   object-fit:contain!important;
   border:0!important;
   border-radius:0!important;
@@ -1827,10 +1827,9 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 
 .official .letterhead-text,
 .letterhead-text{
-  width:100%!important;
+  width:auto!important;
   text-align:center!important;
-  padding-left:28mm!important;
-  padding-right:28mm!important;
+  padding:0!important;
   box-sizing:border-box!important;
   white-space:normal!important;
   word-break:normal!important;
@@ -1871,11 +1870,9 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 
 .official .letterhead-spacer,
 .letterhead-spacer{
-  position:absolute!important;
-  right:0!important;
-  top:0!important;
-  width:24mm!important;
-  height:28mm!important;
+  position:static!important;
+  width:18mm!important;
+  height:22mm!important;
 }
 
 .official .letterhead-rule,

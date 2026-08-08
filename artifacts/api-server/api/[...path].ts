@@ -8,5 +8,5 @@ export const config = {
 };
 
 export default function handler(req: any, res: any) {
-  return app(req, res);
+  return (app as unknown as (req: any, res: any) => unknown)(req, res);
 }

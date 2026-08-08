@@ -4127,6 +4127,7 @@ async function goPage(page){
   let _lastOnline = null;
   let _probeOkStreak = 0;
   let _probeFailStreak = 0;
+  let _lastProbeOkAt = Date.now();
   function setTopbarStatus(online){
     const dot  = document.getElementById("topbarDot");
     const txt  = document.getElementById("topbarStatusText");
@@ -4144,12 +4145,14 @@ async function goPage(page){
     if(isOk){
       _probeOkStreak++;
       _probeFailStreak = 0;
+      _lastProbeOkAt = Date.now();
       if(_probeOkStreak >= 1) setTopbarStatus(true);
       return;
     }
     _probeFailStreak++;
     _probeOkStreak = 0;
-    if(_probeFailStreak >= 2) setTopbarStatus(false);
+    const staleMs = Date.now() - _lastProbeOkAt;
+    if(_probeFailStreak >= 2 && staleMs >= 25_000) setTopbarStatus(false);
   }
 
   /* ─── Badge sync kecil di pojok kanan atas ─────────────────── */

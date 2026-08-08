@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express from "express";
 import cors from "cors";
 import { createRequire } from "node:module";
 import router from "./routes/index.js";
@@ -8,20 +8,20 @@ import { autoInitDb } from "./routes/bop.js";
 const require = createRequire(import.meta.url);
 const pinoHttp = require("pino-http");
 
-const app: Express = express();
+const app = express();
 
 app.use(
   pinoHttp({
     logger,
     serializers: {
-      req(req) {
+      req(req: any) {
         return {
           id: req.id,
           method: req.method,
           url: req.url?.split("?")[0],
         };
       },
-      res(res) {
+      res(res: any) {
         return {
           statusCode: res.statusCode,
         };

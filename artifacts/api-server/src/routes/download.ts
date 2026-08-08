@@ -27,7 +27,7 @@ const BOP_INDEX_HTML = path.resolve(
   "index.html"
 );
 
-router.get("/download-app", (_req, res) => {
+router.get("/download-app", (_req: any, res: any) => {
   res.setHeader("Content-Type", "application/zip");
   res.setHeader(
     "Content-Disposition",

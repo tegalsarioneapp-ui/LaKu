@@ -12,7 +12,7 @@ const RT_KEY = "rt005rw012";
 /* ── GET /api/sync/status ──────────────────────────────────────
    Cek apakah data sync tersedia di PostgreSQL.
 ─────────────────────────────────────────────────────────────── */
-router.get("/sync/status", async (_req, res) => {
+router.get("/sync/status", async (_req: any, res: any) => {
   try {
     const result = await pool.query(
       `SELECT updated_at, version FROM bop_data WHERE rt_key = $1`,
@@ -36,7 +36,7 @@ router.get("/sync/status", async (_req, res) => {
 /* ── GET /api/sync/pull ────────────────────────────────────────
    Ambil data BOP terkini dari PostgreSQL.
 ─────────────────────────────────────────────────────────────── */
-router.get("/sync/pull", async (_req, res) => {
+router.get("/sync/pull", async (_req: any, res: any) => {
   try {
     const result = await pool.query(
       `SELECT data, updated_at, version FROM bop_data WHERE rt_key = $1`,
@@ -61,7 +61,7 @@ router.get("/sync/pull", async (_req, res) => {
    Simpan data BOP ke PostgreSQL (upsert).
    Body: { data: object }
 ─────────────────────────────────────────────────────────────── */
-router.post("/sync/push", async (req, res) => {
+router.post("/sync/push", async (req: any, res: any) => {
   try {
     const body = req.body as { data?: unknown };
     if (!body?.data || typeof body.data !== "object") {

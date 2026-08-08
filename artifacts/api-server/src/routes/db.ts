@@ -21,7 +21,7 @@ async function ensureIndex() {
    Simpan snapshot data BOP ke PostgreSQL untuk cloud backup.
    Body: { data: object, label?: string }
 ─────────────────────────────────────────────────────────────── */
-router.post("/db/bop-sync", async (req, res) => {
+router.post("/db/bop-sync", async (req: any, res: any) => {
   try {
     const { data, label } = req.body as { data: unknown; label?: string };
     if (!data || typeof data !== "object") {
@@ -43,7 +43,7 @@ router.post("/db/bop-sync", async (req, res) => {
    Simpan metadata foto MoKu ke PostgreSQL.
    Body: { photos: Array<PhotoMeta>, activityName?: string }
 ─────────────────────────────────────────────────────────────── */
-router.post("/db/photos", async (req, res) => {
+router.post("/db/photos", async (req: any, res: any) => {
   try {
     const { photos, activityName } = req.body as {
       photos: Array<{
@@ -104,7 +104,7 @@ router.post("/db/photos", async (req, res) => {
 /* ── POST /api/db/results-sync ──────────────────────────────────
    Sinkronkan ringkasan hasil MoKu per kegiatan.
 ─────────────────────────────────────────────────────────────── */
-router.post("/db/results-sync", async (req, res) => {
+router.post("/db/results-sync", async (req: any, res: any) => {
   await ensureIndex();
   try {
     const { results } = req.body as {
@@ -159,7 +159,7 @@ router.post("/db/results-sync", async (req, res) => {
 /* ── GET /api/db/stats ──────────────────────────────────────────
    Statistik data tersimpan di PostgreSQL.
 ─────────────────────────────────────────────────────────────── */
-router.get("/db/stats", async (req, res) => {
+router.get("/db/stats", async (req: any, res: any) => {
   try {
     const [photos, snaps, results] = await Promise.all([
       pool.query("SELECT COUNT(*) as count FROM moku_photos"),

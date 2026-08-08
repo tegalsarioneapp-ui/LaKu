@@ -9,6 +9,18 @@ import { pool } from "@workspace/db";
 const router = Router();
 const RT_KEY = "rt005rw012";
 
+// Pastikan CORS selalu ada, termasuk pada response 304 Not Modified.
+router.use((req: any, res: any, next: any) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, If-None-Match");
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 /* ─── SQL untuk membuat semua tabel BOP (idempotent) ────────── */
 const CREATE_TABLES_SQL = `
   CREATE TABLE IF NOT EXISTS bop_data (

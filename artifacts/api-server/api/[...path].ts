@@ -1,0 +1,12 @@
+import app from "../src/app";
+
+export const config = {
+  api: {
+    // Let Express handle parsing for json/urlencoded/text and sendBeacon payloads.
+    bodyParser: false,
+  },
+};
+
+export default function handler(req: any, res: any) {
+  return app(req, res);
+}

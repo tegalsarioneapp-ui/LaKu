@@ -13119,7 +13119,14 @@ ${KOP_PDF_CSS}
       html = '<div class="official"><p>Gagal memuat dokumen persiapan: ' + String(err && err.message ? err.message : err) + '</p></div>';
     }
 
-    if(html && html.indexOf('class="official"') === -1 && typeof official === "function"){
+    var hasOfficialWrapper = false;
+    try{
+      hasOfficialWrapper = /class\s*=\s*(["'])[^"']*\bofficial\b[^"']*\1/i.test(String(html || ""));
+    }catch(_e){
+      hasOfficialWrapper = false;
+    }
+
+    if(html && !hasOfficialWrapper && typeof official === "function"){
       try{ html = official(html); }catch(_e){}
     }
 

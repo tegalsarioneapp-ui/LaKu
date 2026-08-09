@@ -9515,7 +9515,18 @@ ${KOP_PDF_CSS}
   }
 
   /* ── 1. KOP SURAT — layout sesuai contoh resmi ── */
+  function ensureLetterRenderStyles63(){
+    if(document.getElementById("bopLetterRenderStyles")) return;
+    var style = document.createElement("style");
+    style.id = "bopLetterRenderStyles";
+    style.textContent = (window.letterRendering && typeof window.letterRendering.getLetterRenderCss === "function")
+      ? window.letterRendering.getLetterRenderCss()
+      : "";
+    document.head.appendChild(style);
+  }
+
   window.kopHTML = function kopHTML(){
+    ensureLetterRenderStyles63();
     var k = (window.data && window.data.kop) ? window.data.kop : {};
     var m = (window.data && window.data.master) ? window.data.master : {};
     var b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
@@ -9524,6 +9535,15 @@ ${KOP_PDF_CSS}
     var b4 = k.baris4 || "RW 012 RT 005";
     var addr = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
     var addrLine = /^sekretariat/i.test(addr) ? addr : ("Sekretariat: " + addr);
+
+    if(window.letterRendering && typeof window.letterRendering.buildLetterHeaderHtml === "function"){
+      return '<div class="kop kop-v63">' + window.letterRendering.buildLetterHeaderHtml({
+        lines: [b1, b2, b3, b4],
+        address: addrLine,
+        logoSrc: 'assets/logo-rt005.png'
+      }) + '</div>';
+    }
+
     return '<div class="kop kop-v63">'+
       '<div class="kop-v63-header">'+esc63(b1)+'</div>'+
       '<div class="kop-v63-row">'+
@@ -9998,20 +10018,24 @@ ${KOP_PDF_CSS}
     Promise.resolve().then(() => { window.__bopApplyingServer = false; });
   };
 
-  /* Intercept schedulePush: batalkan jika sedang apply dari server */
-  const _origFetch = window.fetch;
+  /* Intercept schedulePush: batalkan jika sedang apply dari server.
+     Gunakan assignment biasa + try/catch agar tidak menghentikan eksekusi
+     di browser yang melarang redefine property localStorage. */
   if(typeof window.__bopSchedulePushPatched === "undefined"){
     window.__bopSchedulePushPatched = true;
-    const origLS = localStorage.setItem.bind(localStorage);
-    Object.defineProperty(localStorage, "setItem", {
-      configurable: true, writable: true,
-      value: function(key, value){
-        origLS(key, value);
-        /* Jika sedang apply dari server, jangan push balik */
-        if(window.__bopApplyingServer && key && key.startsWith("bop_rt005_data")) return;
-        /* Biarkan schedulePush normal berjalan */
-      }
-    });
+    try{
+      const origLS = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function(key, value){
+        const k = String(key || "");
+        if(window.__bopApplyingServer && k.startsWith("bop_rt005_data")){
+          /* Simpan langsung tanpa side effect lain. */
+          return Storage.prototype.setItem.call(localStorage, k, value);
+        }
+        return origLS(key, value);
+      };
+    } catch(err){
+      console.warn("[BOP v1.64b] Gagal patch localStorage.setItem:", err);
+    }
   }
 
   console.log("[BOP v1.64b] Sync guard: fillInputs loop dicegah aktif.");
@@ -13095,3 +13119,526 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.88] Persiapan Kegiatan dokumen renderer final aktif.");
 })();
 /* END PATCH v1.88 */
+
+/* ================================================================
+   PATCH v1.90 — Runtime Stabilizer Sync/Print/Menu
+   Tujuan:
+   1) Mencegah loop sync saat apply data server.
+   2) Mencegah push berulang untuk data STORE yang sama.
+   3) Menormalkan binding tombol cetak/preview lintas menu.
+   ================================================================ */
+(function bopRuntimeStabilizerV90(){
+  if(window.__bopRuntimeStabilizerV90) return;
+  window.__bopRuntimeStabilizerV90 = true;
+
+  var STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+  var nativeSetItem = Storage.prototype.setItem;
+  var currentSetItem = localStorage.setItem.bind(localStorage);
+
+  /* Guard sync:
+     - Saat apply data server, tulis langsung ke localStorage native tanpa trigger push.
+     - Jika payload STORE sama persis, skip write untuk menahan push berulang. */
+  localStorage.setItem = function(key, value){
+    var k = String(key || "");
+    var v = String(value == null ? "" : value);
+
+    if(k === STORE_KEY){
+      if(window.__bopApplyingServer){
+        nativeSetItem.call(localStorage, k, v);
+        return;
+      }
+      try{
+        var prev = localStorage.getItem(k);
+        if(prev === v) return;
+      } catch(_e){}
+    }
+
+    return currentSetItem(k, v);
+  };
+
+  function bindStablePrintButtons(){
+    var btnDoc = document.getElementById("printDoc");
+    if(btnDoc) btnDoc.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("doc"); };
+
+    var btnLpj = document.getElementById("printLpj");
+    if(btnLpj) btnLpj.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("lpj"); };
+
+    var btnPk = document.getElementById("printPkDoc");
+    if(btnPk) btnPk.onclick = function(){
+      if(typeof window.cleanPrintPk === "function") window.cleanPrintPk();
+      else if(typeof window.cleanPrint === "function") window.cleanPrint("pk");
+    };
+
+    var btnRap = document.getElementById("printMonthlyRapDoc");
+    if(btnRap) btnRap.onclick = function(){
+      try{ if(typeof window.previewDoc === "function") window.previewDoc("rapbulanan"); }catch(_e){}
+      if(typeof window.cleanPrint === "function") window.cleanPrint("doc");
+    };
+
+    var btnRbb = document.getElementById("printMonthlyRbbDoc");
+    if(btnRbb) btnRbb.onclick = function(){
+      try{ if(typeof window.previewDoc === "function") window.previewDoc("rbb"); }catch(_e){}
+      if(typeof window.cleanPrint === "function") window.cleanPrint("doc");
+    };
+  }
+
+  function hardenSyncActions(){
+    var pushBtn = document.getElementById("syncPushV39");
+    if(pushBtn) pushBtn.onclick = function(){
+      if(typeof window.bopSyncPushV39 === "function") return window.bopSyncPushV39();
+      if(typeof window.bopPgPushNowV40 === "function") return window.bopPgPushNowV40();
+    };
+
+    var pullBtn = document.getElementById("syncPullV39");
+    if(pullBtn) pullBtn.onclick = function(){
+      if(typeof window.bopSyncPullV39 === "function") return window.bopSyncPullV39();
+      if(typeof window.bopPgPullNowV40 === "function") return window.bopPgPullNowV40();
+    };
+  }
+
+  function init(){
+    bindStablePrintButtons();
+    hardenSyncActions();
+    /* Rebind sekali lagi setelah patch lain selesai attach event. */
+    setTimeout(bindStablePrintButtons, 1200);
+    setTimeout(hardenSyncActions, 1200);
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+
+  console.log("[BOP v1.90] Runtime stabilizer aktif: sync guard + print/menu binding.");
+})();
+/* END PATCH v1.90 */
+
+/* ================================================================
+   PATCH v1.91 — Sync Retrigger Throttle Final
+   Tujuan:
+   1) Menahan lonjakan retrigger sync dari beberapa patch lama sekaligus.
+   2) Menjaga sinkron tetap responsif tanpa spam request.
+   ================================================================ */
+(function bopSyncThrottleV91(){
+  if(window.__bopSyncThrottleV91) return;
+  window.__bopSyncThrottleV91 = true;
+
+  var orig = (typeof window.__bopRetriggerSync === "function")
+    ? window.__bopRetriggerSync
+    : null;
+  var tmr = null;
+  var MIN_DELAY = 1200;
+
+  window.__bopRetriggerSync = function(){
+    if(!orig) return;
+    if(tmr) clearTimeout(tmr);
+    tmr = setTimeout(function(){
+      tmr = null;
+      try{ orig(); }catch(err){ console.warn("[BOP v1.91] retrigger gagal:", err); }
+    }, MIN_DELAY);
+  };
+
+  console.log("[BOP v1.91] Throttle retrigger sync aktif (1200ms).");
+})();
+/* END PATCH v1.91 */
+
+/* ================================================================
+   PATCH v1.92 — Core Action Self-Healing
+   Tujuan:
+   1) Menjaga tombol aksi utama tetap terhubung ke fungsi inti.
+   2) Menyediakan fallback aman jika fungsi inti belum tersedia.
+   3) Mengurangi dampak konflik override dari patch lama.
+   ================================================================ */
+(function bopCoreSelfHealingV92(){
+  if(window.__bopCoreSelfHealingV92) return;
+  window.__bopCoreSelfHealingV92 = true;
+
+  function byId(id){ return document.getElementById(id); }
+  function safeRun(fn){
+    try{ return fn(); }catch(err){ console.warn("[BOP v1.92]", err); }
+  }
+
+  function ensureCoreFallbacks(){
+    if(typeof window.cleanPrint !== "function"){
+      window.cleanPrint = function(target){
+        var t = target === "lpj" ? "lpjOutput" : (target === "pk" ? "pkDocOutput" : "docOutput");
+        var el = byId(t);
+        if(!el || !String(el.innerHTML || "").trim()) return;
+        window.print();
+      };
+    }
+
+    if(typeof window.cleanPrintPk !== "function"){
+      window.cleanPrintPk = function(){ window.cleanPrint("pk"); };
+    }
+
+    if(typeof window.previewDoc !== "function"){
+      window.previewDoc = function(type){
+        var out = byId("docOutput");
+        if(!out) return;
+        if(type === "lpj" && typeof window.docLpj === "function") out.innerHTML = window.docLpj();
+        else if(typeof window.docPermohonan === "function") out.innerHTML = window.docPermohonan();
+      };
+    }
+
+    if(typeof window.bopSyncPushV39 !== "function" && typeof window.bopPgPushNowV40 === "function"){
+      window.bopSyncPushV39 = window.bopPgPushNowV40;
+    }
+    if(typeof window.bopSyncPullV39 !== "function" && typeof window.bopPgPullNowV40 === "function"){
+      window.bopSyncPullV39 = window.bopPgPullNowV40;
+    }
+  }
+
+  function rebindCoreButtons(){
+    var savePengajuan = byId("savePengajuan");
+    if(savePengajuan) savePengajuan.onclick = function(){
+      safeRun(function(){ if(typeof window.saveData === "function") window.saveData(); });
+      safeRun(function(){ if(typeof window.bopToast === "function") window.bopToast("Tersimpan","Data berhasil disimpan.","success"); });
+    };
+
+    var saveSetting = byId("saveSetting");
+    if(saveSetting) saveSetting.onclick = function(){
+      safeRun(function(){ if(typeof window.saveData === "function") window.saveData(); });
+      safeRun(function(){ if(typeof window.bopToast === "function") window.bopToast("Tersimpan","Pengaturan berhasil disimpan.","success"); });
+    };
+
+    var saveLpj = byId("saveLpj");
+    if(saveLpj) saveLpj.onclick = function(){
+      safeRun(function(){ if(typeof window.saveData === "function") window.saveData(); });
+      safeRun(function(){ if(typeof window.bopToast === "function") window.bopToast("Tersimpan","Data LPJ berhasil disimpan.","success"); });
+    };
+
+    var pushBtn = byId("syncPushV39");
+    if(pushBtn) pushBtn.onclick = function(){
+      if(typeof window.bopSyncPushV39 === "function") return window.bopSyncPushV39();
+    };
+
+    var pullBtn = byId("syncPullV39");
+    if(pullBtn) pullBtn.onclick = function(){
+      if(typeof window.bopSyncPullV39 === "function") return window.bopSyncPullV39();
+    };
+
+    var printDoc = byId("printDoc");
+    if(printDoc) printDoc.onclick = function(){ safeRun(function(){ window.cleanPrint("doc"); }); };
+
+    var printLpj = byId("printLpj");
+    if(printLpj) printLpj.onclick = function(){ safeRun(function(){ window.cleanPrint("lpj"); }); };
+
+    var printPk = byId("printPkDoc");
+    if(printPk) printPk.onclick = function(){ safeRun(function(){ window.cleanPrintPk(); }); };
+  }
+
+  function healNow(){
+    ensureCoreFallbacks();
+    rebindCoreButtons();
+  }
+
+  function init(){
+    healNow();
+    /* Patch lama masih bisa menimpa handler; lakukan sekali lagi setelah settle. */
+    setTimeout(healNow, 1500);
+    setTimeout(healNow, 3500);
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+
+  console.log("[BOP v1.92] Core self-healing aktif.");
+})();
+/* END PATCH v1.92 */
+
+/* ================================================================
+   PATCH v1.93 — Critical Runtime Watchdog Lock
+   Tujuan:
+   1) Mengunci fungsi kritis agar tidak rusak oleh override patch lama.
+   2) Auto-restore jika ada patch lain yang menimpa setelah init.
+   3) Menjaga save/sync/print tetap berjalan stabil lintas menu.
+   ================================================================ */
+(function bopCriticalWatchdogV93(){
+  if(window.__bopCriticalWatchdogV93) return;
+  window.__bopCriticalWatchdogV93 = true;
+
+  var lockReady = false;
+  var lockUntilMs = 120000; /* 2 menit pertama paling rawan override berantai */
+  var startedAt = Date.now();
+  var stable = {
+    previewDoc: null,
+    cleanPrint: null,
+    cleanPrintPk: null,
+    syncPush: null,
+    syncPull: null,
+    saveData: null
+  };
+
+  function fn(name){ return window[name]; }
+
+  function snapshotStable(){
+    stable.previewDoc = (typeof fn("previewDoc") === "function") ? fn("previewDoc") : stable.previewDoc;
+    stable.cleanPrint = (typeof fn("cleanPrint") === "function") ? fn("cleanPrint") : stable.cleanPrint;
+    stable.cleanPrintPk = (typeof fn("cleanPrintPk") === "function") ? fn("cleanPrintPk") : stable.cleanPrintPk;
+    stable.syncPush = (typeof fn("bopSyncPushV39") === "function") ? fn("bopSyncPushV39") : stable.syncPush;
+    stable.syncPull = (typeof fn("bopSyncPullV39") === "function") ? fn("bopSyncPullV39") : stable.syncPull;
+    stable.saveData = (typeof fn("saveData") === "function") ? fn("saveData") : stable.saveData;
+  }
+
+  function restoreIfChanged(){
+    if(!lockReady) return;
+    if(stable.previewDoc && fn("previewDoc") !== stable.previewDoc) window.previewDoc = stable.previewDoc;
+    if(stable.cleanPrint && fn("cleanPrint") !== stable.cleanPrint) window.cleanPrint = stable.cleanPrint;
+    if(stable.cleanPrintPk && fn("cleanPrintPk") !== stable.cleanPrintPk) window.cleanPrintPk = stable.cleanPrintPk;
+    if(stable.syncPush && fn("bopSyncPushV39") !== stable.syncPush) window.bopSyncPushV39 = stable.syncPush;
+    if(stable.syncPull && fn("bopSyncPullV39") !== stable.syncPull) window.bopSyncPullV39 = stable.syncPull;
+    if(stable.saveData && fn("saveData") !== stable.saveData) window.saveData = stable.saveData;
+  }
+
+  function bindButtonsV93(){
+    var p = document.getElementById("syncPushV39");
+    if(p) p.onclick = function(){ if(typeof window.bopSyncPushV39 === "function") return window.bopSyncPushV39(); };
+
+    var q = document.getElementById("syncPullV39");
+    if(q) q.onclick = function(){ if(typeof window.bopSyncPullV39 === "function") return window.bopSyncPullV39(); };
+
+    var d = document.getElementById("printDoc");
+    if(d) d.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("doc"); };
+
+    var l = document.getElementById("printLpj");
+    if(l) l.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("lpj"); };
+
+    var k = document.getElementById("printPkDoc");
+    if(k) k.onclick = function(){
+      if(typeof window.cleanPrintPk === "function") window.cleanPrintPk();
+      else if(typeof window.cleanPrint === "function") window.cleanPrint("pk");
+    };
+  }
+
+  function ensureSaveFallbackV93(){
+    if(typeof window.saveData === "function") return;
+    window.saveData = function(){
+      try{
+        if(typeof window.collectAll === "function") window.collectAll();
+      } catch(_e){}
+      try{
+        var key = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+        if(typeof window.data === "object") localStorage.setItem(key, JSON.stringify(window.data));
+      } catch(err){
+        console.warn("[BOP v1.93] save fallback gagal:", err);
+      }
+    };
+  }
+
+  function start(){
+    ensureSaveFallbackV93();
+    snapshotStable();
+    bindButtonsV93();
+
+    setTimeout(function(){
+      snapshotStable();
+      lockReady = true;
+    }, 1200);
+
+    var t = setInterval(function(){
+      bindButtonsV93();
+      restoreIfChanged();
+      if(Date.now() - startedAt > lockUntilMs){
+        clearInterval(t);
+      }
+    }, 1500);
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+
+  console.log("[BOP v1.93] Critical watchdog lock aktif.");
+})();
+/* END PATCH v1.93 */
+
+/* ================================================================
+   PATCH v1.94 — Canonical API Endpoint Lock (Cross-Device)
+   Tujuan:
+   1) Pastikan semua device menuju endpoint API yang sama.
+   2) Hapus ketergantungan fallback base URL lama di localStorage.
+   3) Retrigger sync setelah endpoint kanonik terkunci.
+   ================================================================ */
+(function bopCanonicalApiLockV94(){
+  if(window.__bopCanonicalApiLockV94) return;
+  window.__bopCanonicalApiLockV94 = true;
+
+  var LS_API_KEY = "bop_api_base";
+
+  function cleanBase(v){
+    var s = String(v || "").trim().replace(/\/+$/, "");
+    if(s && !/^https?:\/\//i.test(s)) s = "https://" + s;
+    return s;
+  }
+
+  function setSyncMessage(msg, color){
+    try{
+      var st = document.getElementById("syncStatusV39");
+      if(st){
+        st.textContent = msg;
+        if(color) st.style.color = color;
+      }
+    } catch(_e){}
+  }
+
+  async function pingViaNative(base, timeoutMs){
+    var url = base ? (base + "/api/bop/ping") : "/api/bop/ping";
+    try{
+      var nativeFetch = (window.__bopNativeFetchV94 || fetch.bind(window));
+      var r = await nativeFetch(url, {
+        cache: "no-store",
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(timeoutMs || 5000) } : {})
+      });
+      return !!(r && r.ok);
+    } catch(_e){
+      return false;
+    }
+  }
+
+  async function resolveCanonicalBase(){
+    var envBase = cleanBase(window.BOP_API_BASE || "");
+    if(envBase && await pingViaNative(envBase, 5000)) return envBase;
+
+    try{
+      var nativeFetch = (window.__bopNativeFetchV94 || fetch.bind(window));
+      var r = await nativeFetch("/api-config.json", {
+        cache: "no-store",
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
+      if(r.ok){
+        var cfg = await r.json();
+        var cfgBase = cleanBase(cfg && cfg.apiBase);
+        if(cfgBase && await pingViaNative(cfgBase, 5000)) return cfgBase;
+      }
+    } catch(_e){}
+
+    if(await pingViaNative("", 4000)) return "";
+
+    try{
+      var nativeFetch2 = (window.__bopNativeFetchV94 || fetch.bind(window));
+      var r2 = await nativeFetch2("/api/bop/server-url", {
+        cache: "no-store",
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
+      if(r2.ok){
+        var d = await r2.json();
+        var srv = cleanBase(d && d.serverUrl);
+        if(srv && await pingViaNative(srv, 5000)) return srv;
+      }
+    } catch(_e){}
+
+    return null;
+  }
+
+  async function lockCanonical(){
+    try{
+      window.__bopNativeFetchV94 = window.__bopNativeFetchV94 || fetch.bind(window);
+      var canonical = await resolveCanonicalBase();
+
+      if(canonical === null){
+        /* Gagal menemukan endpoint kanonik: jangan pakai base lama per-browser. */
+        try{ localStorage.removeItem(LS_API_KEY); }catch(_e){}
+        window.BOP_API_BASE = "";
+        setSyncMessage("Offline: endpoint API belum tervalidasi. Data masih lokal device ini.", "#b91c1c");
+        return;
+      }
+
+      window.BOP_API_BASE = canonical;
+      try{
+        if(canonical) localStorage.setItem(LS_API_KEY, canonical);
+        else localStorage.removeItem(LS_API_KEY);
+      } catch(_e){}
+
+      if(typeof window.__bopRetriggerSync === "function"){
+        setTimeout(function(){ window.__bopRetriggerSync(); }, 250);
+      }
+      setSyncMessage("Endpoint sinkronisasi tervalidasi. Semua device harus memakai endpoint yang sama.", "#15803d");
+    } catch(err){
+      console.warn("[BOP v1.94] lock canonical gagal:", err);
+    }
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", lockCanonical);
+  else lockCanonical();
+
+  console.log("[BOP v1.94] Canonical API endpoint lock aktif.");
+})();
+/* END PATCH v1.94 */
+
+/* ================================================================
+   PATCH v1.95 — Sync Pending Visibility
+   Tujuan:
+   1) Jika push server gagal, user diberi indikator data belum tersinkron.
+   2) Jika push sukses, indikator pending dibersihkan.
+   ================================================================ */
+(function bopSyncPendingV95(){
+  if(window.__bopSyncPendingV95) return;
+  window.__bopSyncPendingV95 = true;
+
+  var PENDING_KEY = "bop_sync_pending_v95";
+  var LAST_ERR_KEY = "bop_sync_last_error_v95";
+
+  function isBopDataPut(input, init){
+    var method = String((init && init.method) || "GET").toUpperCase();
+    if(method !== "PUT") return false;
+
+    try{
+      if(typeof input === "string") return input.indexOf("/api/bop/data") !== -1;
+      if(input instanceof Request) return input.url.indexOf("/api/bop/data") !== -1;
+    } catch(_e){}
+
+    return false;
+  }
+
+  function renderPendingState(){
+    var pending = localStorage.getItem(PENDING_KEY) === "1";
+    var errMsg = localStorage.getItem(LAST_ERR_KEY) || "";
+
+    var status = document.getElementById("syncStatusV39");
+    if(status && pending){
+      status.textContent = "⚠ Data belum tersinkron ke server. " + (errMsg ? ("Penyebab: " + errMsg) : "Periksa koneksi/API.");
+      status.style.color = "#b91c1c";
+    }
+
+    var note = document.querySelector(".side-note");
+    if(note && pending){
+      note.innerHTML = "<b>⚠ Sync Pending</b><br><small>Data belum masuk server</small>";
+      note.style.color = "#b91c1c";
+    }
+  }
+
+  function markPending(msg){
+    try{
+      localStorage.setItem(PENDING_KEY, "1");
+      localStorage.setItem(LAST_ERR_KEY, String(msg || "gagal terhubung server"));
+    } catch(_e){}
+    renderPendingState();
+  }
+
+  function clearPending(){
+    try{
+      localStorage.removeItem(PENDING_KEY);
+      localStorage.removeItem(LAST_ERR_KEY);
+    } catch(_e){}
+  }
+
+  var prevFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init){
+    var track = isBopDataPut(input, init);
+    try{
+      var res = await prevFetch(input, init);
+      if(track){
+        if(res && res.ok) clearPending();
+        else markPending("HTTP " + (res ? res.status : "?"));
+      }
+      return res;
+    } catch(err){
+      if(track) markPending((err && err.message) ? err.message : "network error");
+      throw err;
+    }
+  };
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", renderPendingState);
+  else renderPendingState();
+
+  console.log("[BOP v1.95] Sync pending visibility aktif.");
+})();
+/* END PATCH v1.95 */

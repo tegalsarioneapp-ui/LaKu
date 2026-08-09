@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/document-studio/document-studio.css" />
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="/document-studio/letter-rendering.js"></script>
 
 <!-- PATCH 012 - Runtime API config for Vercel + Railway -->
 <script>
@@ -1274,7 +1275,7 @@
     /* Load legacy scripts in-order without Vite HTML bundling warnings. */
     (function loadLegacyScripts() {
       var list = [
-        "/app.js?v=20260808c",
+        "/app.js?v=20260809c",
         "/document-studio/document-studio.js",
         "/patches/modules-v40.js"
       ];

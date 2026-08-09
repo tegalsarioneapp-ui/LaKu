@@ -572,7 +572,7 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
     printWin.document.write(`<!doctype html><html lang="id"><head>
 <meta charset="UTF-8">
 <title>${DOC_NAMES[currentDocType] || "Dokumen BOP RT 005"}</title>
-<style>
+<style>${(window.letterRendering && typeof window.letterRendering.getLetterRenderCss === "function" ? window.letterRendering.getLetterRenderCss() : "")}
   @page { size: A4; margin: 14mm; }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 0; font-family: Arial, sans-serif; font-size: 12pt; color: #000; }
@@ -619,7 +619,7 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
   .rap-table-v36 th, .sign-list-v36 th { background: #f5f5f5; }
   b, strong { font-weight: bold; }
 </style>
-</head><body>${inner}</body></html>`);
+</head><body><div class="letter-shell"><div class="letter-body">${inner}</div></div></body></html>`);
     printWin.document.close();
     printWin.focus();
     setTimeout(() => {

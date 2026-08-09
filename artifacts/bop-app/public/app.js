@@ -4464,15 +4464,40 @@ async function goPage(page){
   function applyServerData(result){
     if(!result || !result.data) return;
     const serverData = JSON.parse(JSON.stringify(result.data));
-    if(typeof data !== "undefined" && serverData && typeof serverData === "object"){
+    const localRaw = localStorage.getItem(STORE);
+    const localVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+    const serverVersion = parseInt(String(result.version || 0), 10);
+    const localUpdatedAt = localStorage.getItem(TS_KEY) || null;
+    const serverUpdatedAt = result.updatedAt || null;
+    let resolvedData = serverData;
+
+    try{
+      if (window.BOP_SYNC_HELPERS && typeof window.BOP_SYNC_HELPERS.resolveSyncSnapshot === "function" && localRaw) {
+        const parsedLocal = JSON.parse(localRaw);
+        resolvedData = window.BOP_SYNC_HELPERS.resolveSyncSnapshot({
+          localState: parsedLocal,
+          remoteState: serverData,
+          localVersion,
+          serverVersion,
+          localUpdatedAt,
+          serverUpdatedAt,
+        });
+      }
+    } catch(e) {
+      console.warn(TAG, "Gagal resolve konflik sync:", e.message);
+    }
+
+    const finalData = JSON.parse(JSON.stringify(resolvedData));
+
+    if(typeof data !== "undefined" && finalData && typeof finalData === "object"){
       try{
-        data = serverData;
+        data = finalData;
         window.data = data;
       }catch(e){}
     }
-    _origSetItem(STORE, JSON.stringify(serverData));
-    localStorage.setItem(VER_KEY, String(result.version  || 0));
-    localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
+    _origSetItem(STORE, JSON.stringify(finalData));
+    localStorage.setItem(VER_KEY, String(serverVersion || localVersion || 0));
+    localStorage.setItem(TS_KEY,  serverUpdatedAt || localUpdatedAt || new Date().toISOString());
     if(typeof render        ==="function"){ try{ render();           }catch(e){} }
     if(typeof updateDashboard==="function"){ try{ updateDashboard(); }catch(e){} }
     setBadge("☁ ✓","#15803d");
@@ -4486,8 +4511,9 @@ async function goPage(page){
   /* ─── Intercept localStorage.setItem ───────────────────────── */
   const _origSetItem = localStorage.setItem.bind(localStorage);
   localStorage.setItem = function(key, value){
-    _origSetItem(key, value);
-    if(key === STORE && typeof value === "string") schedulePush(value);
+    const normalizedValue = typeof value === "string" ? value : String(value);
+    _origSetItem(key, normalizedValue);
+    if(key === STORE && typeof normalizedValue === "string") schedulePush(normalizedValue);
   };
 
   /* ─── Boot: load data dari server jika lebih baru ───────────── */

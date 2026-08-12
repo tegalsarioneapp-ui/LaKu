@@ -2859,7 +2859,6 @@ function docLpj(){
 
     <div class="notulen-section-title-v25 notulen-section-title-v28"><b>B. DASAR DAN TUJUAN PERTANGGUNGJAWABAN</b></div>
     <p class="notulen-paragraph-v25 notulen-paragraph-v28">Laporan ini disusun sebagai bentuk pertanggungjawaban penggunaan Bantuan Operasional RT/RW pada periode ${esc(safeTextV29(l.periode,"berjalan"))}. Penyusunan laporan dilakukan untuk memastikan setiap penggunaan dana tercatat secara tertib, transparan, akuntabel, dan didukung bukti administrasi yang memadai.</p>
-    <p class="notulen-paragraph-v25 notulen-paragraph-v28">Laporan pertanggungjawaban ini menjadi data dukung bagi pengurus RT ${esc(m.rt||"005")} RW ${esc(m.rw||"012")} Kelurahan ${esc(m.kelurahan||"Tegalsari")} dalam pengarsipan SPJ bulanan serta pemenuhan kelengkapan administrasi melalui Aplikasi Website Ruang Warga.</p>
 
     <div class="notulen-section-title-v25 notulen-section-title-v28"><b>C. RINGKASAN KEUANGAN</b></div>
     <table class="report-table lpj-summary-table-v29">
@@ -2881,24 +2880,7 @@ function docLpj(){
     </table>
     <p class="notulen-paragraph-v25 notulen-paragraph-v28"><b>Terbilang:</b> ${esc(terbilang(total).replace(/\s+/g," ").trim())} Rupiah.</p>
 
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. DATA DUKUNG DAN DOKUMENTASI KEGIATAN</b></div>
-    <p class="notulen-paragraph-v25 notulen-paragraph-v28">Setiap pengeluaran wajib didukung oleh bukti transaksi dan dokumentasi kegiatan. Dokumentasi lapangan dari MoKu Mobile digunakan sebagai data dukung tambahan untuk memperkuat laporan pertanggungjawaban.</p>
-    <table class="lpj-docs-table-v29">
-      <thead><tr><th>No</th><th>Nama Kegiatan</th><th>Tanggal</th><th>Lokasi</th><th>Dokumentasi</th></tr></thead>
-      <tbody>${lpjDocsRowsV29()}</tbody>
-    </table>
-
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>F. HASIL PEMERIKSAAN ADMINISTRASI INTERNAL</b></div>
-    <table class="lpj-check-table-v29">
-      <thead><tr><th>No</th><th>Komponen</th><th>Status</th><th>Keterangan</th></tr></thead>
-      <tbody>${lpjAdminCheckRowsV29()}</tbody>
-    </table>
-
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>G. RENCANA TINDAK LANJUT</b></div>
-    <p class="notulen-paragraph-v25 notulen-paragraph-v28">Sebagai tindak lanjut penyusunan laporan pertanggungjawaban, disepakati langkah-langkah administrasi sebagai berikut:</p>
-    <table class="lpj-followup-table-v29"><thead><tr><th>No</th><th>Penanggung Jawab</th><th>Tindak Lanjut</th></tr></thead><tbody>${lpjFollowupRowsV29()}</tbody></table>
-
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>H. PENUTUP</b></div>
+    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. PENUTUP</b></div>
     <p class="notulen-paragraph-v25 notulen-paragraph-v28">Demikian laporan pertanggungjawaban ini dibuat dengan sebenar-benarnya sebagai dokumen administrasi penggunaan Bantuan Operasional RT/RW. Laporan ini digunakan sebagai arsip SPJ dan bahan pelengkap pertanggungjawaban kepada pihak terkait sesuai ketentuan yang berlaku.</p>
     <p class="notulen-date-v28">Semarang, ................................ 2026</p>
     ${lpjSignatureTableV29()}

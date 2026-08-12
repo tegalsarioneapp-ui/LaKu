@@ -1950,7 +1950,7 @@ function setupNotificationsV19(){
     if(!t||!t.matches||!t.matches("input,select,textarea")) return;
     let label=t.closest("label")?.childNodes?.[0]?.textContent?.trim() || t.placeholder || "Data";
     if(t.dataset?.rap) label="RAP 1 Tahun";
-    if(t.dataset?.breakdown) label="Breakdown RAP Bulanan";
+    if(t.dataset?.breakdown || t.dataset?.bd57) label="Breakdown RAP Bulanan";
     if(t.dataset?.exp) label="LPJ / Pengeluaran";
     notifyChangeV19("Perubahan tersimpan",`${label} berhasil diperbarui otomatis.`,"success");
   },true);
@@ -2916,10 +2916,10 @@ function bind(){
   document.querySelectorAll(".subtab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
   document.addEventListener("change",e=>{if(e.target?.id==="monthlyDocMonth"){data.pengajuan.selectedMonth=e.target.value;data.pengajuan.monthlyBreakdownOpen=false;data.pengajuan.monthlySelectedIndex=null;localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();if(currentDoc==="rapbulanan"||currentDoc==="rbb")previewDoc(currentDoc)} if(e.target?.dataset?.rap){updateRapFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderRap();}});
   document.addEventListener("input",e=>{
-    if(e.target?.dataset?.breakdown){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));updateBreakdownLiveStatus();return;}
+    if(e.target?.dataset?.breakdown || e.target?.dataset?.bd57){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));updateBreakdownLiveStatus();return;}
     if(e.target.matches("input,textarea,select")){collectAll(); updateDashboard();}
     if(e.target.dataset.rap){updateRapFromInputs(); $("rapTotalCell").textContent=rupiah(totalRap());}
-    if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();} if(e.target.dataset.breakdown){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));}
+    if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();} if(e.target.dataset.breakdown || e.target.dataset.bd57){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));}
     localStorage.setItem(STORE,JSON.stringify(data));
   });
   ["savePengajuan","saveSetting","saveLpj"].forEach(id=>$(id).onclick=()=>{saveData();bopToast("Tersimpan","Data berhasil disimpan.","success");}); if($("savePersiapan")) $("savePersiapan").onclick=()=>{collectPersiapan();ensureMobileSync();try{localStorage.setItem(STORE,JSON.stringify(data));}catch(e){}renderPersiapan();renderMobileDocumentationToLPJ();bopToast("Tersimpan","Data persiapan kegiatan berhasil disimpan.","success");}; if($("sendToMobile")) $("sendToMobile").onclick=saveActivityToMobileQueue; if($("exportActivities")) $("exportActivities").onclick=exportActivitiesForMobile; if($("importMobileResult")) $("importMobileResult").onchange=(e)=>{if(e.target.files[0]) importMobileResultFile(e.target.files[0]);};

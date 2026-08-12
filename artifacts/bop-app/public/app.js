@@ -267,9 +267,28 @@ function saveData(){
   try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ bopAlert("Penyimpanan Gagal","Penyimpanan lokal penuh. Silakan backup data dan bersihkan ruang.","warning"); }
   render();
 }
+let localSaveTimer = null;
+function persistLocalData(){
+  try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ console.warn("[BOP] Penyimpanan lokal tertunda gagal:",e); }
+}
+function scheduleLocalSave(delay=350){
+  if(localSaveTimer) clearTimeout(localSaveTimer);
+  localSaveTimer = setTimeout(()=>{
+    localSaveTimer = null;
+    persistLocalData();
+  }, delay);
+}
+function flushLocalSave(){
+  if(localSaveTimer){
+    clearTimeout(localSaveTimer);
+    localSaveTimer = null;
+  }
+  try{ collectAll(); }catch(e){}
+  persistLocalData();
+}
 function autosave(){
   collectAll();
-  try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ console.warn("[BOP] Autosave gagal:",e); }
+  persistLocalData();
   updateDashboard();
 }
 function collectAll(){
@@ -2920,7 +2939,7 @@ function bind(){
     if(e.target.matches("input,textarea,select")){collectAll(); updateDashboard();}
     if(e.target.dataset.rap){updateRapFromInputs(); $("rapTotalCell").textContent=rupiah(totalRap());}
     if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();} if(e.target.dataset.breakdown){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));}
-    localStorage.setItem(STORE,JSON.stringify(data));
+    scheduleLocalSave();
   });
   ["savePengajuan","saveSetting","saveLpj"].forEach(id=>$(id).onclick=()=>{saveData();bopToast("Tersimpan","Data berhasil disimpan.","success");}); if($("savePersiapan")) $("savePersiapan").onclick=()=>{collectPersiapan();ensureMobileSync();try{localStorage.setItem(STORE,JSON.stringify(data));}catch(e){}renderPersiapan();renderMobileDocumentationToLPJ();bopToast("Tersimpan","Data persiapan kegiatan berhasil disimpan.","success");}; if($("sendToMobile")) $("sendToMobile").onclick=saveActivityToMobileQueue; if($("exportActivities")) $("exportActivities").onclick=exportActivitiesForMobile; if($("importMobileResult")) $("importMobileResult").onchange=(e)=>{if(e.target.files[0]) importMobileResultFile(e.target.files[0]);};
   $("addRap").onclick=addRap; $("addPeserta").onclick=addPeserta; $("addExpense").onclick=addExpense; if($("addActionPlan")) $("addActionPlan").onclick=addActionPlan; if($("addPkPeserta")) $("addPkPeserta").onclick=addPkPeserta; if($("addPkAction")) $("addPkAction").onclick=addPkAction;
@@ -4514,6 +4533,21 @@ async function goPage(page){
         return;
       }
 
+       /* Poll/visibility sync sering mengembalikan snapshot yang sama.
+          Jangan render ulang form jika server belum punya versi baru. */
+       const serverVersion = Number(result.version || 0);
+       const currentVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+       if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion){
+         setBadge("☁ ✓","#15803d");
+         setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),1200);
+         return;
+       }
+
+       /* Jika user sedang mengetik, tunggu polling berikutnya setelah blur.
+          Mengganti DOM di tengah input akan memindahkan caret/fokus. */
+       const active = document.activeElement;
+       if(active && (active.matches("input,textarea,select") || active.isContentEditable)) return;
+
       /* Server adalah sumber tunggal: selalu ganti cache lokal saat online. */
       applyServerData(result);
     } catch(e){
@@ -4541,6 +4575,11 @@ async function goPage(page){
       markProbeResult(true);
       const result = await res.json();
       if(!result.ok || !result.data) return;
+       const serverVersion = Number(result.version || 0);
+       const currentVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+       if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion) return;
+       const active = document.activeElement;
+       if(active && (active.matches("input,textarea,select") || active.isContentEditable)) return;
       /* Jangan percaya metadata versi lokal; terapkan snapshot server yang sama di semua device. */
       applyServerData(result);
     } catch(e){
@@ -4550,6 +4589,7 @@ async function goPage(page){
 
   /* ─── Flush saat tab ditutup (sendBeacon) ───────────────────── */
   window.addEventListener("beforeunload", () => {
+    flushLocalSave();
     if(!pushTimer && !pushInFlight) return;
     if(pushTimer){ clearTimeout(pushTimer); pushTimer = null; }
     const raw = localStorage.getItem(STORE);
@@ -12048,8 +12088,10 @@ ${KOP_PDF_CSS}
     clearTimeout(_rapDebounce83);
     _rapDebounce83 = setTimeout(function(){
       if(typeof updateRapFromInputs === "function") updateRapFromInputs();
-      try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(ex){}
-      if(typeof renderRap === "function") renderRap();
+      if(typeof scheduleLocalSave === "function") scheduleLocalSave();
+      /* Jangan renderRap() di sini: renderRap membangun ulang tabel dan
+         membuat caret meloncat saat user masih mengetik. Render tetap
+         dilakukan oleh handler change untuk perubahan struktur/select. */
     }, 350);
   }, true /* capture agar jalan sebelum listener bubble asli */);
 

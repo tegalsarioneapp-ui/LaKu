@@ -675,7 +675,26 @@ function guessBulan(u=""){u=String(u).toLowerCase();if(u.includes("17")||u.inclu
 function opt(list,sel){return list.map(x=>`<option value="${escapeAttr(x)}" ${x===sel?"selected":""}>${esc(x)}</option>`).join("")}
 function normalizeRapV17(){if(!data.pengajuan)data.pengajuan=clone(defaultData.pengajuan);data.pengajuan.rap=(data.pengajuan.rap||[]).map(r=>{if(Array.isArray(r)){let u=r[0]||"",k=guessKategori(u);return {kategori:k,subKategori:guessSubKategori(k,u),tipe:guessTipe(u),uraian:u,bulan:guessBulan(u),volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||""}}let k=r.kategori||guessKategori(r.uraian||"");return {kategori:k,subKategori:r.subKategori||guessSubKategori(k,r.uraian||""),tipe:r.tipe||guessTipe(r.uraian||""),uraian:r.uraian||"",bulan:r.bulan||guessBulan(r.uraian||""),volume:r.volume||"1 Paket",jumlah:Number(r.jumlah??0),keterangan:r.keterangan||""}});if(!data.pengajuan.selectedMonth)data.pengajuan.selectedMonth="Agustus 2026"}
 function totalRap(){normalizeRapV17();return data.pengajuan.rap.reduce((s,r)=>s+Number(r.jumlah||0),0)}
-function updateDashboard(){normalizeRapV17();const total=totalRap();$("dashAllocated").textContent=rupiah(total);$("dashSisa").textContent=rupiah(25000000-total);$("dashPercent").textContent=Math.round(total/25000000*100)+"%";$("dashHistory").textContent=data.history.length;const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;$("checkProgress").textContent=`${done} / 7`;$("topTitle").textContent=masterTitle();$("topSubtitle").textContent=`${data.master.kelurahan}, ${data.master.kecamatan}, Kota ${data.master.kota}`;renderHistory();renderMonthlyRapSummary();if($("kopPreview"))$("kopPreview").innerHTML=official(`<div class="title">CONTOH KOP SURAT RESMI</div><p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>`);if($("lpjOutput"))$("lpjOutput").innerHTML=docLpj()}
+function updateDashboard(){
+  normalizeRapV17();
+  const rapTotal=totalRap();
+  const lpjTotal=totalExpense();
+  const budget=25000000;
+  const sisaRap=budget-rapTotal;
+  const sisaActual=sisaRap-lpjTotal;
+  $("dashAllocated").textContent=rupiah(rapTotal);
+  $("dashSisa").textContent=rupiah(sisaActual);
+  $("dashPercent").textContent=Math.round(rapTotal/budget*100)+"%";
+  $("dashHistory").textContent=data.history.length;
+  const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;
+  $("checkProgress").textContent=`${done} / 7`;
+  $("topTitle").textContent=masterTitle();
+  $("topSubtitle").textContent=`${data.master.kelurahan}, ${data.master.kecamatan}, Kota ${data.master.kota}`;
+  renderHistory();
+  renderMonthlyRapSummary();
+  if($("kopPreview"))$("kopPreview").innerHTML=official(`<div class="title">CONTOH KOP SURAT RESMI</div><p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>`);
+  if($("lpjOutput"))$("lpjOutput").innerHTML=docLpj();
+}
 function docBA(){let p=data.pengajuan,m=data.master;return official(`<div class="title">BERITA ACARA<br>KESEPAKATAN RENCANA ANGGARAN PENGGUNAAN BANTUAN OPERASIONAL RT</div><p style="text-align:center">Nomor: ${p.baNomor||".................."}</p><p>Pada hari ini ${p.baHari} tanggal ${p.baTanggal} bulan ${p.baBulan} tahun ${p.baTahun}, bertempat di ${p.baTempat} pada pukul ${p.baPukul} telah dilaksanakan pertemuan pembahasan Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ${m.rt} RW ${m.rw}. Pertemuan dipimpin oleh ${p.baPimpinan||m.ketua||"........"}.</p><p>Adapun hasil pertemuan sebagai berikut:</p>${docRap().match(/<table[\s\S]*?<\/table>/)[0]}<p>Demikian Berita Acara Hasil Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p><p>Kami yang bertanda tangan di bawah ini:</p><table><tr><th>No.</th><th>Nama</th><th>Jabatan</th><th>Tanda Tangan</th></tr>${p.peserta.map((r,i)=>`<tr><td>${i+1}.</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${i+1}.</td></tr>`).join("")}</table>`)}
 
 
@@ -1640,7 +1659,8 @@ function renderBreakdownPanel(month, item){
       <div class="hint">Isi rincian breakdown sesuai tipe operasional. Total breakdown harus sama dengan target anggaran bulanan.</div>
       <div class="action-row">
         <button type="button" class="primary" onclick="addBreakdownRow('${month}',${item.annualIndex})">+ Tambah Breakdown</button>
-        <button type="button" class="secondary" onclick="updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();">Simpan Breakdown</button>
+        <button type="button" class="primary" onclick="updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();updateDashboard();bopToast('Tersimpan','Breakdown berhasil disimpan',
+'success');">💾 Simpan Breakdown</button>
       </div>
     </div>
     <div class="table-wrap">
@@ -2930,6 +2950,7 @@ function bind(){
       breakdownUpdateTimer=setTimeout(()=>{
         localStorage.setItem(STORE,JSON.stringify(data));
         renderMonthlyRapSummary();
+        updateDashboard();
       },500);
       return;
     }
@@ -2937,6 +2958,10 @@ function bind(){
       updateExpensesFromInputs();
       $("expenseTotalCell").textContent = rupiah(totalExpense());
       if ($("lpjOutput")) $("lpjOutput").innerHTML = docLpj();
+      clearTimeout(breakdownUpdateTimer);
+      breakdownUpdateTimer=setTimeout(()=>{
+        updateDashboard();
+      },300);
     }
     scheduleLocalSave();
     if (e.target.matches("input,textarea,select")) {

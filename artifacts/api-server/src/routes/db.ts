@@ -3,25 +3,11 @@ import { pool } from "@workspace/db";
 
 const router = Router();
 
-/* ── Pastikan unique index ada agar UPSERT bisa berjalan ─────── */
-/* Dijalankan lazy saat pertama kali route dipanggil, bukan saat module load */
-let indexEnsured = false;
-async function ensureIndex() {
-  if (indexEnsured) return;
-  indexEnsured = true;
-  try {
-    await pool.query(
-      `CREATE UNIQUE INDEX IF NOT EXISTS moku_results_sync_act_idx
-       ON moku_results_sync(activity_id)`
-    );
-  } catch (_) { /* tabel mungkin belum ada, akan dibuat via init-db */ }
-}
-
 /* ── POST /api/db/bop-sync ──────────────────────────────────────
    Simpan snapshot data BOP ke PostgreSQL untuk cloud backup.
    Body: { data: object, label?: string }
 ─────────────────────────────────────────────────────────────── */
-router.post("/db/bop-sync", async (req, res) => {
+router.post("/db/bop-sync", async (req: any, res: any) => {
   try {
     const { data, label } = req.body as { data: unknown; label?: string };
     if (!data || typeof data !== "object") {
@@ -34,7 +20,7 @@ router.post("/db/bop-sync", async (req, res) => {
     );
     res.json({ ok: true, id: result.rows[0].id, createdAt: result.rows[0].created_at });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan snapshot BOP" });
   }
 });
@@ -43,7 +29,7 @@ router.post("/db/bop-sync", async (req, res) => {
    Simpan metadata foto MoKu ke PostgreSQL.
    Body: { photos: Array<PhotoMeta>, activityName?: string }
 ─────────────────────────────────────────────────────────────── */
-router.post("/db/photos", async (req, res) => {
+router.post("/db/photos", async (req: any, res: any) => {
   try {
     const { photos, activityName } = req.body as {
       photos: Array<{
@@ -96,7 +82,7 @@ router.post("/db/photos", async (req, res) => {
       client.release();
     }
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal menyimpan foto" });
   }
 });
@@ -104,8 +90,7 @@ router.post("/db/photos", async (req, res) => {
 /* ── POST /api/db/results-sync ──────────────────────────────────
    Sinkronkan ringkasan hasil MoKu per kegiatan.
 ─────────────────────────────────────────────────────────────── */
-router.post("/db/results-sync", async (req, res) => {
-  await ensureIndex();
+router.post("/db/results-sync", async (req: any, res: any) => {
   try {
     const { results } = req.body as {
       results: Array<{
@@ -125,22 +110,48 @@ router.post("/db/results-sync", async (req, res) => {
     try {
       await client.query("BEGIN");
       for (const r of results) {
-        await client.query(
-          `INSERT INTO moku_results_sync
-             (activity_id, activity_name, status, photo_count, note, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (activity_id) DO UPDATE SET
-             activity_name = EXCLUDED.activity_name,
-             status        = EXCLUDED.status,
-             photo_count   = EXCLUDED.photo_count,
-             note          = EXCLUDED.note,
-             updated_at    = EXCLUDED.updated_at`,
-          [
-            r.activityId, r.activityName || null, r.status || null,
-            r.photoCount || 0, r.note || null,
-            r.updatedAt ? new Date(r.updatedAt) : null
-          ]
+        const activityId = String(r.activityId || "").trim();
+        if (!activityId) continue;
+
+        /*
+         * Jangan bergantung pada ON CONFLICT(activity_id). Database lama
+         * sudah terlanjur dibuat tanpa unique constraint pada activity_id.
+         * Advisory lock membuat pola baca-lalu-update/insert tetap aman saat
+         * dua perangkat mengirim hasil kegiatan yang sama bersamaan.
+         */
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [activityId]);
+        const existing = await client.query(
+          `SELECT id FROM moku_results_sync
+           WHERE activity_id = $1
+           ORDER BY updated_at DESC NULLS LAST, id DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [activityId]
         );
+        const values = [
+          activityId, r.activityName || null, r.status || null,
+          r.photoCount || 0, r.note || null,
+          r.updatedAt ? new Date(r.updatedAt) : null
+        ];
+        if (existing.rows.length) {
+          await client.query(
+            `UPDATE moku_results_sync
+             SET activity_name = $2,
+                 status        = $3,
+                 photo_count   = $4,
+                 note          = $5,
+                 updated_at    = $6
+             WHERE id = $1`,
+            [existing.rows[0].id, ...values.slice(1)]
+          );
+        } else {
+          await client.query(
+            `INSERT INTO moku_results_sync
+               (activity_id, activity_name, status, photo_count, note, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            values
+          );
+        }
       }
       await client.query("COMMIT");
       res.json({ ok: true, saved: results.length });
@@ -151,7 +162,7 @@ router.post("/db/results-sync", async (req, res) => {
       client.release();
     }
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal sinkronisasi hasil" });
   }
 });
@@ -159,7 +170,7 @@ router.post("/db/results-sync", async (req, res) => {
 /* ── GET /api/db/stats ──────────────────────────────────────────
    Statistik data tersimpan di PostgreSQL.
 ─────────────────────────────────────────────────────────────── */
-router.get("/db/stats", async (req, res) => {
+router.get("/db/stats", async (req: any, res: any) => {
   try {
     const [photos, snaps, results] = await Promise.all([
       pool.query("SELECT COUNT(*) as count FROM moku_photos"),
@@ -173,7 +184,7 @@ router.get("/db/stats", async (req, res) => {
       resultsCount:   Number(results.rows[0].count)
     });
   } catch (e) {
-    req.log.error(e);
+    (req as any).log.error(e);
     res.status(500).json({ ok: false, error: "Gagal membaca statistik" });
   }
 });

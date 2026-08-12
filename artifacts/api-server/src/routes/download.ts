@@ -1,11 +1,11 @@
-import { Router, type IRouter } from "express";
+import { Router } from "express";
 import { ZipArchive } from "archiver";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const router: IRouter = Router();
+const router = Router();
 
 const BOP_PUBLIC_DIR = path.resolve(
   __dirname,
@@ -27,7 +27,7 @@ const BOP_INDEX_HTML = path.resolve(
   "index.html"
 );
 
-router.get("/download-app", (_req, res) => {
+router.get("/download-app", (_req: any, res: any) => {
   res.setHeader("Content-Type", "application/zip");
   res.setHeader(
     "Content-Disposition",

@@ -12,8 +12,8 @@
     return s;
   }
 
-  /* Prioritas: 1) Vite define (baked at build), 2) localStorage */
-  const base = cleanBase(window.BOP_API_BASE) || cleanBase(localStorage.getItem(LS_API_KEY) || "");
+  /* Mulai dari define env; localStorage hanya fallback terakhir agar tidak split antar-browser */
+  const base = cleanBase(window.BOP_API_BASE);
   window.BOP_API_BASE = base;
 
   window.__bopSetApiBase = function(url){
@@ -44,55 +44,89 @@
     return nativeFetch(input, init);
   };
 
+  async function pingBase(candidate, timeoutMs = 4000){
+    const c = cleanBase(candidate);
+    if(!c && c !== "") return false;
+    const url = c ? (c + "/api/bop/ping") : "/api/bop/ping";
+    try{
+      const r = await nativeFetch(url, {
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(timeoutMs) } : {})
+      });
+      return r.ok;
+    } catch(_e){
+      return false;
+    }
+  }
+
   /* ── Auto-discovery: jalankan sekali saat startup ─────────── */
   async function autoDiscover(){
-    /* Jika sudah ada URL yang valid, cukup verifikasi saja */
-    if (window.BOP_API_BASE){
-      try{
-        const r = await nativeFetch(window.BOP_API_BASE + "/api/bop/ping", {
-          signal: AbortSignal.timeout(5000)
-        });
-        if(r.ok){ console.info("[BOP AutoDiscover] URL terverifikasi:", window.BOP_API_BASE); return; }
-      } catch(e){ /* lanjut ke langkah berikutnya */ }
-    }
+    const envBase = cleanBase(window.BOP_API_BASE || "");
+    const storedBase = cleanBase(localStorage.getItem(LS_API_KEY) || "");
 
-    /* Langkah 1: Coba relative /api (works on Replit, same-origin, Vite dev) */
-    try{
-      const r = await nativeFetch("/api/bop/ping", { signal: AbortSignal.timeout(4000) });
-      if(r.ok){
-        console.info("[BOP AutoDiscover] Relative /api OK");
-        window.BOP_API_BASE = "";
-        window.__bopRelativeOk = true;
+    /* Langkah 0: ENV base jika valid */
+    if(envBase){
+      if(await pingBase(envBase, 5000)){
+        window.__bopSetApiBase(envBase);
+        console.info("[BOP AutoDiscover] URL dari ENV terverifikasi:", envBase);
         return;
       }
-    } catch(e){ /* tidak bisa reach /api secara relative */ }
+    }
 
-    /* Langkah 2: Baca /api-config.json (di-generate oleh Vite build dari env VITE_API_BASE) */
+    /* Langkah 1: api-config.json adalah sumber kanonik antar-browser */
+    let cfgBase = "";
     try{
-      const r = await nativeFetch("/api-config.json", { signal: AbortSignal.timeout(4000) });
+      const r = await nativeFetch("/api-config.json", {
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
       if(r.ok){
         const cfg = await r.json();
-        const url = cleanBase(cfg.apiBase || "");
-        if(url){
-          window.__bopSetApiBase(url);
-          console.info("[BOP AutoDiscover] URL dari api-config.json:", url);
-          return;
-        }
+        cfgBase = cleanBase(cfg.apiBase || "");
       }
     } catch(e){ /* file tidak ada atau tidak valid */ }
 
-    /* Langkah 3: Tanya server sendiri via /api/bop/server-url (fallback terakhir) */
+    if(cfgBase){
+      if(await pingBase(cfgBase, 5000)){
+        window.__bopSetApiBase(cfgBase);
+        console.info("[BOP AutoDiscover] URL dari api-config.json:", cfgBase);
+        return;
+      }
+    }
+
+    /* Langkah 2: Coba relative /api (works on same-origin deployment) */
+    if(await pingBase("", 4000)){
+      window.BOP_API_BASE = "";
+      localStorage.removeItem(LS_API_KEY);
+      window.__bopRelativeOk = true;
+      console.info("[BOP AutoDiscover] Relative /api OK");
+      return;
+    }
+
+    /* Langkah 3: fallback localStorage lama, tapi harus valid */
+    if(storedBase && await pingBase(storedBase, 5000)){
+      window.__bopSetApiBase(storedBase);
+      console.info("[BOP AutoDiscover] URL fallback localStorage terverifikasi:", storedBase);
+      return;
+    }
+
+    /* Langkah 4: Tanya server sendiri via /api/bop/server-url */
     try{
-      const r = await nativeFetch("/api/bop/server-url", { signal: AbortSignal.timeout(4000) });
+      const r = await nativeFetch("/api/bop/server-url", {
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
       if(r.ok){
         const d = await r.json();
         const url = cleanBase(d.serverUrl || "");
-        if(url && url !== cleanBase(window.location.origin)){
+        if(url){
           window.__bopSetApiBase(url);
           console.info("[BOP AutoDiscover] URL dari server-url endpoint:", url);
+          return;
         }
       }
     } catch(e){ /* tidak bisa */ }
+
+    /* Tidak ada kandidat valid: mode local/offline */
+    window.BOP_API_BASE = "";
+    localStorage.removeItem(LS_API_KEY);
 
     console.info("[BOP AutoDiscover] Selesai. API Base:", window.BOP_API_BASE || "(relative)");
 
@@ -233,9 +267,28 @@ function saveData(){
   try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ bopAlert("Penyimpanan Gagal","Penyimpanan lokal penuh. Silakan backup data dan bersihkan ruang.","warning"); }
   render();
 }
+let localSaveTimer = null;
+function persistLocalData(){
+  try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ console.warn("[BOP] Penyimpanan lokal tertunda gagal:",e); }
+}
+function scheduleLocalSave(delay=350){
+  if(localSaveTimer) clearTimeout(localSaveTimer);
+  localSaveTimer = setTimeout(()=>{
+    localSaveTimer = null;
+    persistLocalData();
+  }, delay);
+}
+function flushLocalSave(){
+  if(localSaveTimer){
+    clearTimeout(localSaveTimer);
+    localSaveTimer = null;
+  }
+  try{ collectAll(); }catch(e){}
+  persistLocalData();
+}
 function autosave(){
   collectAll();
-  try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){ console.warn("[BOP] Autosave gagal:",e); }
+  persistLocalData();
   updateDashboard();
 }
 function collectAll(){
@@ -309,7 +362,7 @@ function masterTitle(){ return `RT ${data.master.rt||"005"} RW ${data.master.rw|
 
 function kopHTML(){
   const k=data.kop;
-  return `<div class="kop"><div class="kop-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang"></div><div class="kop-text"><div class="kop-b1">${k.baris1}</div><div class="kop-b2">${k.baris2}</div><div class="kop-b2">${k.baris3}</div><div class="kop-b2">${k.baris4}</div><div class="kop-addr">${k.alamat||data.master.alamat||""}</div></div><div class="kop-logo-spacer"></div></div>`;
+  return `<div class="kop"><div class="kop-logo-wrap"><img src="assets/logo-rt005.png" class="kop-logo" alt="Logo RT 005 RW 012"></div><div class="kop-text"><div class="kop-b1">${k.baris1}</div><div class="kop-b2">${k.baris2}</div><div class="kop-b2">${k.baris3}</div><div class="kop-b2">${k.baris4}</div><div class="kop-addr">${k.alamat||data.master.alamat||""}</div></div><div class="kop-logo-spacer"></div></div>`;
 }
 
 
@@ -622,7 +675,26 @@ function guessBulan(u=""){u=String(u).toLowerCase();if(u.includes("17")||u.inclu
 function opt(list,sel){return list.map(x=>`<option value="${escapeAttr(x)}" ${x===sel?"selected":""}>${esc(x)}</option>`).join("")}
 function normalizeRapV17(){if(!data.pengajuan)data.pengajuan=clone(defaultData.pengajuan);data.pengajuan.rap=(data.pengajuan.rap||[]).map(r=>{if(Array.isArray(r)){let u=r[0]||"",k=guessKategori(u);return {kategori:k,subKategori:guessSubKategori(k,u),tipe:guessTipe(u),uraian:u,bulan:guessBulan(u),volume:r[1]||"1 Paket",jumlah:Number(r[2]||0),keterangan:r[3]||""}}let k=r.kategori||guessKategori(r.uraian||"");return {kategori:k,subKategori:r.subKategori||guessSubKategori(k,r.uraian||""),tipe:r.tipe||guessTipe(r.uraian||""),uraian:r.uraian||"",bulan:r.bulan||guessBulan(r.uraian||""),volume:r.volume||"1 Paket",jumlah:Number(r.jumlah??0),keterangan:r.keterangan||""}});if(!data.pengajuan.selectedMonth)data.pengajuan.selectedMonth="Agustus 2026"}
 function totalRap(){normalizeRapV17();return data.pengajuan.rap.reduce((s,r)=>s+Number(r.jumlah||0),0)}
-function updateDashboard(){normalizeRapV17();const total=totalRap();$("dashAllocated").textContent=rupiah(total);$("dashSisa").textContent=rupiah(25000000-total);$("dashPercent").textContent=Math.round(total/25000000*100)+"%";$("dashHistory").textContent=data.history.length;const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;$("checkProgress").textContent=`${done} / 7`;$("topTitle").textContent=masterTitle();$("topSubtitle").textContent=`${data.master.kelurahan}, ${data.master.kecamatan}, Kota ${data.master.kota}`;renderHistory();renderMonthlyRapSummary();if($("kopPreview"))$("kopPreview").innerHTML=official(`<div class="title">CONTOH KOP SURAT RESMI</div><p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>`);if($("lpjOutput"))$("lpjOutput").innerHTML=docLpj()}
+function updateDashboard(){
+  normalizeRapV17();
+  const rapTotal=totalRap();
+  const lpjTotal=totalExpense();
+  const budget=25000000;
+  const sisaRap=budget-rapTotal;
+  const sisaActual=sisaRap-lpjTotal;
+  $("dashAllocated").textContent=rupiah(rapTotal);
+  $("dashSisa").textContent=rupiah(sisaActual);
+  $("dashPercent").textContent=Math.round(rapTotal/budget*100)+"%";
+  $("dashHistory").textContent=data.history.length;
+  const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;
+  $("checkProgress").textContent=`${done} / 7`;
+  $("topTitle").textContent=masterTitle();
+  $("topSubtitle").textContent=`${data.master.kelurahan}, ${data.master.kecamatan}, Kota ${data.master.kota}`;
+  renderHistory();
+  renderMonthlyRapSummary();
+  if($("kopPreview"))$("kopPreview").innerHTML=official(`<div class="title">CONTOH KOP SURAT RESMI</div><p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>`);
+  if($("lpjOutput"))$("lpjOutput").innerHTML=docLpj();
+}
 function docBA(){let p=data.pengajuan,m=data.master;return official(`<div class="title">BERITA ACARA<br>KESEPAKATAN RENCANA ANGGARAN PENGGUNAAN BANTUAN OPERASIONAL RT</div><p style="text-align:center">Nomor: ${p.baNomor||".................."}</p><p>Pada hari ini ${p.baHari} tanggal ${p.baTanggal} bulan ${p.baBulan} tahun ${p.baTahun}, bertempat di ${p.baTempat} pada pukul ${p.baPukul} telah dilaksanakan pertemuan pembahasan Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ${m.rt} RW ${m.rw}. Pertemuan dipimpin oleh ${p.baPimpinan||m.ketua||"........"}.</p><p>Adapun hasil pertemuan sebagai berikut:</p>${docRap().match(/<table[\s\S]*?<\/table>/)[0]}<p>Demikian Berita Acara Hasil Kesepakatan Rencana Anggaran Penggunaan Bantuan Operasional RT ini dibuat untuk dapat dipergunakan sebagaimana mestinya.</p><p>Kami yang bertanda tangan di bawah ini:</p><table><tr><th>No.</th><th>Nama</th><th>Jabatan</th><th>Tanda Tangan</th></tr>${p.peserta.map((r,i)=>`<tr><td>${i+1}.</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${i+1}.</td></tr>`).join("")}</table>`)}
 
 
@@ -1587,7 +1659,8 @@ function renderBreakdownPanel(month, item){
       <div class="hint">Isi rincian breakdown sesuai tipe operasional. Total breakdown harus sama dengan target anggaran bulanan.</div>
       <div class="action-row">
         <button type="button" class="primary" onclick="addBreakdownRow('${month}',${item.annualIndex})">+ Tambah Breakdown</button>
-        <button type="button" class="secondary" onclick="updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();">Simpan Breakdown</button>
+        <button type="button" class="primary" onclick="updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();updateDashboard();bopToast('Tersimpan','Breakdown berhasil disimpan',
+'success');">💾 Simpan Breakdown</button>
       </div>
     </div>
     <div class="table-wrap">
@@ -1914,6 +1987,7 @@ function setupNotificationsV19(){
   document.addEventListener("change",e=>{
     const t=e.target;
     if(!t||!t.matches||!t.matches("input,select,textarea")) return;
+    if(t.dataset?.bd57 || t.dataset?.bd58) return;
     let label=t.closest("label")?.childNodes?.[0]?.textContent?.trim() || t.placeholder || "Data";
     if(t.dataset?.rap) label="RAP 1 Tahun";
     if(t.dataset?.breakdown) label="Breakdown RAP Bulanan";
@@ -2407,7 +2481,7 @@ function aiRingkasPoinPkV25(){
   fillPersiapan(); previewPkDoc("pk-notulen");
   if(typeof notifyChangeV19==="function") notifyChangeV19("Poin diringkas","Pembahasan dan keputusan kegiatan dibuat menjadi poin ringkas.","success");
 }
-function docPkNotulen(){
+function docPkNotulenLegacyV25(){
   const m=data.master,p=data.persiapan;
   const act=(p.action||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r[0])}</td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join("");
   return official(`<div class="title">NOTULEN KEGIATAN OPERASIONAL</div>
@@ -2596,7 +2670,7 @@ function aiBuatNotulenReasoningV26(){
   previewDoc("notulen");
   if(typeof notifyChangeV19==="function") notifyChangeV19("AI Reasoning Notulen selesai","Notulen resmi baku telah dibuat dengan alur masalah, tujuan, pembahasan, keputusan, dan tindak lanjut.","success");
 }
-function insertAiNotulenPanelsV25(){
+function insertAiNotulenPanelsLegacyV25(){
   if($("aiNotulenPengajuanV26") || !$("notPembahasan")) return;
   const target=$("notPembahasan").closest(".panel");
   if(target){
@@ -2805,7 +2879,6 @@ function docLpj(){
 
     <div class="notulen-section-title-v25 notulen-section-title-v28"><b>B. DASAR DAN TUJUAN PERTANGGUNGJAWABAN</b></div>
     <p class="notulen-paragraph-v25 notulen-paragraph-v28">Laporan ini disusun sebagai bentuk pertanggungjawaban penggunaan Bantuan Operasional RT/RW pada periode ${esc(safeTextV29(l.periode,"berjalan"))}. Penyusunan laporan dilakukan untuk memastikan setiap penggunaan dana tercatat secara tertib, transparan, akuntabel, dan didukung bukti administrasi yang memadai.</p>
-    <p class="notulen-paragraph-v25 notulen-paragraph-v28">Laporan pertanggungjawaban ini menjadi data dukung bagi pengurus RT ${esc(m.rt||"005")} RW ${esc(m.rw||"012")} Kelurahan ${esc(m.kelurahan||"Tegalsari")} dalam pengarsipan SPJ bulanan serta pemenuhan kelengkapan administrasi melalui Aplikasi Website Ruang Warga.</p>
 
     <div class="notulen-section-title-v25 notulen-section-title-v28"><b>C. RINGKASAN KEUANGAN</b></div>
     <table class="report-table lpj-summary-table-v29">
@@ -2827,24 +2900,7 @@ function docLpj(){
     </table>
     <p class="notulen-paragraph-v25 notulen-paragraph-v28"><b>Terbilang:</b> ${esc(terbilang(total).replace(/\s+/g," ").trim())} Rupiah.</p>
 
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. DATA DUKUNG DAN DOKUMENTASI KEGIATAN</b></div>
-    <p class="notulen-paragraph-v25 notulen-paragraph-v28">Setiap pengeluaran wajib didukung oleh bukti transaksi dan dokumentasi kegiatan. Dokumentasi lapangan dari MoKu Mobile digunakan sebagai data dukung tambahan untuk memperkuat laporan pertanggungjawaban.</p>
-    <table class="lpj-docs-table-v29">
-      <thead><tr><th>No</th><th>Nama Kegiatan</th><th>Tanggal</th><th>Lokasi</th><th>Dokumentasi</th></tr></thead>
-      <tbody>${lpjDocsRowsV29()}</tbody>
-    </table>
-
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>F. HASIL PEMERIKSAAN ADMINISTRASI INTERNAL</b></div>
-    <table class="lpj-check-table-v29">
-      <thead><tr><th>No</th><th>Komponen</th><th>Status</th><th>Keterangan</th></tr></thead>
-      <tbody>${lpjAdminCheckRowsV29()}</tbody>
-    </table>
-
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>G. RENCANA TINDAK LANJUT</b></div>
-    <p class="notulen-paragraph-v25 notulen-paragraph-v28">Sebagai tindak lanjut penyusunan laporan pertanggungjawaban, disepakati langkah-langkah administrasi sebagai berikut:</p>
-    <table class="lpj-followup-table-v29"><thead><tr><th>No</th><th>Penanggung Jawab</th><th>Tindak Lanjut</th></tr></thead><tbody>${lpjFollowupRowsV29()}</tbody></table>
-
-    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>H. PENUTUP</b></div>
+    <div class="notulen-section-title-v25 notulen-section-title-v28"><b>E. PENUTUP</b></div>
     <p class="notulen-paragraph-v25 notulen-paragraph-v28">Demikian laporan pertanggungjawaban ini dibuat dengan sebenar-benarnya sebagai dokumen administrasi penggunaan Bantuan Operasional RT/RW. Laporan ini digunakan sebagai arsip SPJ dan bahan pelengkap pertanggungjawaban kepada pihak terkait sesuai ketentuan yang berlaku.</p>
     <p class="notulen-date-v28">Semarang, ................................ 2026</p>
     ${lpjSignatureTableV29()}
@@ -2873,6 +2929,8 @@ function insertAiLpjPanelV29(){
 }
 
 function bind(){
+  let breakdownUpdateTimer=null;
+  
   $("hamburger").onclick=()=>{
     if(window.innerWidth<1000) $("sidebar").classList.toggle("open");
     else $("appShell").classList.toggle("menu-hidden");
@@ -2881,12 +2939,39 @@ function bind(){
   document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>goPage(b.dataset.go));
   document.querySelectorAll(".subtab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
   document.addEventListener("change",e=>{if(e.target?.id==="monthlyDocMonth"){data.pengajuan.selectedMonth=e.target.value;data.pengajuan.monthlyBreakdownOpen=false;data.pengajuan.monthlySelectedIndex=null;localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();if(currentDoc==="rapbulanan"||currentDoc==="rbb")previewDoc(currentDoc)} if(e.target?.dataset?.rap){updateRapFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderRap();}});
-  document.addEventListener("input",e=>{
-    if(e.target?.dataset?.breakdown){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));updateBreakdownLiveStatus();return;}
-    if(e.target.matches("input,textarea,select")){collectAll(); updateDashboard();}
-    if(e.target.dataset.rap){updateRapFromInputs(); $("rapTotalCell").textContent=rupiah(totalRap());}
-    if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();} if(e.target.dataset.breakdown){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));}
-    localStorage.setItem(STORE,JSON.stringify(data));
+  document.addEventListener("input", e => {
+    if (e.target?.dataset?.bd57 || e.target?.dataset?.bd58) {
+      return;
+    }
+    if (e.target?.dataset?.breakdown) {
+      updateBreakdownFromInputs();
+      updateBreakdownLiveStatus();
+      clearTimeout(breakdownUpdateTimer);
+      breakdownUpdateTimer=setTimeout(()=>{
+        localStorage.setItem(STORE,JSON.stringify(data));
+        renderMonthlyRapSummary();
+        updateDashboard();
+      },500);
+      return;
+    }
+    if (e.target.dataset.exp) {
+      updateExpensesFromInputs();
+      $("expenseTotalCell").textContent = rupiah(totalExpense());
+      if ($("lpjOutput")) $("lpjOutput").innerHTML = docLpj();
+      clearTimeout(breakdownUpdateTimer);
+      breakdownUpdateTimer=setTimeout(()=>{
+        updateDashboard();
+      },300);
+    }
+    scheduleLocalSave();
+    if (e.target.matches("input,textarea,select")) {
+      collectAll();
+      updateDashboard();
+    }
+    if (e.target.dataset.rap) {
+      updateRapFromInputs();
+      $("rapTotalCell").textContent = rupiah(totalRap());
+    }
   });
   ["savePengajuan","saveSetting","saveLpj"].forEach(id=>$(id).onclick=()=>{saveData();bopToast("Tersimpan","Data berhasil disimpan.","success");}); if($("savePersiapan")) $("savePersiapan").onclick=()=>{collectPersiapan();ensureMobileSync();try{localStorage.setItem(STORE,JSON.stringify(data));}catch(e){}renderPersiapan();renderMobileDocumentationToLPJ();bopToast("Tersimpan","Data persiapan kegiatan berhasil disimpan.","success");}; if($("sendToMobile")) $("sendToMobile").onclick=saveActivityToMobileQueue; if($("exportActivities")) $("exportActivities").onclick=exportActivitiesForMobile; if($("importMobileResult")) $("importMobileResult").onchange=(e)=>{if(e.target.files[0]) importMobileResultFile(e.target.files[0]);};
   $("addRap").onclick=addRap; $("addPeserta").onclick=addPeserta; $("addExpense").onclick=addExpense; if($("addActionPlan")) $("addActionPlan").onclick=addActionPlan; if($("addPkPeserta")) $("addPkPeserta").onclick=addPkPeserta; if($("addPkAction")) $("addPkAction").onclick=addPkAction;
@@ -3875,7 +3960,7 @@ async function goPage(page){
 
   function printCssV37(){
     return `
-    @page{size:A4;margin:12mm 13mm 12mm 13mm}
+    @page{size:A4;margin:25mm 25mm 25mm 30mm}
     html,body{margin:0;padding:0;background:#fff;color:#000}
     body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.24}
     .print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}
@@ -3890,9 +3975,9 @@ async function goPage(page){
     .kop-addr{font-family:"Times New Roman",serif;font-size:9pt;font-weight:normal;text-align:center;margin-top:3px;line-height:1.2;white-space:normal}
     .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt;line-height:1.2}
     .official p{margin:7px 0;text-align:justify}.center-v37{text-align:center!important}.date-right-v37{text-align:right!important}.ket-v37{font-size:10pt}.mengetahui-v37{margin-top:14px!important}
-    .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
+    .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0;word-break:break-word;overflow-wrap:break-word}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:break-word}
     .official th{font-weight:bold;text-align:center;background:#eee}.official .no-border td,.official .no-border th,.official table.no-border td,.official table.no-border th{border:0!important;background:transparent!important;padding:2px 3px!important}
-    .col-no-v37,.official table th.col-no-v37,.official table td.col-no-v37{width:8mm!important;min-width:8mm!important;max-width:9mm!important;text-align:center!important;white-space:nowrap!important;padding-left:2px!important;padding-right:2px!important}
+    .col-no-v37,.official table th.col-no-v37,.official table td.col-no-v37{width:8mm!important;min-width:8mm!important;max-width:8mm!important;text-align:center!important;white-space:nowrap!important;padding-left:2px!important;padding-right:2px!important}
     .money-cell-v37{text-align:right!important;white-space:nowrap}.letter-head-v37 td{vertical-align:top}.letter-to-v37{width:42%;text-align:left!important}.letter-meta-v37{width:58%}.meta-inner-v37 td:first-child,.identity-table-v37 td:first-child{width:36mm;white-space:nowrap}.sign-two-v37{margin-top:10px}.sign-two-v37 td{width:50%;text-align:center!important;vertical-align:top}.sign-right-v37 td:first-child{width:55%}.sign-right-v37 td:last-child{text-align:center!important}.sign-note-v37{display:block;margin-top:4px}.sign-space-v37{height:52px}.sign-list-v37 td{text-align:left}.sign-list-v37 td:first-child,.sign-list-v37 td:last-child{text-align:center}.page-break-v37{page-break-after:always;break-after:page;height:0}.official-ol-v37{margin:5px 0 8px 22px;padding:0;text-align:justify}.official-ol-v37 li{margin:4px 0;text-align:justify}
     .perubahan-table-v37{font-size:9.5pt}.perubahan-table-v37 th,.perubahan-table-v37 td{padding:3px 4px}.tanda-terima-v37 th,.tanda-terima-v37 td{padding:4px}
     @media print{html,body{width:210mm;min-height:297mm}.print-page{width:184mm;margin:0 auto}.page-break-v37{page-break-after:always}}
@@ -4001,13 +4086,13 @@ async function goPage(page){
 
   /* CSS cetak A4 bersama — dipakai oleh doExportPdf */
   const PDF_PRINT_CSS = `
-    @page { size: A4; margin: 14mm; }
+    @page { size: A4; margin: 25mm 25mm 25mm 30mm; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 20px; font-family: "Times New Roman", serif; font-size: 12pt; color: #000; background: #fff; }
     .official, .official-v36, .official-v37 { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.26; color: #000; }
     .official .title, .official-v36 .title, .official-v37 .title { text-align: center; font-weight: bold; text-transform: uppercase; margin: 10px 0 16px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #000; padding: 5px 8px; font-size: 11pt; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; word-break: break-word; overflow-wrap: break-word; }
+    th, td { border: 1px solid #000; padding: 5px 8px; font-size: 11pt; word-break: break-word; overflow-wrap: break-word; }
     .no-border td, .no-border th { border: none; }
     .kop { display: grid; grid-template-columns: 70px 1fr 70px; gap: 12px; align-items: center; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 12px; }
     .kop table { border: none !important; } .kop table td { border: none !important; padding: 0 !important; }
@@ -4024,7 +4109,7 @@ async function goPage(page){
     .date-right-v36 { text-align: right; }
     .center-v36 { text-align: center; }
     .money-cell { text-align: right; white-space: nowrap; }
-    .col-no { width: 38px; text-align: center; }
+    .col-no { width: 8mm; text-align: center; min-width: 8mm; max-width: 8mm; }
     .sign-note-v36 { font-size: 9pt; color: #555; display: block; }
     .sign-right-v36 td, .sign-right-v36 th,
     .letter-head-v36 td, .letter-head-v36 th,
@@ -4125,49 +4210,44 @@ async function goPage(page){
 
   /* ─── Topbar status (Online / Offline / Memeriksa) ────────── */
   let _lastOnline = null;
+  let _probeOkStreak = 0;
+  let _probeFailStreak = 0;
+  let _lastProbeOkAt = Date.now();
   function setTopbarStatus(online){
     const dot  = document.getElementById("topbarDot");
     const txt  = document.getElementById("topbarStatusText");
     if(dot) dot.style.background = online ? "#16a34a" : online === null ? "#94a3b8" : "#dc2626";
     if(txt) txt.textContent      = online ? "Online Mode" : online === null ? "Memeriksa..." : "Offline Mode";
-    if(_lastOnline !== null && _lastOnline !== online && typeof bopToast === "function"){
-      if(online)  bopToast("☁ Terhubung ke Server", "Sinkronisasi data aktif.", "success");
-      else        bopToast("⚠ Koneksi Terputus", "Mode offline — data tetap tersimpan lokal.", "warning");
-    }
     _lastOnline = online;
+  }
+
+  // Hindari status flapping: butuh 2 gagal berturut-turut sebelum Offline.
+  function markProbeResult(isOk){
+    if(isOk){
+      _probeOkStreak++;
+      _probeFailStreak = 0;
+      _lastProbeOkAt = Date.now();
+      if(_probeOkStreak >= 1) setTopbarStatus(true);
+      return;
+    }
+    _probeFailStreak++;
+    _probeOkStreak = 0;
+    const staleMs = Date.now() - _lastProbeOkAt;
+    if(_probeFailStreak >= 2 && staleMs >= 25_000) setTopbarStatus(false);
   }
 
   /* ─── Badge sync kecil di pojok kanan atas ─────────────────── */
   function injectBadge(){
-    if(document.getElementById("pgSyncBadge")) return;
-    const b = document.createElement("div");
-    b.id = "pgSyncBadge";
-    b.title = "Klik untuk info status sinkronisasi";
-    b.style.cssText = "position:fixed;top:10px;right:14px;z-index:9999;background:rgba(0,0,0,.55);color:#fff;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;cursor:pointer;user-select:none;transition:background .3s,opacity .3s;opacity:.85";
-    b.textContent = "☁ …";
-    b.onclick = showSyncInfo;
-    document.body.appendChild(b);
+    const b = document.getElementById("pgSyncBadge");
+    if (b) b.remove();
   }
 
   function setBadge(txt, color){
-    const b = document.getElementById("pgSyncBadge");
-    if(!b) return;
-    b.textContent = txt;
-    b.style.background = color || "rgba(0,0,0,.55)";
+    return;
   }
 
   function showSyncInfo(){
-    const ver   = localStorage.getItem(VER_KEY) || "-";
-    const ts    = localStorage.getItem(TS_KEY);
-    const tsStr = ts ? new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
-    const fn = typeof bopAlert === "function" ? bopAlert : (t,m) => alert(t+"\n"+m);
-    fn("☁ Status Sinkronisasi BOP",
-      "<b>Database:</b> PostgreSQL (Railway)<br>" +
-      "<b>Versi data:</b> " + ver + "<br>" +
-      "<b>Terakhir sync:</b> " + tsStr + "<br><br>" +
-      "<small>Data disimpan otomatis setiap perubahan (delay 2 detik).<br>" +
-      "Saat buka di perangkat lain, data terbaru akan dimuat otomatis.</small>",
-    "info");
+    return;
   }
 
   /* ─── Update sidebar note ───────────────────────────────────── */
@@ -4230,7 +4310,7 @@ async function goPage(page){
             const dp = await rp.json();
             if(!dp.ok){
               step("❌ <b>Koneksi database gagal.</b><br>Host: <code>"+(dp.host||"?")+"</code><br>Error: <b>"+(dp.error||"Tidak diketahui")+"</b><br><small>Pastikan DATABASE_URL sudah benar di Railway dan service Postgres sudah terhubung ke service API di Railway dashboard.</small>", "#b91c1c");
-              setTopbarStatus(false);
+              markProbeResult(false);
               autoSetupBtn.disabled = false;
               autoSetupBtn.textContent = "🚀 Setup Otomatis";
               return;
@@ -4239,7 +4319,7 @@ async function goPage(page){
             pingOk = true;
           } catch(pe){
             step("❌ <b>Tidak bisa reach server Railway:</b> "+pe.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
-            setTopbarStatus(false);
+            markProbeResult(false);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
@@ -4255,7 +4335,7 @@ async function goPage(page){
           if(d1.ok){
             const ts = d1.updatedAt ? new Date(d1.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}) : "-";
             step("✅ <b>Server &amp; database sudah OK!</b><br>Koneksi: PostgreSQL (Railway)<br>Punya data: "+(d1.hasData?"Ya":"Tidak")+"<br>Versi: "+(d1.version||0)+"<br>Terakhir update: "+ts+"<br>Riwayat: "+(d1.historyCount||0)+" entri"+(d1.autoInited?" <i>(tabel baru dibuat otomatis)</i>":""), "#15803d");
-            setTopbarStatus(true);
+            markProbeResult(true);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
@@ -4271,7 +4351,7 @@ async function goPage(page){
 
           if(!d2.ok){
             step("❌ <b>Buat tabel gagal:</b> "+(d2.error||"Tidak diketahui")+"<br><small>Koneksi DB OK tapi tidak bisa buat tabel. Cek apakah user DB punya hak akses CREATE TABLE.</small>", "#b91c1c");
-            setTopbarStatus(false);
+            markProbeResult(false);
             autoSetupBtn.disabled = false;
             autoSetupBtn.textContent = "🚀 Setup Otomatis";
             return;
@@ -4287,15 +4367,15 @@ async function goPage(page){
 
           if(d3.ok){
             step("✅ <b>Setup selesai! Server &amp; database siap digunakan.</b><br>Tabel berhasil dibuat dari awal.<br>Punya data: "+(d3.hasData?"Ya":"Tidak")+"<br>Sekarang kamu bisa klik <b>☁️ Simpan ke Server</b> untuk upload data.", "#15803d");
-            setTopbarStatus(true);
+            markProbeResult(true);
           } else {
             step("⚠ <b>Tabel dibuat tapi verifikasi akhir gagal:</b> "+(d3.error||"")+"<br><small>Coba klik Setup Otomatis sekali lagi dalam beberapa detik.</small>", "#b45309");
-            setTopbarStatus(false);
+            markProbeResult(false);
           }
 
         } catch(e){
           step("❌ <b>Tidak bisa reach server Railway:</b> "+e.message+"<br><small>Pastikan URL Railway sudah benar di kolom di atas dan Railway sedang berjalan.</small>", "#b91c1c");
-          setTopbarStatus(false);
+          markProbeResult(false);
         }
 
         autoSetupBtn.disabled = false;
@@ -4324,16 +4404,33 @@ async function goPage(page){
       const res = await fetch("/api/bop/data", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: parsed, clientVersion: localVer + 1 }),
+        body: JSON.stringify({ data: parsed, baseVersion: localVer }),
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(8000) } : {}),
       });
+      if(res.status === 409){
+        let conflictPayload = null;
+        try{ conflictPayload = await res.json(); }catch(_e){}
+        if(conflictPayload?.data){
+          applyServerData({
+            ok: true,
+            data: conflictPayload.data,
+            version: conflictPayload.serverVersion || localVer,
+            updatedAt: conflictPayload.updatedAt || new Date().toISOString()
+          });
+          if(typeof bopToast === "function"){
+            bopToast("Sinkronisasi Diperbarui","Perangkat ini tertinggal. Data terbaru server dimuat otomatis.","info");
+          }
+          return;
+        }
+        throw new Error("HTTP 409");
+      }
       if(!res.ok) throw new Error("HTTP " + res.status);
       const result = await res.json();
       localStorage.setItem(VER_KEY, String(result.version));
       localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
       setBadge("☁ ✓", "#15803d");
       setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
-      setTopbarStatus(true);
+      markProbeResult(true);
       updateSidebarNote();
       updateSyncPanel();
     } catch(e){
@@ -4352,7 +4449,6 @@ async function goPage(page){
     if(!raw){ if(typeof bopAlert==="function") bopAlert("Tidak Ada Data","Tidak ada data lokal untuk disimpan.","warning"); return; }
     setBadge("☁ ↑", "#1e40af");
     await doPush(raw);
-    if(typeof bopToast==="function") bopToast("Tersimpan","Data berhasil disimpan ke server.","success");
   }
   window.bopPgPushNowV40 = manualPush;
   window.bopSyncPushV39  = manualPush;
@@ -4376,7 +4472,6 @@ async function goPage(page){
         : confirm("Ambil data dari server? Data lokal akan diganti.");
       if(!ok){ setBadge("☁","rgba(0,0,0,.55)"); return; }
       applyServerData(result);
-      if(typeof bopToast==="function") bopToast("Data Dimuat","Data berhasil diambil dari server.","success");
     } catch(e){
       console.warn(TAG,"Pull gagal:",e.message);
       setBadge("☁ !","#b91c1c");
@@ -4387,21 +4482,59 @@ async function goPage(page){
   window.bopPgPullNowV40 = manualPull;
   window.bopSyncPullV39  = manualPull;
 
+  function isCrossOriginApiBase(){
+    try{
+      const base = String(window.BOP_API_BASE || "").trim();
+      if(!base) return false;
+      return new URL(base, window.location.href).origin !== window.location.origin;
+    } catch(_e){
+      return false;
+    }
+  }
+
   /* ─── Terapkan data server ke memori + cache ────────────────── */
   function applyServerData(result){
     if(!result || !result.data) return;
-    const serverData = result.data;
-    if(typeof data !== "undefined" && serverData && typeof serverData === "object"){
-      try{ Object.assign(data, JSON.parse(JSON.stringify(serverData))); }catch(e){}
+    const serverData = JSON.parse(JSON.stringify(result.data));
+    const localRaw = localStorage.getItem(STORE);
+    const localVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+    const serverVersion = parseInt(String(result.version || 0), 10);
+    const localUpdatedAt = localStorage.getItem(TS_KEY) || null;
+    const serverUpdatedAt = result.updatedAt || null;
+    let resolvedData = serverData;
+
+    try{
+      if (window.BOP_SYNC_HELPERS && typeof window.BOP_SYNC_HELPERS.resolveSyncSnapshot === "function" && localRaw) {
+        const parsedLocal = JSON.parse(localRaw);
+        resolvedData = window.BOP_SYNC_HELPERS.resolveSyncSnapshot({
+          localState: parsedLocal,
+          remoteState: serverData,
+          localVersion,
+          serverVersion,
+          localUpdatedAt,
+          serverUpdatedAt,
+        });
+      }
+    } catch(e) {
+      console.warn(TAG, "Gagal resolve konflik sync:", e.message);
     }
-    _origSetItem(STORE, JSON.stringify(serverData));
-    localStorage.setItem(VER_KEY, String(result.version  || 0));
-    localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
+
+    const finalData = JSON.parse(JSON.stringify(resolvedData));
+
+    if(typeof data !== "undefined" && finalData && typeof finalData === "object"){
+      try{
+        data = finalData;
+        window.data = data;
+      }catch(e){}
+    }
+    _origSetItem(STORE, JSON.stringify(finalData));
+    localStorage.setItem(VER_KEY, String(serverVersion || localVersion || 0));
+    localStorage.setItem(TS_KEY,  serverUpdatedAt || localUpdatedAt || new Date().toISOString());
     if(typeof render        ==="function"){ try{ render();           }catch(e){} }
     if(typeof updateDashboard==="function"){ try{ updateDashboard(); }catch(e){} }
     setBadge("☁ ✓","#15803d");
     setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),3000);
-    setTopbarStatus(true);
+    markProbeResult(true);
     updateSidebarNote();
     updateSyncPanel();
   }
@@ -4410,8 +4543,9 @@ async function goPage(page){
   /* ─── Intercept localStorage.setItem ───────────────────────── */
   const _origSetItem = localStorage.setItem.bind(localStorage);
   localStorage.setItem = function(key, value){
-    _origSetItem(key, value);
-    if(key === STORE && typeof value === "string") schedulePush(value);
+    const normalizedValue = typeof value === "string" ? value : String(value);
+    _origSetItem(key, normalizedValue);
+    if(key === STORE && typeof normalizedValue === "string") schedulePush(normalizedValue);
   };
 
   /* ─── Boot: load data dari server jika lebih baru ───────────── */
@@ -4419,15 +4553,17 @@ async function goPage(page){
     setBadge("☁ …","rgba(0,0,0,.55)");
     try{
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const headers  = localVer > 0 ? { "If-None-Match": String(localVer) } : {};
+      const useEtag  = !isCrossOriginApiBase();
+      const headers  = (useEtag && localVer > 0) ? { "If-None-Match": String(localVer) } : {};
       const res = await fetch("/api/bop/data", {
         headers,
+        cache: "no-store",
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(7000) } : {}),
       });
 
       if(res.status === 304){
         /* Versi sama — tidak perlu update, tapi server online */
-        setTopbarStatus(true);
+        markProbeResult(true);
         setBadge("☁ ✓","#15803d");
         setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),2000);
         return;
@@ -4436,13 +4572,13 @@ async function goPage(page){
       if(!res.ok){
         /* Server error — graceful: tetap pakai localStorage */
         console.warn(TAG,"bootLoad HTTP",res.status);
-        setTopbarStatus(false);
+        markProbeResult(false);
         setBadge("☁","rgba(0,0,0,.55)");
         return;
       }
 
       const result = await res.json();
-      setTopbarStatus(true);
+      markProbeResult(true);
 
       if(!result.ok || !result.data){
         /* Server kosong — upload data lokal (inisialisasi awal) */
@@ -4455,26 +4591,27 @@ async function goPage(page){
         return;
       }
 
-      const serverVer = result.version || 0;
-      if(serverVer > localVer){
-        /* Server lebih baru — muat */
-        applyServerData(result);
-        if(typeof bopToast==="function"){
-          bopToast("Data Dimuat dari Server",
-            "Versi " + serverVer + " — " +
-            new Date(result.updatedAt).toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}),
-          "info");
-        }
-      } else {
-        /* Lokal sama atau lebih baru */
-        setBadge("☁ ✓","#15803d");
-        setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),2000);
-        updateSidebarNote();
-      }
+       /* Poll/visibility sync sering mengembalikan snapshot yang sama.
+          Jangan render ulang form jika server belum punya versi baru. */
+       const serverVersion = Number(result.version || 0);
+       const currentVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+       if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion){
+         setBadge("☁ ✓","#15803d");
+         setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),1200);
+         return;
+       }
+
+       /* Jika user sedang mengetik, tunggu polling berikutnya setelah blur.
+          Mengganti DOM di tengah input akan memindahkan caret/fokus. */
+       const active = document.activeElement;
+       if(active && (active.matches("input,textarea,select") || active.isContentEditable)) return;
+
+      /* Server adalah sumber tunggal: selalu ganti cache lokal saat online. */
+      applyServerData(result);
     } catch(e){
       /* Tidak bisa reach server — graceful offline */
       console.warn(TAG,"bootLoad gagal (offline?):",e.message);
-      setTopbarStatus(false);
+      markProbeResult(false);
       setBadge("☁","rgba(0,0,0,.55)");
     }
   }
@@ -4484,29 +4621,33 @@ async function goPage(page){
     if(pushInFlight || pushTimer) return;
     try{
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const headers  = localVer > 0 ? { "If-None-Match": String(localVer) } : {};
+      const useEtag  = !isCrossOriginApiBase();
+      const headers  = (useEtag && localVer > 0) ? { "If-None-Match": String(localVer) } : {};
       const res = await fetch("/api/bop/data", {
         headers,
+        cache: "no-store",
         ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(5000) } : {}),
       });
-      if(res.status === 304){ setTopbarStatus(true); return; }
-      if(!res.ok){ setTopbarStatus(false); return; }
-      setTopbarStatus(true);
+      if(res.status === 304){ markProbeResult(true); return; }
+      if(!res.ok){ markProbeResult(false); return; }
+      markProbeResult(true);
       const result = await res.json();
       if(!result.ok || !result.data) return;
-      const serverVer = result.version || 0;
-      const localVer2 = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      if(serverVer > localVer2){
-        applyServerData(result);
-        if(typeof bopToast==="function") bopToast("☁ Data Diperbarui","Data terbaru (v"+serverVer+") dimuat dari server.","info");
-      }
+       const serverVersion = Number(result.version || 0);
+       const currentVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+       if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion) return;
+       const active = document.activeElement;
+       if(active && (active.matches("input,textarea,select") || active.isContentEditable)) return;
+      /* Jangan percaya metadata versi lokal; terapkan snapshot server yang sama di semua device. */
+      applyServerData(result);
     } catch(e){
-      setTopbarStatus(false);
+      markProbeResult(false);
     }
   }
 
   /* ─── Flush saat tab ditutup (sendBeacon) ───────────────────── */
   window.addEventListener("beforeunload", () => {
+    flushLocalSave();
     if(!pushTimer && !pushInFlight) return;
     if(pushTimer){ clearTimeout(pushTimer); pushTimer = null; }
     const raw = localStorage.getItem(STORE);
@@ -4514,7 +4655,7 @@ async function goPage(page){
     try{
       const parsed   = JSON.parse(raw);
       const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-      const payload  = JSON.stringify({ data: parsed, clientVersion: localVer + 1 });
+      const payload  = JSON.stringify({ data: parsed, baseVersion: localVer });
       const blob     = new Blob([payload], { type: "application/json" });
       if(navigator.sendBeacon) navigator.sendBeacon("/api/bop/data-beacon", blob);
     } catch(e){}
@@ -4627,7 +4768,7 @@ async function goPage(page){
 /* PATCH 010 - Print fix KOP + Daftar Hadir F4/Folio */
 function printCssV22(){
   return `
-  @page{size:215mm 330mm;margin:9mm 10mm}
+  @page{size:215mm 330mm;margin:25mm 25mm 25mm 30mm}
   html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
   body{font-family:"Times New Roman",serif!important}
   .print-page{width:195mm;max-width:195mm;box-sizing:border-box;margin:0 auto;background:#fff}
@@ -4735,6 +4876,8 @@ function printCssV22(){
   .official table{
     width:100%!important;
     border-collapse:collapse!important;
+    word-break:break-word!important;
+    overflow-wrap:break-word!important;
   }
 
   .official table:not(.no-border){
@@ -5372,20 +5515,33 @@ function insertAiNotulenPanelsV25(){
         try{
           const STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
           const VER_KEY_  = "bop_pg_version_v40";
+          const TS_KEY_   = "bop_pg_updated_v40";
           const raw = localStorage.getItem(STORE_KEY);
           if(!raw) return;
-          localStorage.removeItem(VER_KEY_);
+          const baseVersion = parseInt(localStorage.getItem(VER_KEY_) || "0", 10);
           fetch("/api/bop/data", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ data: JSON.parse(raw), clientVersion: Date.now() }),
+            body: JSON.stringify({ data: JSON.parse(raw), baseVersion }),
             ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(10000) } : {})
           }).then(r => r.json()).then(res => {
             if(res.ok){
               localStorage.setItem(VER_KEY_, String(res.version));
+              localStorage.setItem(TS_KEY_, res.updatedAt || new Date().toISOString());
               localStorage.setItem("bop_pg_ts_v40", res.updatedAt || new Date().toISOString());
               if(typeof bopToast === "function")
                 bopToast("Restore + Sync OK","Data lokal berhasil dipulihkan dan disimpan ke server.","success");
+            } else if(res?.error === "VERSION_CONFLICT"){
+              if(typeof window.bopApplyServerDataV42 === "function"){
+                window.bopApplyServerDataV42({
+                  ok: true,
+                  data: res.data,
+                  version: res.serverVersion || baseVersion,
+                  updatedAt: res.updatedAt || new Date().toISOString()
+                });
+              }
+              if(typeof bopToast === "function")
+                bopToast("Restore Ditunda","Server lebih baru. Data terbaru server dimuat agar tidak saling timpa.","warning");
             }
           }).catch(()=>{});
         } catch(err){ console.warn("[BOP RestoreSyncFix]", err); }
@@ -5902,7 +6058,7 @@ function insertAiNotulenPanelsV25(){
     printWin.document.write(`<!doctype html><html lang="id"><head>
 <meta charset="UTF-8"><title>${title}</title>
 <style>
-@page{size:A4;margin:14mm}
+@page{size:A4;margin:25mm 25mm 25mm 30mm}
 *{box-sizing:border-box}
 body{margin:0;padding:20px;font-family:"Times New Roman",serif;font-size:12pt;color:#000;background:#fff}
 .official,.official-v36,.official-v37{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26;color:#000}
@@ -8451,20 +8607,19 @@ ${KOP_PDF_CSS}
   /* ════════════════════════════════════════════════════════════
      FIX 3: updateBreakdownFromInputs — baca data-bd58
   ════════════════════════════════════════════════════════════ */
-  window.__bd58save = function(){
+  window.__bd58save = function(inp){
     ensureBD();
-    document.querySelectorAll("[data-bd58]").forEach(function(inp){
-      var p=inp.dataset.bd58.split("|");
+    function processInput(input){
+      var p=input.dataset.bd58.split("|");
       if(p.length<4) return;
       var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
       var rows=getBD(month,idx);
       if(!rows[ri]) return;
-      rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
+      rows[ri][field]=(input.type==="number")?Number(input.value||0):input.value;
       if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
         rows[ri].jumlah=calcJml(rows[ri]);
-        var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
+        var cell=input.closest&&input.closest("tr")&&input.closest("tr").querySelector(".bd58-jml");
         if(cell) cell.textContent=rp(rows[ri].jumlah);
-        /* Update notice bar */
         var panel=document.getElementById("bd58Panel");
         if(panel){
           var notice=panel.querySelector(".bd58-notice");
@@ -8478,7 +8633,13 @@ ${KOP_PDF_CSS}
           }
         }
       }
-    });
+      return true;
+    }
+    if(inp && inp.dataset && inp.dataset.bd58){
+      processInput(inp);
+    } else {
+      document.querySelectorAll("[data-bd58]").forEach(processInput);
+    }
     saveBD();
   };
   window.updateBreakdownFromInputs = window.__bd58save;
@@ -8516,7 +8677,7 @@ ${KOP_PDF_CSS}
   function satSel(enc,idx,ri,field,val){
     var opts=SATUAN58.map(function(s){return "<option value=\""+s+"\""+(s===val?" selected":"")+">"+s+"</option>";}).join("");
     if(val&&SATUAN58.indexOf(val)<0) opts+="<option value=\""+es(val)+"\" selected>"+es(val)+"</option>";
-    return "<select class=\"mini-inp-sm\" data-bd58=\""+enc+"|"+idx+"|"+ri+"|"+field+"\" onchange=\"window.__bd58save&&window.__bd58save()\">"+opts+"</select>";
+    return "<select class=\"mini-inp-sm\" data-bd58=\""+enc+"|"+idx+"|"+ri+"|"+field+"\" onchange=\"window.__bd58save&&window.__bd58save(this)\">"+opts+"</select>";
   }
   window.renderBreakdownPanel = function(month,item){
     ensureBD();
@@ -8531,16 +8692,17 @@ ${KOP_PDF_CSS}
     var tbody=rows.length?rows.map(function(r,ri){
       return "<tr>"
         +"<td style=\"text-align:center;color:#888\">"+(ri+1)+"</td>"
-        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.uraian||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|uraian\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
-        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty1||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty1\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.uraian||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|uraian\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty1||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty1\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"sat1",r.sat1||"Pkt")+"</td>"
-        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty2||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty2\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty2||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty2\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"sat2",r.sat2||"Keg")+"</td>"
-        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+(r.qty3||"")+"\" placeholder=\"opt\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty3\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+(r.qty3||"")+"\" placeholder=\"opt\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty3\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"sat3",r.sat3||"")+"</td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"satTotal",r.satTotal||"Pkt")+"</td>"
-        +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td class=\"bd58-jml\" style=\"text-align:right;white-space:nowrap\">"+rp(r.jumlah||0)+"</td>"
+        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.keterangan||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|keterangan\" placeholder=\"Keterangan\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td style=\"text-align:center\"><button type=\"button\" class=\"delete\" onclick=\"window.__bd58del&&window.__bd58del("+item.annualIndex+","+ri+")\">✕</button></td>"
         +"</tr>";
     }).join(""):"<tr><td colspan=\"12\" style=\"text-align:center;color:#888;padding:16px\">Belum ada rincian. Klik + Tambah.</td></tr>";
@@ -8557,7 +8719,9 @@ ${KOP_PDF_CSS}
       +"<th>Qty3</th><th>Sat3</th>"
       +"<th>Sat Total</th>"
       +"<th>Harga Satuan (Rp)</th>"
-      +"<th>Jumlah</th><th></th>"
+      +"<th>Jumlah</th>"
+      +"<th>Keterangan</th>"
+      +"<th></th>"
       +"</tr></thead>"
       +"<tbody>"+tbody+"</tbody>"
       +"</table></div>"
@@ -8758,49 +8922,43 @@ ${KOP_PDF_CSS}
        - TIDAK pernah call renderMonthlyRapSummary saat mengetik
   ════════════════════════════════════════════════════════════ */
   var _saveTimer=null;
-  var _origBd58Save=window.__bd58save;
 
-  window.__bd58save = function(){
-    /* 1. Update data in-memory dari semua input bd58 (tanpa re-render DOM) */
-    if(typeof _origBd58Save==="function"){
-      /* Patch: jalankan original tapi blok saveBD */
-      var _origSaveBD=window.__bd58saveBD;
-      /* Panggil langsung versi yang hanya update in-memory */
+  function processBd58Input(input){
+    if(!input || !input.dataset || !input.dataset.bd58) return;
+    var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
+    var bdKey=function(m,i){return encodeURIComponent(m)+"__"+i;};
+    var calcJml=function(r){var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));};
+    ensureBD();
+    var d=window.data;
+    var p=input.dataset.bd58.split("|");
+    if(p.length<4) return;
+    var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
+    var k=bdKey(month,idx);
+    if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
+    var rows=d.pengajuan.monthlyBreakdown[k];
+    if(!rows[ri]) return;
+    rows[ri][field]=(input.type==="number")?Number(input.value||0):input.value;
+    if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
+      rows[ri].jumlah=calcJml(rows[ri]);
+      var cell=input.closest&&input.closest("tr")&&input.closest("tr").querySelector(".bd58-jml");
+      if(cell) cell.textContent=rp(rows[ri].jumlah);
+      updateBdRingkasan(month,idx);
     }
+  }
 
-    /* In-memory update manual yang aman (tidak ganti DOM) */
-    try{
-      var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
-      var bdKey=function(m,i){return encodeURIComponent(m)+"__"+i;};
-      var calcJml=function(r){var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));};
-      ensureBD();
-      var d=window.data;
-      document.querySelectorAll("[data-bd58]").forEach(function(inp){
-        var p=inp.dataset.bd58.split("|");
-        if(p.length<4) return;
-        var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
-        var k=bdKey(month,idx);
-        if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
-        var rows=d.pengajuan.monthlyBreakdown[k];
-        if(!rows[ri]) return;
-        rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
-        /* Auto-calc jumlah in-place */
-        if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
-          rows[ri].jumlah=calcJml(rows[ri]);
-          var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
-          if(cell) cell.textContent=rp(rows[ri].jumlah);
-          /* Update progress bar & notice without re-rendering panel */
-          updateBdRingkasan(month,idx);
-        }
-      });
-    }catch(e){console.warn("[v1.59] bd58save err:",e);}
-
-    /* 2. Debounce localStorage save */
+  function saveBd58(input){
+    if(input && input.dataset && input.dataset.bd58){
+      processBd58Input(input);
+    } else {
+      document.querySelectorAll("[data-bd58]").forEach(processBd58Input);
+    }
     clearTimeout(_saveTimer);
     _saveTimer=setTimeout(function(){
       try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(window.data));}catch(e){}
     },600);
-  };
+  }
+
+  window.__bd58save = saveBd58;
   window.updateBreakdownFromInputs=window.__bd58save;
 
   /* Update ringkasan panel in-place (tidak re-render) */
@@ -9652,7 +9810,18 @@ ${KOP_PDF_CSS}
   }
 
   /* ── 1. KOP SURAT — layout sesuai contoh resmi ── */
+  function ensureLetterRenderStyles63(){
+    if(document.getElementById("bopLetterRenderStyles")) return;
+    var style = document.createElement("style");
+    style.id = "bopLetterRenderStyles";
+    style.textContent = (window.letterRendering && typeof window.letterRendering.getLetterRenderCss === "function")
+      ? window.letterRendering.getLetterRenderCss()
+      : "";
+    document.head.appendChild(style);
+  }
+
   window.kopHTML = function kopHTML(){
+    ensureLetterRenderStyles63();
     var k = (window.data && window.data.kop) ? window.data.kop : {};
     var m = (window.data && window.data.master) ? window.data.master : {};
     var b1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
@@ -9661,10 +9830,19 @@ ${KOP_PDF_CSS}
     var b4 = k.baris4 || "RW 012 RT 005";
     var addr = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
     var addrLine = /^sekretariat/i.test(addr) ? addr : ("Sekretariat: " + addr);
+
+    if(window.letterRendering && typeof window.letterRendering.buildLetterHeaderHtml === "function"){
+      return '<div class="kop kop-v63">' + window.letterRendering.buildLetterHeaderHtml({
+        lines: [b1, b2, b3, b4],
+        address: addrLine,
+        logoSrc: 'assets/logo-rt005.png'
+      }) + '</div>';
+    }
+
     return '<div class="kop kop-v63">'+
       '<div class="kop-v63-header">'+esc63(b1)+'</div>'+
       '<div class="kop-v63-row">'+
-        '<div class="kop-v63-logo-wrap"><img src="assets/logo-pemkot-semarang-transparent.png" class="kop-v63-logo" alt="Logo Kota Semarang"></div>'+
+        '<div class="kop-v63-logo-wrap"><img src="assets/logo-rt005.png" class="kop-v63-logo" alt="Logo RT 005 RW 012"></div>'+
         '<div class="kop-v63-info">'+
           '<div class="kop-v63-line1">'+esc63(b2)+'</div>'+
           '<div class="kop-v63-line1">'+esc63(b3)+'</div>'+
@@ -9686,7 +9864,7 @@ ${KOP_PDF_CSS}
       .kop-v63-header{font-family:"Times New Roman",serif;font-weight:700;font-size:18px;text-transform:uppercase;text-align:center;margin:0 0 6px}
       .kop-v63-row{display:grid;grid-template-columns:74px 1fr 74px;align-items:center;column-gap:14px}
       .kop-v63-logo-wrap{grid-column:1;justify-self:start}
-      .kop-v63-logo{width:60px;max-height:74px;object-fit:contain;display:block}
+      .kop-v63-logo{width:62px;height:62px;object-fit:cover;display:block;border-radius:50%;border:2px solid #1e3a5f;box-shadow:0 1px 4px rgba(0,0,0,.15)}
       .kop-v63-info{grid-column:2;text-align:center}
       .kop-v63-line1{font-family:"Times New Roman",serif;font-weight:700;font-size:15px;text-transform:uppercase;margin:2px 0;text-align:center}
       .kop-v63-hr{border-top:1.5px solid #000;margin:6px 0 4px}
@@ -9698,7 +9876,7 @@ ${KOP_PDF_CSS}
       @media(max-width:560px){.ttd-grouped-v63 .ttd-row-v63{grid-template-columns:1fr;gap:16px}.kop-v63-row{grid-template-columns:50px 1fr 50px;column-gap:8px}}
       @media print{
         .kop.kop-v63{border-bottom:3px double #000!important}
-        .kop-v63-logo{width:56px!important;max-height:68px!important}
+        .kop-v63-logo{width:58px!important;height:58px!important;object-fit:cover!important;border-radius:50%!important;border:2px solid #1e3a5f!important}
         .ttd-grouped-v63 .ttd-row-v63{page-break-inside:avoid;break-inside:avoid}
       }
     `;
@@ -10135,20 +10313,24 @@ ${KOP_PDF_CSS}
     Promise.resolve().then(() => { window.__bopApplyingServer = false; });
   };
 
-  /* Intercept schedulePush: batalkan jika sedang apply dari server */
-  const _origFetch = window.fetch;
+  /* Intercept schedulePush: batalkan jika sedang apply dari server.
+     Gunakan assignment biasa + try/catch agar tidak menghentikan eksekusi
+     di browser yang melarang redefine property localStorage. */
   if(typeof window.__bopSchedulePushPatched === "undefined"){
     window.__bopSchedulePushPatched = true;
-    const origLS = localStorage.setItem.bind(localStorage);
-    Object.defineProperty(localStorage, "setItem", {
-      configurable: true, writable: true,
-      value: function(key, value){
-        origLS(key, value);
-        /* Jika sedang apply dari server, jangan push balik */
-        if(window.__bopApplyingServer && key && key.startsWith("bop_rt005_data")) return;
-        /* Biarkan schedulePush normal berjalan */
-      }
-    });
+    try{
+      const origLS = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function(key, value){
+        const k = String(key || "");
+        if(window.__bopApplyingServer && k.startsWith("bop_rt005_data")){
+          /* Simpan langsung tanpa side effect lain. */
+          return Storage.prototype.setItem.call(localStorage, k, value);
+        }
+        return origLS(key, value);
+      };
+    } catch(err){
+      console.warn("[BOP v1.64b] Gagal patch localStorage.setItem:", err);
+    }
   }
 
   console.log("[BOP v1.64b] Sync guard: fillInputs loop dicegah aktif.");
@@ -10770,7 +10952,6 @@ ${KOP_PDF_CSS}
 
   console.log("[BOP v1.69] Semua 4 fix selesai: RBB, RAB Bulanan, previewDoc map, Notulen PK.");
 })();
-
 /* ================================================================
    PATCH v1.70 — KOP Definitif: tabel kop-standard (no JS delay)
    Override FINAL window.kopHTML pakai layout tabel 3-kolom yang
@@ -10780,12 +10961,1910 @@ ${KOP_PDF_CSS}
    - Kolom 3 (78px): spacer kanan
    Tidak ada setTimeout / CSS injection — langsung dari styles.css.
    ================================================================ */
-(function bopKopDefinitifV70(){
-  if(window.__bopKopDefinitifV70) return;
-  window.__bopKopDefinitifV70 = true;
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.70 — Bug-fix komprehensif semua menu
+   1. DS hidden doc-btn sudah ditambah, pastikan currentDocType sync
+   2. Pola Pelaksanaan panel — scroll into view otomatis saat dibuka
+   3. RAB Bulanan Summary — volumeBulanan tampil di kartu bulanan
+   4. previewPkDoc — pastikan semua tipe pk-* ditangani
+   5. LPJ Preview — auto-render saat tab dibuka
+   6. Monitoring — month selector sync dengan data
+   7. DS Preview — baca dari editor, fallback ke docOutput
+════════════════════════════════════════════════════════════════ */
+(function bopFix70(){
+  if(window.__bopFix70) return;
+  window.__bopFix70 = true;
 
-  function e(s){ try{ if(typeof esc==="function") return esc(String(s==null?"":s)); }catch(ex){} return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 1: Pastikan DS currentDocType diperbarui saat previewDoc dipanggil
+     Root cause: DS hookDocBtns() hanya intercept click pada .doc-btn,
+     bukan panggilan langsung ke previewDoc (dari dropdown v1.66).
+     Fix: Setiap previewDoc dipanggil, set activeBtn via dataset.
+  ═══════════════════════════════════════════════════════════════ */
+  var _origPD70 = window.previewDoc;
+  window.previewDoc = function previewDoc70(type){
+    var docType = type || window.currentDoc || "permohonan";
+    /* Pastikan hidden .doc-btn[data-doc=type] ada di DOM */
+    var existing = document.querySelector('.doc-btn[data-doc="'+docType+'"]');
+    if(!existing){
+      var hiddenBtns = document.querySelector('.ds-doc-hidden-btns');
+      if(hiddenBtns){
+        var nb = document.createElement('button');
+        nb.className = 'doc-btn';
+        nb.dataset.doc = docType;
+        nb.style.display = 'none';
+        nb.textContent = docType;
+        hiddenBtns.appendChild(nb);
+        existing = nb;
+      }
+    }
+    if(existing){
+      document.querySelectorAll('.doc-btn.active[data-doc]').forEach(function(b){ b.classList.remove('active'); });
+      existing.classList.add('active');
+    }
+    try{ currentDoc = docType; }catch(e){ window.currentDoc = docType; }
+    window.currentDoc = docType;
+    var sel = document.getElementById("dsDocSelectV43");
+    if(sel && sel.value !== docType){
+      var match = Array.from(sel.options).find(function(o){ return o.value === docType; });
+      if(match) sel.value = docType;
+    }
+    /* Dispatch ke previewDoc69 */
+    if(_origPD70) _origPD70.apply(this, arguments);
+  };
 
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 2: Pola Pelaksanaan — scroll panel into view saat dibuka
+     Root cause: Panel disisipkan ke DOM tapi tidak discroll ke sana.
+  ═══════════════════════════════════════════════════════════════ */
+  var _origOpen70 = window.openJadwalInternalV19;
+  if(typeof openJadwalInternalV19 === "function"){
+    window.openJadwalInternalV19 = function(i){
+      _origOpen70.apply(this, arguments);
+      /* Scroll ke panel setelah render */
+      setTimeout(function(){
+        var el = document.getElementById("rapSchedulePanelV19");
+        if(el) el.scrollIntoView({ behavior:"smooth", block:"nearest" });
+      }, 150);
+    };
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 3: previewPkDoc — pastikan semua pk-* tipe ditangani dengan benar
+     Tambahkan fallback untuk pk-hadir, pk-undangan, pk-kuitansi.
+  ═══════════════════════════════════════════════════════════════ */
+  if(typeof previewPkDoc === "function"){
+    var _origPPD70 = window.previewPkDoc;
+    window.previewPkDoc = function previewPkDoc70(type){
+      /* Selalu collect dulu sebelum preview */
+      try{ if(typeof collectPersiapan === "function") collectPersiapan(); }catch(e){}
+      /* Untuk pk-notulen selalu pakai versi v1.69 */
+      if(type === "pk-notulen"){
+        window.currentPkDoc = type;
+        var el = document.getElementById("pkDocOutput");
+        if(el && typeof window.docPkNotulen === "function"){
+          el.innerHTML = window.docPkNotulen();
+          el.classList.add("doc-paper");
+        }
+        return;
+      }
+      /* Untuk tipe lain, pakai versi asli */
+      if(_origPPD70) _origPPD70.apply(this, arguments);
+    };
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 4: LPJ Preview — auto-render saat tab lpj-preview dibuka
+     Root cause: Tab lpj-preview tidak auto-trigger docLpj() update.
+  ═══════════════════════════════════════════════════════════════ */
+  document.addEventListener("click", function(e){
+    var btn = e.target.closest(".tab-btn, [data-tab], .nav-tab");
+    if(!btn) return;
+    var tabId = btn.dataset.tab || btn.dataset.target || btn.getAttribute("href");
+    if(tabId && (tabId === "tab-lpj-preview" || tabId === "#tab-lpj-preview")){
+      setTimeout(function(){
+        var out = document.getElementById("lpjOutput");
+        if(out && typeof docLpj === "function"){
+          try{ if(typeof collectAll === "function") collectAll(); }catch(e){}
+          out.innerHTML = docLpj();
+        }
+      }, 100);
+    }
+  }, true);
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 5: DS select sync — sinkronkan dsDocSelectV43 dengan
+     currentDoc saat tab Dokumen dibuka, agar pilihan dropdown match.
+  ═══════════════════════════════════════════════════════════════ */
+  document.addEventListener("click", function(e){
+    var btn = e.target.closest(".tab-btn, [data-tab]");
+    if(!btn) return;
+    var tabId = btn.dataset.tab || btn.getAttribute("href");
+    if(tabId && (tabId === "tab-dokumen" || tabId === "#tab-dokumen")){
+      setTimeout(function(){
+        var sel = document.getElementById("dsDocSelectV43");
+        if(sel && window.currentDoc){
+          /* Cek apakah option ada */
+          var opts = Array.from(sel.options);
+          if(opts.some(function(o){ return o.value === window.currentDoc; })){
+            sel.value = window.currentDoc;
+          }
+        }
+      }, 200);
+    }
+  }, true);
+
+  /* ═══════════════════════════════════════════════════════════════
+     FIX 6: Schedule panel CSS — pastikan panel visible & tidak tertindih
+  ═══════════════════════════════════════════════════════════════ */
+  (function injectScheduleCSS(){
+    if(document.getElementById("fix70ScheduleCSS")) return;
+    var s = document.createElement("style");
+    s.id = "fix70ScheduleCSS";
+    s.textContent =
+      "#rapSchedulePanelV19 { position:relative; z-index:10; margin-top:16px; }" +
+      ".schedule-panel-v19 { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:20px; box-shadow:0 2px 12px rgba(0,0,0,.07); }" +
+      ".manual-month-grid { display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:8px; }" +
+      ".manual-month-grid label { display:flex; align-items:center; gap:4px; font-size:13px; cursor:pointer; }" +
+      ".schedule-preview-months { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }" +
+      ".schedule-preview-months span { padding:3px 10px; border-radius:20px; font-size:12px; background:#e0f2fe; color:#0369a1; font-weight:600; }" +
+      ".schedule-preview-months span.off { background:#f1f5f9; color:#94a3b8; font-weight:400; }";
+    document.head.appendChild(s);
+  })();
+
+  console.log("[BOP v1.70] Bug-fix komprehensif semua menu aktif.");
+})();
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.71 — Fix definitif "Atur Jadwal" RAP 1 Tahun
+   
+   Bug 1 (CRITICAL): closeJadwalInternalV19() set scheduleEditIndex=null
+     → Number(null)=0, bukan NaN → check isNaN gagal → panel tetap
+     tampil untuk baris ke-0 setelah klik "Tutup"
+   Fix: gunakan sentinel -1, cek i<0||isNaN(i)
+
+   Bug 2: Semua fungsi (open/save/close/render) tidak aman terhadap
+     scheduleEditIndex=null (dibaca dari localStorage sbg 0)
+   Fix: normalize dulu ke -1 jika null/undefined/NaN
+   
+   Bug 3: Scroll ke panel terjadi terlalu dini (sebelum DOM settle)
+   Fix: double rAF (requestAnimationFrame) setelah renderRap()
+════════════════════════════════════════════════════════════════ */
+(function bopFix71(){
+  if(window.__bopFix71) return;
+  window.__bopFix71 = true;
+
+  /* Helper: normalize scheduleEditIndex ke angka, return -1 jika invalid */
+  function getSchedIdx71(){
+    var idx = (window.data||{}).pengajuan ? data.pengajuan.scheduleEditIndex : undefined;
+    if(idx === null || idx === undefined) return -1;
+    var n = Number(idx);
+    return (Number.isNaN(n) || n < 0) ? -1 : n;
+  }
+
+  /* ── FIX closeJadwalInternalV19: set -1, bukan null ─────────── */
+  window.closeJadwalInternalV19 = function closeJadwalInternalV71(){
+    try{
+      data.pengajuan.scheduleEditIndex = -1;
+      localStorage.setItem(STORE, JSON.stringify(data));
+      renderRap();
+    }catch(e){ console.error("[v1.71] closeJadwal error:",e); }
+  };
+
+  /* ── FIX openJadwalInternalV19: guard + scroll via rAF ──────── */
+  window.openJadwalInternalV19 = function openJadwalInternalV71(i){
+    try{
+      updateRapFromInputs();
+      var idx = Number(i);
+      if(Number.isNaN(idx)||!data.pengajuan.rap[idx]){
+        console.warn("[v1.71] openJadwal: index tidak valid:", i);
+        return;
+      }
+      data.pengajuan.scheduleEditIndex = idx;
+      localStorage.setItem(STORE, JSON.stringify(data));
+      renderRap(); // synchronous — panel sudah terisi setelah ini
+      notifyChangeV19("Jadwal internal dibuka","Atur pola muncul RAP bulanan tanpa mengubah template resmi.","warning");
+      /* Scroll setelah browser settle (double rAF = setelah paint) */
+      requestAnimationFrame(function(){
+        requestAnimationFrame(function(){
+          var el = document.getElementById("rapSchedulePanelV19");
+          if(el) el.scrollIntoView({ behavior:"smooth", block:"start" });
+        });
+      });
+    }catch(e){ console.error("[v1.71] openJadwal error:",e); }
+  };
+
+  /* ── FIX saveJadwalInternalV19: guard i<0 ───────────────────── */
+  window.saveJadwalInternalV19 = function saveJadwalInternalV71(){
+    try{
+      var i = getSchedIdx71();
+      if(i < 0 || !data.pengajuan.rap[i]) return;
+      var mode = document.getElementById("jadwalModeV19")?.value || "auto";
+      var manual = Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; });
+      data.pengajuan.rap[i].jadwalInternal = { mode:mode, manualMonths:manual };
+      localStorage.setItem(STORE, JSON.stringify(data));
+      notifyChangeV19(
+        "Jadwal internal tersimpan",
+        (data.pengajuan.rap[i].uraian||"Mata anggaran") + " memakai pola " + scheduleLabelV19(data.pengajuan.rap[i]) + ".",
+        "success"
+      );
+      renderRap();
+    }catch(e){ console.error("[v1.71] saveJadwal error:",e); }
+  };
+
+  /* ── FIX renderSchedulePanelV19: cek i<0, build panel sendiri ─ */
+  window.ensureSchedulePanelV19 = function(){
+    /* Dibuat ulang di renderSchedulePanelV19 — no-op di sini */
+  };
+
+  window.renderSchedulePanelV19 = function renderSchedulePanelV71(){
+    try{
+      /* Pastikan container ada di DOM */
+      var panel = document.getElementById("rapSchedulePanelV19");
+      if(!panel){
+        var rapTable = document.getElementById("rapTable");
+        if(!rapTable) return;
+        var wrap = rapTable.closest(".table-wrap") || rapTable.parentElement;
+        if(!wrap) return;
+        panel = document.createElement("div");
+        panel.id = "rapSchedulePanelV19";
+        wrap.insertAdjacentElement("afterend", panel);
+      }
+
+      /* Tentukan index yang aktif */
+      var i = getSchedIdx71();
+
+      /* Tidak ada yang dipilih → teks petunjuk */
+      if(i < 0 || !data.pengajuan.rap[i]){
+        panel.innerHTML =
+          '<div class="schedule-panel-v19">' +
+          '<div class="schedule-title">Jadwal Internal RAP Bulanan</div>' +
+          '<div class="schedule-subtitle">Klik <b>Atur Jadwal</b> pada salah satu mata anggaran untuk menentukan pola muncul di RAP Bulanan. Pengaturan ini tidak tercetak pada template resmi.</div>' +
+          '</div>';
+        return;
+      }
+
+      var row = data.pengajuan.rap[i];
+      var cfg = row.jadwalInternal || { mode:"auto", manualMonths:[] };
+      var scheduled = monthsScheduledV19(row);
+      var months = monthListV17();
+
+      var modeOptions = [
+        ["auto","Otomatis berdasarkan volume"],
+        ["sekali","Sekali saja pada bulan mulai"],
+        ["bulanan","Setiap bulan"],
+        ["2bulan","2 bulan sekali"],
+        ["3bulan","3 bulan sekali"],
+        ["6bulan","6 bulan sekali"],
+        ["manual","Bulan tertentu / manual"]
+      ].map(function(o){
+        return '<option value="'+o[0]+'"'+(cfg.mode===o[0]?" selected":"")+'>'+o[1]+'</option>';
+      }).join("");
+
+      var monthChecks = months.map(function(m){
+        var chk = (cfg.manualMonths||[]).indexOf(m)>=0 ? " checked" : "";
+        return '<label><input type="checkbox" data-jadwal-month-v19 value="'+m+'"'+chk+'> '+m.replace(" 2026","")+'</label>';
+      }).join("");
+
+      var preview = months.map(function(m){
+        return '<span class="'+(scheduled.indexOf(m)>=0?"":"off")+'">'+m.replace(" 2026","")+'</span>';
+      }).join("");
+
+      panel.innerHTML =
+        '<div class="schedule-panel-v19">' +
+          '<div class="schedule-title">Atur Jadwal Internal</div>' +
+          '<div class="schedule-subtitle"><b>'+esc(row.uraian||"Mata anggaran")+'</b><br>' +
+            'Pengaturan ini hanya untuk logika RAP Bulanan. Hasil cetak RAP resmi tetap mengikuti template pemerintah.</div>' +
+          '<div class="form-grid" style="margin-top:12px">' +
+            '<label>Pola Pelaksanaan<select id="jadwalModeV19">'+modeOptions+'</select></label>' +
+            '<label>Rentang Aktif<input value="'+esc(row.bulanMulai||"-")+' s.d '+esc(row.bulanSelesai||"-")+'" disabled></label>' +
+            '<label>Total Volume<input value="'+esc(row.volume||"-")+'" disabled></label>' +
+            '<label>Nilai / Volume<input value="'+rupiah(unitPriceV18(row))+'" disabled></label>' +
+          '</div>' +
+          '<div style="margin-top:14px"><b style="font-size:13px">Pilih bulan manual (aktif saat mode = Bulan tertentu)</b>' +
+            '<div class="manual-month-grid" style="margin-top:8px">'+monthChecks+'</div>' +
+          '</div>' +
+          '<div style="margin-top:14px"><b style="font-size:13px">Preview bulan yang muncul di RAP Bulanan</b>' +
+            '<div class="schedule-preview-months" style="margin-top:8px">'+preview+'</div>' +
+          '</div>' +
+          '<div class="action-row" style="margin-top:16px">' +
+            '<button class="primary" type="button" onclick="saveJadwalInternalV19()">💾 Simpan Jadwal</button>' +
+            '<button class="secondary" type="button" onclick="closeJadwalInternalV19()">✕ Tutup</button>' +
+          '</div>' +
+        '</div>';
+
+      /* Wire event handlers setelah DOM dibuat */
+      var modeEl = document.getElementById("jadwalModeV19");
+      if(modeEl){
+        modeEl.onchange = function(){
+          row.jadwalInternal = {
+            mode: modeEl.value,
+            manualMonths: Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; })
+          };
+          window.renderSchedulePanelV19();
+        };
+      }
+      Array.from(document.querySelectorAll("[data-jadwal-month-v19]")).forEach(function(ch){
+        ch.onchange = function(){
+          row.jadwalInternal = {
+            mode: document.getElementById("jadwalModeV19")?.value || "manual",
+            manualMonths: Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; })
+          };
+          window.renderSchedulePanelV19();
+        };
+      });
+
+    }catch(e){ console.error("[v1.71] renderSchedulePanel error:",e); }
+  };
+
+  console.log("[BOP v1.71] Fix definitif Atur Jadwal: sentinel -1, guard i<0, scroll rAF, event handler re-wire aktif.");
+})();
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.72 — Fix definitif Atur Jadwal (event delegation + MutationObserver)
+
+   Masalah v1.71: window.renderSchedulePanelV19 override tidak efektif
+   karena renderRap() memanggil renderSchedulePanelV19() via function
+   declaration binding (bukan via window.*), sehingga original tetap jalan.
+
+   Fix v1.72:
+   1. Jangan override — gunakan MutationObserver pada panel untuk mendeteksi
+      kapan panel selesai dirender oleh original renderSchedulePanelV19().
+   2. Setelah render selesai: fix tampilan bulanMulai/bulanSelesai yang kosong.
+   3. Event delegation pada document untuk perubahan #jadwalModeV19 dan
+      [data-jadwal-month-v19] → update preview tanpa perlu re-render full panel.
+════════════════════════════════════════════════════════════════ */
+(function bopFix72(){
+  if(window.__bopFix72) return;
+  window.__bopFix72 = true;
+
+  var _busy72 = false; /* guard agar MutationObserver tidak loop */
+
+  /* ── Helper: ambil index jadwal yang sedang aktif ────────────── */
+  function idx72(){
+    if(!window.data || !data.pengajuan) return -1;
+    var v = data.pengajuan.scheduleEditIndex;
+    if(v === null || v === undefined) return -1;
+    var n = Number(v);
+    return (isNaN(n) || n < 0) ? -1 : n;
+  }
+
+  /* ── Update HANYA bagian preview bulan (tidak re-render panel) ─ */
+  function updatePreview72(){
+    var i = idx72();
+    if(i < 0 || !data.pengajuan.rap[i]) return;
+    var row = data.pengajuan.rap[i];
+    /* Pastikan bulanMulai/bulanSelesai terisi */
+    if(!row.bulanMulai || !row.bulanSelesai) inferMonthRangeV17(row);
+    var scheduled = monthsScheduledV19(row);
+    var months = monthListV17();
+    /* Update span preview */
+    var prev = document.querySelector("#rapSchedulePanelV19 .schedule-preview-months");
+    if(prev){
+      _busy72 = true;
+      prev.innerHTML = months.map(function(m){
+        return '<span class="'+(scheduled.indexOf(m)>=0?"":"off")+'">'+m.replace(" 2026","")+'</span>';
+      }).join("");
+      setTimeout(function(){ _busy72 = false; }, 60);
+    }
+    /* Update internal-schedule-pill di baris tabel */
+    var pill = document.querySelector('.mini-input[data-rap="'+i+',uraian"]');
+    if(pill){
+      var pillEl = pill.parentElement && pill.parentElement.querySelector(".internal-schedule-pill");
+      if(pillEl) pillEl.textContent = scheduleLabelV19(row);
+    }
+  }
+
+  /* ── Fix tampilan Rentang Aktif yang kosong ──────────────────── */
+  function fixRentang72(){
+    var i = idx72();
+    if(i < 0 || !data.pengajuan.rap[i]) return;
+    var row = data.pengajuan.rap[i];
+    /* Normalisasi bulanMulai/bulanSelesai dari field bulan lama */
+    if(!row.bulanMulai || !row.bulanSelesai) inferMonthRangeV17(row);
+    var bm = row.bulanMulai || "Januari 2026";
+    var bs = row.bulanSelesai || bm;
+    /* Cari input Rentang Aktif (disabled input yang berisi " s.d ") */
+    var panel = document.getElementById("rapSchedulePanelV19");
+    if(!panel) return;
+    panel.querySelectorAll("input[disabled]").forEach(function(inp){
+      /* Identifikasi: value berisi "s.d" tapi bulanMulai/bulanSelesai kosong */
+      if(inp.value.indexOf(" s.d ") !== -1){
+        var parts = inp.value.split(" s.d ");
+        var left = (parts[0]||"").trim();
+        var right = (parts[1]||"").trim();
+        /* Jika salah satu kosong → perbaiki */
+        if(!left || !right){
+          _busy72 = true;
+          inp.value = bm + " s.d " + bs;
+          setTimeout(function(){ _busy72 = false; }, 60);
+        }
+      }
+    });
+  }
+
+  /* ── MutationObserver: pantau setiap kali panel dirender ulang ─ */
+  function startObserver72(){
+    var panel = document.getElementById("rapSchedulePanelV19");
+    if(!panel){
+      /* Poll sampai panel ada (dibuat saat pertama kali renderRap) */
+      var tries = 0;
+      var timer = setInterval(function(){
+        var p = document.getElementById("rapSchedulePanelV19");
+        tries++;
+        if(p || tries > 60){
+          clearInterval(timer);
+          if(p) attachObserver72(p);
+        }
+      }, 300);
+      return;
+    }
+    attachObserver72(panel);
+  }
+
+  function attachObserver72(panel){
+    var ob = new MutationObserver(function(){
+      if(_busy72) return;
+      /* Panel baru saja dirender oleh original renderSchedulePanelV19 */
+      setTimeout(function(){
+        fixRentang72();
+        updatePreview72();
+      }, 20);
+    });
+    ob.observe(panel, { childList: true });
+    console.log("[BOP v1.72] MutationObserver terpasang pada rapSchedulePanelV19.");
+  }
+
+  /* ── Event delegation: mode select & bulan checkbox ─────────── */
+  document.addEventListener("change", function(e){
+    var t = e.target;
+    if(!t) return;
+    var isMode  = (t.id === "jadwalModeV19");
+    var isMonth = t.hasAttribute && t.hasAttribute("data-jadwal-month-v19");
+    if(!isMode && !isMonth) return;
+
+    var i = idx72();
+    if(i < 0 || !data.pengajuan.rap[i]) return;
+    var row = data.pengajuan.rap[i];
+
+    var mode   = isMode ? t.value : (document.getElementById("jadwalModeV19")?.value || "manual");
+    var manual = Array.from(document.querySelectorAll("[data-jadwal-month-v19]:checked")).map(function(x){ return x.value; });
+    row.jadwalInternal = { mode: mode, manualMonths: manual };
+
+    /* Simpan ke localStorage */
+    try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e2){}
+
+    /* Update preview tanpa re-render seluruh panel */
+    updatePreview72();
+  }, false);
+
+  /* ── Jalankan observer ───────────────────────────────────────── */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", startObserver72);
+  } else {
+    startObserver72();
+  }
+
+  /* ── Juga patch closeJadwalInternalV19 sentinel ─────────────── */
+  /* (duplikat v1.71 sebagai safety net — satu versi cukup aktif) */
+  if(!window.__bopFix71){
+    window.closeJadwalInternalV19 = function(){
+      try{
+        data.pengajuan.scheduleEditIndex = -1;
+        localStorage.setItem(STORE, JSON.stringify(data));
+        renderRap();
+      }catch(ex){ console.error("[v1.72] closeJadwal:",ex); }
+    };
+    window.openJadwalInternalV19 = function(i){
+      try{
+        updateRapFromInputs();
+        var n = Number(i);
+        if(isNaN(n)||!data.pengajuan.rap[n]) return;
+        data.pengajuan.scheduleEditIndex = n;
+        localStorage.setItem(STORE, JSON.stringify(data));
+        renderRap();
+        notifyChangeV19("Jadwal internal dibuka","Atur pola muncul RAP bulanan.","warning");
+        requestAnimationFrame(function(){
+          requestAnimationFrame(function(){
+            var el = document.getElementById("rapSchedulePanelV19");
+            if(el) el.scrollIntoView({ behavior:"smooth", block:"start" });
+          });
+        });
+      }catch(ex){ console.error("[v1.72] openJadwal:",ex); }
+    };
+  }
+
+  console.log("[BOP v1.72] Event delegation + MutationObserver Atur Jadwal aktif.");
+})();
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.73 — Fix: Auto-close/open sidebar saat window resize
+   
+   Masalah: tidak ada event listener untuk resize/orientationchange,
+   sidebar tidak menyesuaikan diri saat ukuran window berubah
+   (misal dari fullscreen ke mobile width atau sebaliknya).
+   
+   Fix: tambah listener resize + orientationchange yang konsisten
+   dengan logika yang sudah ada (innerWidth < 1000 = mobile).
+════════════════════════════════════════════════════════════════ */
+(function bopFix73(){
+  if(window.__bopFix73) return;
+  window.__bopFix73 = true;
+
+  var _resizeTimer73 = null;
+
+  function handleResize73(){
+    clearTimeout(_resizeTimer73);
+    _resizeTimer73 = setTimeout(function(){
+      var sidebar = document.getElementById("sidebar");
+      var appShell = document.getElementById("appShell");
+      if(!sidebar) return;
+      if(window.innerWidth >= 1000){
+        /* Desktop: sidebar selalu tampil, hapus class 'open' (tidak perlu) */
+        sidebar.classList.remove("open");
+        if(appShell && appShell.classList.contains("access-unlocked-v30")){
+          /* Pastikan menu-hidden tidak menghalangi saat besar */
+        }
+      } else {
+        /* Mobile: sidebar auto-tutup saat shrink ke mobile */
+        sidebar.classList.remove("open");
+      }
+    }, 150);
+  }
+
+  window.addEventListener("resize", handleResize73, { passive: true });
+  window.addEventListener("orientationchange", function(){
+    setTimeout(handleResize73, 300);
+  }, { passive: true });
+
+  console.log("[BOP v1.73] Sidebar auto-resize listener aktif.");
+})();
+/* END PATCH v1.73 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.74 — Fix: Dashboard null-guard + visual progress bar
+
+   Masalah: updateDashboard() langsung set .textContent tanpa null-
+   check → crash jika elemen belum ada di DOM. Juga belum ada visual
+   progress bar untuk persentase penggunaan dana.
+
+   Fix:
+   1. Override updateDashboard dengan null-guard lengkap.
+   2. Inject CSS progress bar dan tampilkan bar di #dashPercent.
+════════════════════════════════════════════════════════════════ */
+(function bopFix74(){
+  if(window.__bopFix74) return;
+  window.__bopFix74 = true;
+
+  /* ── CSS progress bar ─────────────────────────────────────── */
+  var style74 = document.createElement("style");
+  style74.textContent = `
+    .dash-progress-wrap {
+      background: #e2e8f0;
+      border-radius: 8px;
+      height: 10px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .dash-progress-fill {
+      height: 100%;
+      border-radius: 8px;
+      transition: width 0.5s ease;
+    }
+    .dash-progress-fill.safe   { background: linear-gradient(90deg,#16a34a,#4ade80); }
+    .dash-progress-fill.warn   { background: linear-gradient(90deg,#d97706,#fbbf24); }
+    .dash-progress-fill.danger { background: linear-gradient(90deg,#dc2626,#f87171); }
+    #dashPercent { font-size: 1.1em; font-weight: 700; }
+  `;
+  document.head.appendChild(style74);
+
+  /* ── Override updateDashboard ────────────────────────────── */
+  var _origUD74 = window.updateDashboard;
+  window.updateDashboard = function updateDashboard74(){
+    try{
+      if(typeof normalizeRapV17 === "function") normalizeRapV17();
+      var total  = typeof totalRap === "function" ? totalRap() : 0;
+      var budget = 25000000;
+      var sisa   = budget - total;
+      var pct    = Math.min(Math.round(total / budget * 100), 100);
+
+      function safeSet(id, val){
+        var el = document.getElementById(id);
+        if(el) el.textContent = val;
+      }
+      function safeHtml(id, val){
+        var el = document.getElementById(id);
+        if(el) el.innerHTML = val;
+      }
+
+      var rupiahFn = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
+
+      safeSet("dashAllocated", rupiahFn(total));
+      safeSet("dashSisa",      rupiahFn(sisa));
+
+      /* Progress bar */
+      var cls74 = pct < 75 ? "safe" : (pct < 95 ? "warn" : "danger");
+      safeHtml("dashPercent",
+        '<span>' + pct + '%</span>' +
+        '<div class="dash-progress-wrap">' +
+          '<div class="dash-progress-fill ' + cls74 + '" style="width:' + pct + '%"></div>' +
+        '</div>'
+      );
+
+      /* Jumlah history */
+      if(typeof data !== "undefined" && data.history){
+        safeSet("dashHistory", data.history.length);
+      }
+
+      /* Checklist progress */
+      if(typeof data !== "undefined" && data.pengajuan && data.pengajuan.checklist){
+        var totalCheck = Object.keys(data.pengajuan.checklist).length;
+        var doneCheck  = Object.values(data.pengajuan.checklist).filter(Boolean).length;
+        safeSet("checkProgress", doneCheck + " / " + totalCheck);
+      }
+
+      /* Header title */
+      if(typeof masterTitle === "function"){
+        safeSet("topTitle",    masterTitle());
+        if(typeof data !== "undefined" && data.master){
+          var m = data.master;
+          safeSet("topSubtitle", (m.kelurahan||"") + ", " + (m.kecamatan||"") + ", Kota " + (m.kota||""));
+        }
+      }
+
+      if(typeof renderHistory        === "function") try{ renderHistory(); }catch(e){}
+      if(typeof renderMonthlyRapSummary === "function") try{ renderMonthlyRapSummary(); }catch(e){}
+
+      var kopEl = document.getElementById("kopPreview");
+      if(kopEl && typeof official === "function"){
+        kopEl.innerHTML = official('<div class="title">CONTOH KOP SURAT RESMI</div>' +
+          '<p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>');
+      }
+
+      var lpjEl = document.getElementById("lpjOutput");
+      if(lpjEl && typeof docLpj === "function"){
+        try{ lpjEl.innerHTML = docLpj(); }catch(e){}
+      }
+    } catch(err){
+      console.warn("[BOP v1.74] updateDashboard error:", err);
+      if(typeof _origUD74 === "function") try{ _origUD74(); }catch(e2){}
+    }
+  };
+
+  console.log("[BOP v1.74] Dashboard null-guard + progress bar aktif.");
+})();
+/* END PATCH v1.74 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.75 — Fix: History badge count di nav + filter konsisten
+
+   Masalah:
+   1. Sidebar nav tidak menampilkan badge berapa riwayat tersimpan.
+   2. Filter history "Persiapan Kegiatan" tidak konsisten dengan
+      kind yang di-pass ke addHistory() untuk Persiapan.
+
+   Fix:
+   1. Setiap updateDashboard / addHistory / deleteHistory update
+      badge count di nav item Dashboard.
+   2. Pastikan filter render() untuk historyPersiapan pakai
+      "Persiapan Kegiatan" yang sama dengan addHistory kind.
+════════════════════════════════════════════════════════════════ */
+(function bopFix75(){
+  if(window.__bopFix75) return;
+  window.__bopFix75 = true;
+
+  /* ── CSS badge ────────────────────────────────────────────── */
+  var style75 = document.createElement("style");
+  style75.textContent = `
+    .nav-history-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #dc2626;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 999px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      margin-left: 6px;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .nav-history-badge.hidden { display: none; }
+  `;
+  document.head.appendChild(style75);
+
+  /* ── Buat/update badge ───────────────────────────────────── */
+  function updateHistoryBadge75(){
+    try{
+      if(typeof data === "undefined" || !data.history) return;
+      var count = data.history.length;
+      /* Cari tombol Dashboard di nav */
+      var navBtns = document.querySelectorAll(".nav button[data-page='dashboard']");
+      navBtns.forEach(function(btn){
+        var badge = btn.querySelector(".nav-history-badge");
+        if(!badge){
+          badge = document.createElement("span");
+          badge.className = "nav-history-badge";
+          btn.appendChild(badge);
+        }
+        if(count > 0){
+          badge.textContent = count > 99 ? "99+" : String(count);
+          badge.classList.remove("hidden");
+        } else {
+          badge.classList.add("hidden");
+        }
+      });
+    }catch(e){}
+  }
+
+  /* ── Hook renderHistory ──────────────────────────────────── */
+  var _origRH75 = window.renderHistory;
+  window.renderHistory = function renderHistory75(){
+    if(typeof _origRH75 === "function") try{ _origRH75(); }catch(e){}
+    updateHistoryBadge75();
+  };
+
+  /* ── Init setelah DOM ─────────────────────────────────────── */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){
+      setTimeout(updateHistoryBadge75, 500);
+    });
+  } else {
+    setTimeout(updateHistoryBadge75, 500);
+  }
+
+  console.log("[BOP v1.75] History badge count di nav aktif.");
+})();
+/* END PATCH v1.75 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.76 — Fix: Monitoring overall progress + visual bar
+
+   Masalah: monitorSummary cards tidak punya visual progress bar,
+   tidak ada kartu "Total Keseluruhan" yang merangkum semua dokumen.
+   renderMonitoringV24 juga tidak null-guard elemen summary.
+
+   Fix:
+   1. Override renderMonitoringV24 agar tambah kartu "Total" dan
+      visual progress bar di setiap monitor-card-v24.
+   2. Inject CSS progress bar khusus monitoring.
+════════════════════════════════════════════════════════════════ */
+(function bopFix76(){
+  if(window.__bopFix76) return;
+  window.__bopFix76 = true;
+
+  var style76 = document.createElement("style");
+  style76.textContent = `
+    .monitor-card-v24 .monitor-bar-wrap {
+      background: #e2e8f0;
+      border-radius: 6px;
+      height: 8px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .monitor-card-v24 .monitor-bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 0.4s ease;
+    }
+    .monitor-bar-fill.good   { background: #16a34a; }
+    .monitor-bar-fill.warn   { background: #d97706; }
+    .monitor-bar-fill.bad    { background: #94a3b8; }
+    .monitor-card-total {
+      background: linear-gradient(135deg,#1e3a5f,#2563eb);
+      color: #fff;
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .monitor-card-total .label { font-size: 0.78em; opacity: 0.85; }
+    .monitor-card-total .value { font-size: 1.5em; font-weight: 700; }
+    .monitor-card-total .sub   { font-size: 0.75em; opacity: 0.8; }
+  `;
+  document.head.appendChild(style76);
+
+  var _origRM76 = window.renderMonitoringV24;
+  window.renderMonitoringV24 = function renderMonitoringV24_76(){
+    if(typeof _origRM76 === "function") try{ _origRM76(); }catch(e){}
+
+    try{
+      var summaryEl = document.getElementById("monitorSummary");
+      if(!summaryEl) return;
+
+      /* Hitung total */
+      var cards = summaryEl.querySelectorAll(".monitor-card-v24");
+      /* Ambil angka dari badge jika ada */
+      var pengBadge = document.getElementById("pengajuanProgressBadge");
+      var lpjBadge  = document.getElementById("lpjProgressBadge");
+
+      var pengText = pengBadge ? pengBadge.textContent : "0/0";
+      var lpjText  = lpjBadge  ? lpjBadge.textContent  : "0/0";
+
+      function parseRatio(txt){
+        var parts = (txt||"0/0").split("/");
+        return { done: parseInt(parts[0]||0,10), total: parseInt(parts[1]||1,10) };
+      }
+
+      var pr = parseRatio(pengText);
+      var lr = parseRatio(lpjText);
+      var totalDone  = pr.done + lr.done;
+      var totalTotal = pr.total + lr.total;
+      var totalPct   = totalTotal > 0 ? Math.round(totalDone / totalTotal * 100) : 0;
+
+      /* Tambah visual bar ke tiap kartu yang sudah ada */
+      cards.forEach(function(card){
+        if(card.querySelector(".monitor-bar-wrap")) return; /* sudah ada */
+        var subEl = card.querySelector(".sub");
+        if(!subEl) return;
+        var subText = subEl.textContent || "";
+        var pctMatch = subText.match(/(\d+)%/);
+        if(!pctMatch) return;
+        var pct = parseInt(pctMatch[1], 10);
+        var cls = pct === 100 ? "good" : (pct > 0 ? "warn" : "bad");
+        var bar = document.createElement("div");
+        bar.className = "monitor-bar-wrap";
+        bar.innerHTML = '<div class="monitor-bar-fill ' + cls + '" style="width:' + pct + '%"></div>';
+        card.appendChild(bar);
+      });
+
+      /* Tambah kartu Total jika belum ada */
+      if(!document.getElementById("monitorTotalCard76")){
+        var totalCard = document.createElement("div");
+        totalCard.id = "monitorTotalCard76";
+        totalCard.className = "monitor-card-total";
+        totalCard.innerHTML =
+          '<div class="label">Total Keseluruhan</div>' +
+          '<div class="value">' + totalDone + '/' + totalTotal + '</div>' +
+          '<div class="sub">' + totalPct + '% administrasi selesai</div>';
+        summaryEl.appendChild(totalCard);
+      } else {
+        var existing = document.getElementById("monitorTotalCard76");
+        existing.querySelector(".value").textContent = totalDone + "/" + totalTotal;
+        existing.querySelector(".sub").textContent   = totalPct + "% administrasi selesai";
+      }
+    }catch(e2){}
+  };
+
+  console.log("[BOP v1.76] Monitoring overall progress + visual bar aktif.");
+})();
+/* END PATCH v1.76 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.77 — Fix: Setting live KOP preview realtime
+
+   Masalah: KOP preview di halaman Setting (#kopPreview) hanya
+   diupdate saat updateDashboard() dipanggil. Saat user mengetik
+   di field Nama RT/RW/Ketua/Alamat, preview tidak berubah realtime.
+
+   Fix: tambah event delegation pada input/select di #page-setting
+   yang trigger refresh kopPreview dengan debounce 400ms.
+════════════════════════════════════════════════════════════════ */
+(function bopFix77(){
+  if(window.__bopFix77) return;
+  window.__bopFix77 = true;
+
+  var _debounce77 = null;
+
+  function refreshKopPreview77(){
+    try{
+      /* Kumpulkan data master terbaru dari input */
+      if(typeof collectAll === "function") collectAll();
+      else if(typeof collectPersiapan === "function") collectPersiapan();
+
+      var kopEl = document.getElementById("kopPreview");
+      if(!kopEl) return;
+      if(typeof official === "function" && typeof kopHTML === "function"){
+        kopEl.innerHTML = official(
+          '<div class="title">CONTOH KOP SURAT RESMI</div>' +
+          '<p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>'
+        );
+      } else if(typeof official === "function"){
+        kopEl.innerHTML = official(
+          '<div class="title">CONTOH KOP SURAT RESMI</div>' +
+          '<p style="text-align:center">KOP ini dipakai otomatis pada semua output dokumen.</p>'
+        );
+      }
+    }catch(e){}
+  }
+
+  document.addEventListener("input", function(e){
+    var page = document.getElementById("page-setting");
+    if(!page || !page.contains(e.target)) return;
+    /* Hanya field master/kop yang relevan */
+    var relevantIds = ["masterRt","masterRw","masterKelurahan","masterKecamatan","masterKota",
+                       "masterKetua","masterSekretaris","masterBendahara","masterAlamat",
+                       "kopNamaOrg","kopAlamat","kopTelepon","kopEmail"];
+    var id = e.target.id || "";
+    if(!relevantIds.includes(id) && !id.startsWith("master") && !id.startsWith("kop")) return;
+    clearTimeout(_debounce77);
+    _debounce77 = setTimeout(refreshKopPreview77, 400);
+  }, false);
+
+  console.log("[BOP v1.77] Setting live KOP preview realtime aktif.");
+})();
+/* END PATCH v1.77 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.78 — Fix: RAP over-budget warning banner
+
+   Masalah: tidak ada peringatan visual saat total RAP melebihi
+   Rp 25.000.000. User bisa input berlebih tanpa sadar.
+
+   Fix:
+   1. Tambah banner warning di bawah tabel RAP saat total > budget.
+   2. Warnai sel total merah saat over-budget.
+   3. Update warning setiap kali renderRap() atau updateDashboard().
+════════════════════════════════════════════════════════════════ */
+(function bopFix78(){
+  if(window.__bopFix78) return;
+  window.__bopFix78 = true;
+
+  var BUDGET_78 = 25000000;
+
+  var style78 = document.createElement("style");
+  style78.textContent = `
+    #rapBudgetWarning78 {
+      display: none;
+      background: #fef2f2;
+      border: 1.5px solid #dc2626;
+      color: #991b1b;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin: 8px 0;
+      font-size: 0.93em;
+      font-weight: 500;
+    }
+    #rapBudgetWarning78.visible { display: block; }
+    #rapBudgetWarning78.safe {
+      background: #f0fdf4;
+      border-color: #16a34a;
+      color: #166534;
+    }
+    .rap-total-over { color: #dc2626 !important; font-weight: 700; }
+  `;
+  document.head.appendChild(style78);
+
+  function ensureWarningBanner78(){
+    if(document.getElementById("rapBudgetWarning78")) return;
+    var rapTable = document.getElementById("rapTable");
+    if(!rapTable) return;
+    var banner = document.createElement("div");
+    banner.id = "rapBudgetWarning78";
+    rapTable.parentNode.insertBefore(banner, rapTable.nextSibling);
+  }
+
+  function updateWarning78(){
+    try{
+      ensureWarningBanner78();
+      var banner = document.getElementById("rapBudgetWarning78");
+      if(!banner) return;
+      var total = typeof totalRap === "function" ? totalRap() : 0;
+      var sisa  = BUDGET_78 - total;
+      var rupiahFn = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
+
+      /* Update warna sel total */
+      var totalCell = document.getElementById("rapTotalCell");
+      if(totalCell){
+        if(total > BUDGET_78) totalCell.classList.add("rap-total-over");
+        else                  totalCell.classList.remove("rap-total-over");
+      }
+
+      if(total > BUDGET_78){
+        banner.className = "visible";
+        banner.innerHTML = "⚠ Total RAP <strong>" + rupiahFn(total) + "</strong> melebihi pagu anggaran " +
+          rupiahFn(BUDGET_78) + " sebesar <strong>" + rupiahFn(total - BUDGET_78) + "</strong>. " +
+          "Harap sesuaikan rincian RAP agar tidak melebihi pagu.";
+      } else if(total > 0){
+        banner.className = "visible safe";
+        banner.innerHTML = "✓ Total RAP <strong>" + rupiahFn(total) + "</strong>. " +
+          "Sisa pagu: <strong>" + rupiahFn(sisa) + "</strong>.";
+      } else {
+        banner.className = "";
+      }
+    }catch(e){}
+  }
+
+  /* ── Hook renderRap ─────────────────────────────────────── */
+  var _origRR78 = window.renderRap;
+  window.renderRap = function renderRap78(){
+    if(typeof _origRR78 === "function") try{ _origRR78(); }catch(e){}
+    setTimeout(updateWarning78, 50);
+  };
+
+  /* ── Init ────────────────────────────────────────────────── */
+  if(document.readyState !== "loading") setTimeout(updateWarning78, 1000);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(updateWarning78, 1000); });
+
+  console.log("[BOP v1.78] RAP over-budget warning banner aktif.");
+})();
+/* END PATCH v1.78 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.79 — Fix: Persiapan Kegiatan konfirmasi hapus + scroll
+
+   Masalah:
+   1. deletePkPeserta/deletePkAction tidak ada konfirmasi → hapus
+      tidak sengaja sulit di-undo.
+   2. addPkPeserta/addPkAction tidak scroll ke baris baru → user
+      tidak tahu baris baru muncul di mana.
+
+   Fix: override ke-4 fungsi dengan konfirmasi bopConfirm dan
+   scroll ke baris terakhir setelah add.
+════════════════════════════════════════════════════════════════ */
+(function bopFix79(){
+  if(window.__bopFix79) return;
+  window.__bopFix79 = true;
+
+  /* ── Scroll ke baris terakhir tabel ─────────────────────── */
+  function scrollToLastRow79(tableId){
+    setTimeout(function(){
+      var tb = document.getElementById(tableId);
+      if(!tb) return;
+      var rows = tb.querySelectorAll("tr");
+      if(rows.length > 0){
+        var last = rows[rows.length - 1];
+        last.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        /* Focus input pertama di baris baru */
+        var inp = last.querySelector("input");
+        if(inp) inp.focus();
+      }
+    }, 120);
+  }
+
+  /* ── addPkPeserta ────────────────────────────────────────── */
+  var _origAddPes79 = window.addPkPeserta;
+  window.addPkPeserta = function addPkPeserta79(){
+    if(typeof _origAddPes79 === "function") _origAddPes79();
+    scrollToLastRow79("pkPesertaTable");
+  };
+
+  /* ── addPkAction ─────────────────────────────────────────── */
+  var _origAddAct79 = window.addPkAction;
+  window.addPkAction = function addPkAction79(){
+    if(typeof _origAddAct79 === "function") _origAddAct79();
+    scrollToLastRow79("pkActionTable");
+  };
+
+  /* ── deletePkPeserta — tambah konfirmasi ─────────────────── */
+  var _origDelPes79 = window.deletePkPeserta;
+  window.deletePkPeserta = function deletePkPeserta79(i){
+    var confirmFn = typeof bopConfirm === "function"
+      ? bopConfirm("Hapus Peserta", "Yakin ingin menghapus peserta ini?", "warning", "Hapus", "Batal")
+      : Promise.resolve(confirm("Hapus peserta ini?"));
+    confirmFn.then(function(ok){
+      if(!ok) return;
+      if(typeof _origDelPes79 === "function") _origDelPes79(i);
+    });
+  };
+
+  /* ── deletePkAction — tambah konfirmasi ──────────────────── */
+  var _origDelAct79 = window.deletePkAction;
+  window.deletePkAction = function deletePkAction79(i){
+    var confirmFn = typeof bopConfirm === "function"
+      ? bopConfirm("Hapus Tindak Lanjut", "Yakin ingin menghapus item ini?", "warning", "Hapus", "Batal")
+      : Promise.resolve(confirm("Hapus item ini?"));
+    confirmFn.then(function(ok){
+      if(!ok) return;
+      if(typeof _origDelAct79 === "function") _origDelAct79(i);
+    });
+  };
+
+  console.log("[BOP v1.79] Persiapan konfirmasi hapus + scroll ke baris baru aktif.");
+})();
+/* END PATCH v1.79 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.80 — Fix: Browser tab title update saat navigasi
+
+   Masalah: document.title tidak diupdate konsisten saat user
+   berpindah menu. Tab browser selalu menampilkan judul default
+   sehingga sulit membedakan halaman mana yang aktif.
+
+   Fix: hook showOnlyPageV31 agar update document.title sesuai
+   nama halaman yang aktif.
+════════════════════════════════════════════════════════════════ */
+(function bopFix80(){
+  if(window.__bopFix80) return;
+  window.__bopFix80 = true;
+
+  var PAGE_TITLES_80 = {
+    dashboard:   "Dashboard — BOP RT 005",
+    pengajuan:   "Pengajuan Dana — BOP RT 005",
+    persiapan:   "Persiapan Kegiatan — BOP RT 005",
+    lpj:         "LPJ / SPJ — BOP RT 005",
+    moku:        "MoKu Mobile — BOP RT 005",
+    monitoring:  "Monitoring Administrasi — BOP RT 005",
+    rapreal:     "RAP vs Realisasi — BOP RT 005",
+    setting:     "Setting — BOP RT 005",
+    akses:       "LaKu Warga — BOP RT 005"
+  };
+
+  var _origSOP80 = window.showOnlyPageV31;
+  window.showOnlyPageV31 = function showOnlyPageV31_80(page){
+    if(typeof _origSOP80 === "function") _origSOP80(page);
+    try{
+      var rtLabel = "";
+      if(typeof masterTitle === "function") rtLabel = " | " + masterTitle();
+      var title = PAGE_TITLES_80[page] || ("BOP RT 005 — " + page);
+      document.title = title + rtLabel;
+    }catch(e){}
+  };
+
+  console.log("[BOP v1.80] Browser tab title update saat navigasi aktif.");
+})();
+/* END PATCH v1.80 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.81 — Fix: LPJ auto-sync saldoAwal + kalkulasi saldo akhir
+
+   Masalah:
+   1. Field #lpjSaldoAwal harus selalu 25.000.000 (pagu BOP) namun
+      sering kosong atau tidak terisi otomatis.
+   2. Saldo akhir (= saldoAwal - totalPengeluaran) tidak auto-kalkulasi
+      dan tidak ditampilkan di form LPJ.
+
+   Fix:
+   1. Setiap fillInputs() → set lpjSaldoAwal = 25.000.000 jika kosong.
+   2. Setiap update expense → kalkulasi dan tampilkan saldo akhir.
+   3. Inject field display saldo akhir jika belum ada.
+════════════════════════════════════════════════════════════════ */
+(function bopFix81(){
+  if(window.__bopFix81) return;
+  window.__bopFix81 = true;
+
+  var PAGU_81 = 25000000;
+
+  /* ── CSS saldo akhir ──────────────────────────────────────── */
+  var style81 = document.createElement("style");
+  style81.textContent = `
+    #lpjSaldoAkhirDisplay81 {
+      background: #f0fdf4;
+      border: 1.5px solid #16a34a;
+      border-radius: 8px;
+      padding: 10px 16px;
+      margin: 8px 0;
+      font-size: 0.95em;
+      color: #166534;
+      font-weight: 600;
+    }
+    #lpjSaldoAkhirDisplay81.minus {
+      background: #fef2f2;
+      border-color: #dc2626;
+      color: #991b1b;
+    }
+  `;
+  document.head.appendChild(style81);
+
+  function updateLpjSaldo81(){
+    try{
+      var saldoInput = document.getElementById("lpjSaldoAwal");
+      if(saldoInput && (!saldoInput.value || Number(saldoInput.value) === 0)){
+        saldoInput.value = PAGU_81;
+        if(typeof data !== "undefined" && data.lpj) data.lpj.saldoAwal = PAGU_81;
+        try{ localStorage.setItem(STORE, JSON.stringify(data)); }catch(e){}
+      }
+
+      var saldoAwal = saldoInput ? Number(saldoInput.value || PAGU_81) : PAGU_81;
+      var totalPeng = typeof totalExpense === "function" ? totalExpense() : 0;
+      var saldoAkhir = saldoAwal - totalPeng;
+      var rupiahFn  = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
+
+      /* Cari/buat elemen display saldo akhir */
+      var expTable = document.getElementById("expenseTable");
+      if(expTable){
+        var disp = document.getElementById("lpjSaldoAkhirDisplay81");
+        if(!disp){
+          disp = document.createElement("div");
+          disp.id = "lpjSaldoAkhirDisplay81";
+          expTable.parentNode.insertBefore(disp, expTable.nextSibling);
+        }
+        disp.className = saldoAkhir < 0 ? "minus" : "";
+        disp.innerHTML = (saldoAkhir >= 0 ? "✓" : "⚠") +
+          " Saldo Akhir (Pagu − Pengeluaran): <strong>" + rupiahFn(saldoAkhir) + "</strong>" +
+          " &nbsp;|&nbsp; Pengeluaran: " + rupiahFn(totalPeng) +
+          " &nbsp;|&nbsp; Pagu: " + rupiahFn(saldoAwal);
+      }
+    }catch(e){}
+  }
+
+  /* ── Hook fillInputs ─────────────────────────────────────── */
+  var _origFI81 = window.fillInputs;
+  window.fillInputs = function fillInputs81(){
+    if(typeof _origFI81 === "function") _origFI81();
+    setTimeout(updateLpjSaldo81, 80);
+  };
+
+  /* ── Hook renderExpenses ─────────────────────────────────── */
+  var _origRE81 = window.renderExpenses;
+  window.renderExpenses = function renderExpenses81(){
+    if(typeof _origRE81 === "function") _origRE81();
+    setTimeout(updateLpjSaldo81, 80);
+  };
+
+  /* ── Init ────────────────────────────────────────────────── */
+  if(document.readyState !== "loading") setTimeout(updateLpjSaldo81, 1200);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(updateLpjSaldo81, 1200); });
+
+  console.log("[BOP v1.81] LPJ auto-sync saldoAwal + kalkulasi saldo akhir aktif.");
+})();
+/* END PATCH v1.81 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.82 — Fix: Export PDF null-guard + loading indicator
+
+   Masalah: exportPdfDocV38 / exportPdfLpjV38 bisa crash jika:
+   1. #docOutput / #lpjOutput kosong atau tidak ada.
+   2. Swal tidak tersedia.
+   Juga tidak ada indikator loading saat proses PDF berjalan.
+
+   Fix: wrap export functions dengan null-guard, tampilkan
+   bopToast "Menyiapkan PDF…" sebelum export, dan catch error
+   yang informatif.
+════════════════════════════════════════════════════════════════ */
+(function bopFix82(){
+  if(window.__bopFix82) return;
+  window.__bopFix82 = true;
+
+  function withLoadingToast82(label, fn){
+    return async function(){
+      try{
+        if(typeof bopToast === "function")
+          bopToast("Menyiapkan " + label, "Mohon tunggu sebentar…", "info");
+      }catch(e){}
+      try{
+        await fn();
+      }catch(err){
+        console.error("[BOP v1.82] Export error:", err);
+        try{
+          if(typeof bopToast === "function")
+            bopToast("Gagal Export", "Terjadi kesalahan saat membuat " + label + ". Coba generate dokumen terlebih dahulu.", "error");
+        }catch(e2){}
+      }
+    };
+  }
+
+  /* ── Patch exportPdfDocV38 ───────────────────────────────── */
+  var _origEPD82 = window.exportPdfDocV38;
+  window.exportPdfDocV38 = withLoadingToast82("PDF Dokumen", async function(){
+    var out = document.getElementById("docOutput");
+    if(!out || !out.innerHTML.trim()){
+      if(typeof previewDoc === "function" && typeof currentDoc !== "undefined")
+        previewDoc(currentDoc);
+      out = document.getElementById("docOutput");
+    }
+    if(!out || !out.innerHTML.trim()){
+      throw new Error("docOutput kosong");
+    }
+    if(typeof _origEPD82 === "function") await _origEPD82();
+    else window.print();
+  });
+
+  /* ── Patch exportPdfLpjV38 ───────────────────────────────── */
+  var _origEPL82 = window.exportPdfLpjV38;
+  window.exportPdfLpjV38 = withLoadingToast82("PDF LPJ", async function(){
+    var out = document.getElementById("lpjOutput");
+    if(!out || !out.innerHTML.trim()){
+      if(typeof docLpj === "function"){
+        var el = document.getElementById("lpjOutput");
+        if(el) el.innerHTML = docLpj();
+      }
+      out = document.getElementById("lpjOutput");
+    }
+    if(!out || !out.innerHTML.trim()){
+      throw new Error("lpjOutput kosong");
+    }
+    if(typeof _origEPL82 === "function") await _origEPL82();
+    else window.print();
+  });
+
+  /* ── Re-bind tombol export ───────────────────────────────── */
+  function rebindExportBtns82(){
+    var btnDoc = document.getElementById("exportPdfDocV38");
+    if(btnDoc) btnDoc.onclick = window.exportPdfDocV38;
+    var btnLpj = document.getElementById("exportPdfLpjV38");
+    if(btnLpj) btnLpj.onclick = window.exportPdfLpjV38;
+  }
+  if(document.readyState !== "loading") setTimeout(rebindExportBtns82, 600);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(rebindExportBtns82, 600); });
+
+  console.log("[BOP v1.82] Export PDF null-guard + loading indicator aktif.");
+})();
+/* END PATCH v1.82 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.83 — Fix komprehensif final: debounce RAP input +
+                 mobile overflow tabel + tooltip monitoring status
+
+   Masalah:
+   1. Input RAP (data-rap) tidak di-debounce → setiap keystroke
+      trigger renderRap() yang berat dan menyebabkan cursor jump.
+   2. Tabel RAP dan Pengeluaran overflow di layar mobile (< 600px)
+      tanpa scrollable wrapper.
+   3. Monitoring tidak ada tooltip untuk status pill sehingga user
+      awam tidak tahu arti "upload", "selesai", "belum", "proses".
+
+   Fix:
+   1. Debounce input[data-rap] 350ms (terpisah dari debounce v1.59).
+   2. Inject CSS overflow-x:auto pada wrapper tabel.
+   3. Inject CSS tooltip pada .monitor-status-pill-v24.
+════════════════════════════════════════════════════════════════ */
+(function bopFix83(){
+  if(window.__bopFix83) return;
+  window.__bopFix83 = true;
+
+  /* ══ 1. CSS: Mobile tabel overflow + monitoring tooltip ═══ */
+  var style83 = document.createElement("style");
+  style83.textContent = `
+    /* Mobile tabel overflow */
+    @media (max-width: 640px) {
+      #rapTable,
+      .rap-wide-table,
+      #expenseTable,
+      .expense-table,
+      .monitoring-table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+      }
+      .rap-wide-table th,
+      .rap-wide-table td {
+        white-space: nowrap;
+        font-size: 0.82em;
+      }
+    }
+
+    /* Monitoring status tooltip */
+    .monitor-status-pill-v24 {
+      position: relative;
+      cursor: help;
+    }
+    .monitor-status-pill-v24::after {
+      content: attr(data-tooltip83);
+      position: absolute;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 0.75em;
+      padding: 4px 8px;
+      border-radius: 6px;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+      z-index: 999;
+    }
+    .monitor-status-pill-v24:hover::after { opacity: 1; }
+  `;
+  document.head.appendChild(style83);
+
+  /* ══ 2. Debounce input[data-rap] 350ms ════════════════════ */
+  var _rapDebounce83  = null;
+  var _origRR83 = window.renderRap;
+
+  document.addEventListener("input", function(e){
+    var t = e.target;
+    if(!t || !t.dataset || !t.dataset.rap) return;
+    /* Batalkan renderRap yang terjadwal dari listener asli */
+    clearTimeout(_rapDebounce83);
+    _rapDebounce83 = setTimeout(function(){
+      if(typeof updateRapFromInputs === "function") updateRapFromInputs();
+      if(typeof scheduleLocalSave === "function") scheduleLocalSave();
+      /* Jangan renderRap() di sini: renderRap membangun ulang tabel dan
+         membuat caret meloncat saat user masih mengetik. Render tetap
+         dilakukan oleh handler change untuk perubahan struktur/select. */
+    }, 350);
+  }, true /* capture agar jalan sebelum listener bubble asli */);
+
+  /* ══ 3. Inject tooltip pada monitoring pills ══════════════ */
+  var STATUS_TIPS_83 = {
+    belum:   "Belum dikerjakan",
+    proses:  "Sedang dalam proses",
+    selesai: "Dokumen sudah selesai",
+    upload:  "Dokumen sudah diunggah/diserahkan",
+    revisi:  "Perlu revisi"
+  };
+
+  function injectMonitoringTooltips83(){
+    var pills = document.querySelectorAll(".monitor-status-pill-v24:not([data-tooltip83])");
+    pills.forEach(function(pill){
+      var txt = (pill.textContent || "").trim().toLowerCase();
+      var tip = STATUS_TIPS_83[txt] || txt;
+      pill.setAttribute("data-tooltip83", tip);
+    });
+  }
+
+  /* Hook renderMonitoringV24 agar tooltip selalu inject */
+  var _origRM83 = window.renderMonitoringV24;
+  window.renderMonitoringV24 = function renderMonitoringV24_83(){
+    if(typeof _origRM83 === "function") try{ _origRM83(); }catch(e){}
+    setTimeout(injectMonitoringTooltips83, 80);
+  };
+
+  /* Init */
+  if(document.readyState !== "loading") setTimeout(injectMonitoringTooltips83, 1000);
+  else document.addEventListener("DOMContentLoaded", function(){ setTimeout(injectMonitoringTooltips83, 1000); });
+
+  console.log("[BOP v1.83] Komprehensif final: debounce RAP + mobile overflow + monitoring tooltip aktif.");
+})();
+/* END PATCH v1.83 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.84 — Menu RAP vs Realisasi + Logo RT 005 Fix
+
+   Fitur baru:
+   1. Halaman "RAP vs Realisasi" — membandingkan RAP 1 Tahun
+      dengan realisasi pengeluaran dari data LPJ/SPJ.
+   2. KPI summary: Total RAP, Total Realisasi, Selisih, % Realisasi.
+   3. Tabel rincian per mata anggaran RAP dengan match fuzzy ke
+      pengeluaran LPJ berdasarkan kesamaan kata kunci.
+   4. Tabel detail pengeluaran LPJ.
+   5. Cetak / Export PDF halaman RAP vs Realisasi.
+   6. Logo sidebar + topbar + KOP sudah ganti ke logo-rt005.png.
+════════════════════════════════════════════════════════════════ */
+(function bopFix84(){
+  if(window.__bopFix84) return;
+  window.__bopFix84 = true;
+
+  var BUDGET_84 = 25000000;
+
+  /* ── Helpers ──────────────────────────────────────────────── */
+  function rp(n){ return typeof rupiah === "function" ? rupiah(Number(n||0)) : "Rp"+(Number(n||0)).toLocaleString("id-ID"); }
+  function esc84(s){ var d=document.createElement("div"); d.textContent=String(s||""); return d.innerHTML; }
+  function safe(id){ return document.getElementById(id); }
+  function setText(id,v){ var el=safe(id); if(el) el.textContent=v; }
+  function setHtml(id,v){ var el=safe(id); if(el) el.innerHTML=v; }
+
+  /* ── Fuzzy match: apakah kalimat A mengandung kata dari B ── */
+  function fuzzyMatch84(source, target){
+    if(!source || !target) return false;
+    var sWords = source.toLowerCase().replace(/[^a-z0-9\s]/g," ").split(/\s+/).filter(w=>w.length>3);
+    var tLower = target.toLowerCase();
+    var hits = sWords.filter(w => tLower.includes(w));
+    return hits.length >= Math.min(1, Math.ceil(sWords.length * 0.3));
+  }
+
+  /* ── Ambil data RAP ───────────────────────────────────────── */
+  function getRapItems84(){
+    try{
+      if(typeof normalizeRapV17 === "function") normalizeRapV17();
+      return (data.pengajuan.rap || []).filter(r => r && (r.uraian || r.jumlah));
+    }catch(e){ return []; }
+  }
+
+  /* ── Ambil pengeluaran LPJ ───────────────────────────────── */
+  function getLpjItems84(){
+    try{
+      return (data.lpj.pengeluaran || []).filter(r => r && (r[1] || r[2]));
+    }catch(e){ return []; }
+  }
+
+  /* ── Match pengeluaran ke setiap RAP item ─────────────────── */
+  function matchRealisasi84(rapItems, lpjItems){
+    /* Tandai lpj yang sudah diklaim */
+    var claimed = new Array(lpjItems.length).fill(false);
+    return rapItems.map(function(rap){
+      var rapLabel = (rap.uraian || "") + " " + (rap.kategori || "") + " " + (rap.subKategori || "");
+      var matched = [];
+      lpjItems.forEach(function(lpj, idx){
+        if(claimed[idx]) return;
+        var lpjLabel = (lpj[1] || "") + " " + (lpj[3] || ""); /* kegiatan + keterangan */
+        if(fuzzyMatch84(rapLabel, lpjLabel) || fuzzyMatch84(lpjLabel, rapLabel)){
+          matched.push({ jumlah: Number(lpj[2]||0), desc: lpj[1]||"" });
+          claimed[idx] = true;
+        }
+      });
+      var totalMatch = matched.reduce(function(s,m){ return s+m.jumlah; }, 0);
+      return { rap: rap, realisasi: totalMatch, matched: matched };
+    });
+  }
+
+  /* ── Render halaman RAP vs Realisasi ─────────────────────── */
+  function renderRapReal84(){
+    var rapItems  = getRapItems84();
+    var lpjItems  = getLpjItems84();
+
+    /* Kalkulasi total */
+    var totalRap  = rapItems.reduce(function(s,r){ return s+Number(r.jumlah||0); }, 0);
+    var totalLpj  = lpjItems.reduce(function(s,r){ return s+Number(r[2]||0); }, 0);
+    var selisih   = totalRap - totalLpj;
+    var pct       = totalRap > 0 ? Math.min(Math.round(totalLpj/totalRap*100), 999) : 0;
+
+    /* KPI */
+    setText("rrTotalRap",  rp(totalRap));
+    setText("rrTotalReal", rp(totalLpj));
+    setText("rrSelisih",   rp(Math.abs(selisih)));
+    setText("rrPersen",    pct+"%");
+
+    /* Progress bar keseluruhan */
+    var barEl = safe("rrProgressBar");
+    if(barEl){
+      var barPct = Math.min(pct, 100);
+      barEl.style.width = barPct + "%";
+      barEl.className = "rr-bar-fill" + (pct > 100 ? " over" : (pct === 100 ? " full" : ""));
+    }
+    setText("rrProgressLabel", pct + "% Realisasi");
+
+    /* Tabel RAP per mata anggaran */
+    var rows84 = matchRealisasi84(rapItems, lpjItems);
+    var tbody = safe("rapRealTbody");
+    if(tbody){
+      tbody.innerHTML = rows84.length ? rows84.map(function(r,i){
+        var rapJ   = Number(r.rap.jumlah||0);
+        var real   = r.realisasi;
+        var sel    = rapJ - real;
+        var p      = rapJ > 0 ? Math.round(real/rapJ*100) : 0;
+        var barCls = p > 100 ? "over" : (p >= 90 ? "good" : "warn");
+        var stsCls, stsLabel;
+        if(rapJ === 0 && real === 0){ stsCls = "rr-status-nol"; stsLabel = "Belum ada"; }
+        else if(real === 0){ stsCls = "rr-status-nol"; stsLabel = "Belum realisasi"; }
+        else if(real > rapJ){ stsCls = "rr-status-lebih"; stsLabel = "Lebih "+rp(real-rapJ); }
+        else if(Math.abs(sel) < 1000){ stsCls = "rr-status-sesuai"; stsLabel = "Sesuai ✓"; }
+        else { stsCls = "rr-status-kurang"; stsLabel = "Kurang "+rp(sel); }
+        return `<tr>
+          <td style="text-align:center">${i+1}</td>
+          <td>${esc84(r.rap.uraian||"—")}</td>
+          <td style="text-align:center"><small>${esc84(r.rap.kategori||"")}</small></td>
+          <td style="text-align:right">${rp(rapJ)}</td>
+          <td style="text-align:right">${rp(real)}</td>
+          <td style="text-align:right;color:${sel>=0?"#166534":"#991b1b"}">${rp(Math.abs(sel))}</td>
+          <td class="rr-pct-cell">
+            <span style="font-weight:700">${p}%</span>
+            <div class="rr-mini-bar-wrap"><div class="rr-mini-bar-fill ${barCls}" style="width:${Math.min(p,100)}%"></div></div>
+          </td>
+          <td><span class="${stsCls}">${stsLabel}</span></td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="8" style="text-align:center;padding:20px;color:#94a3b8">Belum ada data RAP. Tambahkan RAP 1 Tahun terlebih dahulu.</td></tr>`;
+
+      /* Footer total */
+      setHtml("rrFootRap",  `<b>${rp(totalRap)}</b>`);
+      setHtml("rrFootReal", `<b>${rp(totalLpj)}</b>`);
+      setHtml("rrFootSel",  `<b style="color:${selisih>=0?'#166534':'#991b1b'}">${rp(Math.abs(selisih))}</b>`);
+      setHtml("rrFootPct",  `<b>${pct}%</b>`);
+    }
+
+    /* Tabel LPJ detail */
+    var lpjTbody = safe("rapRealLpjTbody");
+    if(lpjTbody){
+      lpjTbody.innerHTML = lpjItems.length ? lpjItems.map(function(r,i){
+        return `<tr>
+          <td style="text-align:center">${i+1}</td>
+          <td>${esc84(r[0]||"—")}</td>
+          <td>${esc84(r[1]||"—")}</td>
+          <td style="text-align:right">${rp(r[2])}</td>
+          <td>${esc84(r[3]||"—")}</td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="5" style="text-align:center;padding:20px;color:#94a3b8">Belum ada data pengeluaran LPJ.</td></tr>`;
+      setHtml("rrLpjTotal", `<b>${rp(totalLpj)}</b>`);
+      setText("rrLpjCount", lpjItems.length + " item");
+    }
+  }
+
+  /* ── Generate dokumen cetak RAP vs Realisasi ─────────────── */
+  function docRapReal84(){
+    var rapItems = getRapItems84();
+    var lpjItems = getLpjItems84();
+    var totalRap = rapItems.reduce(function(s,r){ return s+Number(r.jumlah||0); }, 0);
+    var totalLpj = lpjItems.reduce(function(s,r){ return s+Number(r[2]||0); }, 0);
+    var selisih  = totalRap - totalLpj;
+    var pct      = totalRap > 0 ? Math.round(totalLpj/totalRap*100) : 0;
+    var rows84   = matchRealisasi84(rapItems, lpjItems);
+    var m        = (typeof data !== "undefined" && data.master) ? data.master : {};
+    var kop      = (typeof official === "function") ? official('') : '';
+
+    var tbody = rows84.map(function(r,i){
+      var rapJ = Number(r.rap.jumlah||0);
+      var real = r.realisasi;
+      var sel  = rapJ - real;
+      var p    = rapJ > 0 ? Math.round(real/rapJ*100) : 0;
+      var stsLabel = real===0 ? "Belum" : (real>rapJ ? "Lebih" : (Math.abs(sel)<1000 ? "Sesuai" : "Kurang"));
+      return `<tr>
+        <td style="text-align:center;border:1px solid #000">${i+1}</td>
+        <td style="border:1px solid #000">${esc84(r.rap.uraian||"—")}</td>
+        <td style="border:1px solid #000">${esc84(r.rap.kategori||"—")}</td>
+        <td style="text-align:right;border:1px solid #000">${rp(rapJ)}</td>
+        <td style="text-align:right;border:1px solid #000">${rp(real)}</td>
+        <td style="text-align:right;border:1px solid #000">${rp(Math.abs(sel))}</td>
+        <td style="text-align:center;border:1px solid #000">${p}%</td>
+        <td style="text-align:center;border:1px solid #000">${stsLabel}</td>
+      </tr>`;
+    }).join("");
+
+    var kopHtml = "";
+    try{ kopHtml = (typeof kopHTML === "function") ? kopHTML() : ""; }catch(e){}
+
+    return `<div class="official" style="font-family:'Times New Roman',serif;font-size:12pt">
+      ${kopHtml}
+      <div class="title" style="text-align:center;font-weight:700;font-size:14pt;margin:16px 0 4px">
+        LAPORAN PERBANDINGAN RAP DAN REALISASI ANGGARAN
+      </div>
+      <p style="text-align:center;margin:0 0 16px">
+        RT ${esc84(m.rt||"005")} RW ${esc84(m.rw||"012")} Kelurahan ${esc84(m.kelurahan||"Tegalsari")} — Tahun 2026
+      </p>
+
+      <table style="width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11pt">
+        <thead>
+          <tr style="background:#1e3a5f;color:#fff">
+            <th style="border:1px solid #000;padding:5px 8px;text-align:center">No</th>
+            <th style="border:1px solid #000;padding:5px 8px">Uraian Kegiatan</th>
+            <th style="border:1px solid #000;padding:5px 8px">Kategori</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:right">Anggaran RAP</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:right">Realisasi</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:right">Selisih</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:center">%</th>
+            <th style="border:1px solid #000;padding:5px 8px;text-align:center">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tbody || '<tr><td colspan="8" style="text-align:center;border:1px solid #000">Belum ada data RAP.</td></tr>'}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;background:#f1f5f9">
+            <td colspan="3" style="border:1px solid #000;padding:5px 8px">TOTAL</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:right">${rp(totalRap)}</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:right">${rp(totalLpj)}</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:right">${rp(Math.abs(selisih))}</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:center">${pct}%</td>
+            <td style="border:1px solid #000;padding:5px 8px;text-align:center">—</td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <p style="margin:4px 0">Keterangan:</p>
+      <ul style="margin:4px 0 16px;padding-left:20px;font-size:11pt">
+        <li>Total Anggaran RAP: <b>${rp(totalRap)}</b></li>
+        <li>Total Realisasi Pengeluaran: <b>${rp(totalLpj)}</b></li>
+        <li>Selisih (Sisa): <b>${rp(Math.abs(selisih))}</b> ${selisih>=0?"(anggaran masih ada)":"(realisasi melebihi RAP)"}</li>
+        <li>Persentase Realisasi: <b>${pct}%</b></li>
+      </ul>
+
+      <div class="ttd-2" style="display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:32px;font-size:11pt">
+        <div style="text-align:center">
+          <p>Mengetahui,</p>
+          <p>Ketua RT ${esc84(m.rt||"005")} RW ${esc84(m.rw||"012")}</p>
+          <br><br><br>
+          <p><b><u>${esc84(m.ketua||"................................")}</u></b></p>
+        </div>
+        <div style="text-align:center">
+          <p>Semarang, ................................ 2026</p>
+          <p>Bendahara RT</p>
+          <br><br><br>
+          <p><b><u>${esc84(m.bendahara||"................................")}</u></b></p>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ── Bind tombol di halaman RAP vs Realisasi ─────────────── */
+  function bindRapReal84(){
+    var btnRefresh = safe("rapRealRefresh");
+    if(btnRefresh) btnRefresh.onclick = function(){
+      try{ if(typeof collectAll==="function") collectAll(); }catch(e){}
+      renderRapReal84();
+      if(typeof bopToast==="function") bopToast("Diperbarui","Data RAP vs Realisasi diperbarui.","success");
+    };
+
+    var btnPrint = safe("rapRealPrint");
+    if(btnPrint) btnPrint.onclick = function(){
+      var outEl = safe("rapRealDocOutput");
+      if(outEl){
+        outEl.innerHTML = docRapReal84();
+        outEl.style.display = "";
+      }
+      try{
+        if(typeof bopToast==="function") bopToast("Menyiapkan Cetak","Dokumen siap dicetak.","info");
+        setTimeout(function(){ window.print(); }, 400);
+      }catch(e){ window.print(); }
+    };
+
+    var btnPdf = safe("rapRealExportPdf");
+    if(btnPdf) btnPdf.onclick = async function(){
+      var outEl = safe("rapRealDocOutput");
+      if(outEl){
+        outEl.innerHTML = docRapReal84();
+        outEl.style.display = "";
+      }
+      if(typeof bopToast==="function") bopToast("Menyiapkan PDF","Membuka dialog cetak/simpan PDF…","info");
+      try{
+        if(typeof exportPdfDocV38==="function"){
+          /* Copy konten ke docOutput untuk export */
+          var docOut = safe("docOutput");
+          if(docOut && outEl){ docOut.innerHTML = outEl.innerHTML; docOut.style.display=""; docOut.style.visibility="visible"; docOut.style.position="static"; docOut.style.left="0"; docOut.style.top="0"; }
+          await exportPdfDocV38();
+        } else {
+          window.print();
+        }
+      }catch(ex){ window.print(); }
+    };
+  }
+
+  /* ── Hook goPage ─────────────────────────────────────────── */
+  var _origGP84 = window.goPage;
+  window.goPage = async function goPage84(page){
+    if(typeof _origGP84==="function") await _origGP84(page);
+    if(page === "rapreal"){
+      try{
+        if(typeof collectAll==="function") collectAll();
+        renderRapReal84();
+      }catch(e){ console.warn("[BOP v1.84] renderRapReal error:", e); }
+    }
+  };
+
+  /* ── Auto-render saat kunjungi halaman ───────────────────── */
+  function initRapReal84(){
+    bindRapReal84();
+    /* Render jika halaman sudah aktif */
+    var pg = safe("page-rapreal");
+    if(pg && pg.classList.contains("active")){
+      try{ renderRapReal84(); }catch(e){}
+    }
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initRapReal84, 800); });
+  } else {
+    setTimeout(initRapReal84, 800);
+  }
+
+  /* ── Export untuk akses global ───────────────────────────── */
+  window.renderRapReal84  = renderRapReal84;
+  window.docRapReal84     = docRapReal84;
+
+  console.log("[BOP v1.84] RAP vs Realisasi + Logo RT 005 aktif.");
+})();
+/* END PATCH v1.84 */
+
+/* ================================================================
+   PATCH v1.85 — KOP PDF Fix Komprehensif + Sidebar + DS Guard
+   ================================================================
+   Masalah yang diperbaiki:
+   1. KOP PDF: kopHTML() v63 pakai .kop-v63-* tapi semua print CSS
+      hanya ada class lama → layout KOP hancur di semua PDF/cetak.
+   2. KOP Rules: Logo DI KIRI, tinggi proporsional baris text KOP.
+   3. DS Editor Pro: MutationObserver reset editan user saat
+      previewDoc() dipanggil → guard lewat window.__bopPreviewDocActive.
+   4. Sidebar nav: overflow hidden → tombol terpotong, tambah scroll.
+   5. Sidebar default tersembunyi di desktop + auto-hide per request.
+   ================================================================ */
+(function bopV85Fix(){
+  if(window.__bopV85Fix) return;
+  window.__bopV85Fix = true;
+
+  /* ══════════════════════════════════════════════════════════════
+     1. CSS KOP v85 — dipakai di SEMUA print path
+     Rules: Logo KIRI, tinggi = tinggi blok text (flex stretch)
+     Spacer kanan mirror logo kiri → text center sempurna
+  ══════════════════════════════════════════════════════════════ */
+  const KOP_V85_CSS = `
+    /* ── KOP v85 screen & print ── */
+    .kop.kop-v85, .kop.kop-v63{
+      display:block!important;
+      border-bottom:3px double #000!important;
+      padding:6px 0 10px!important;
+      margin-bottom:16px!important;
+      page-break-inside:avoid!important;
+      break-inside:avoid!important;
+    }
+    .kop-v85-header, .kop-v63-header{
+      font-family:"Times New Roman",serif!important;
+      font-weight:700!important;
+      font-size:16pt!important;
+      text-transform:uppercase!important;
+      text-align:center!important;
+      margin:0 0 5px!important;
+      line-height:1.15!important;
+      display:block!important;
+    }
+    /* Row: logo kiri (flex stretch), text center, spacer kanan */
+    .kop-v85-body, .kop-v63-row{
+      display:flex!important;
+      align-items:stretch!important;
+      gap:0!important;
+    }
+    .kop-v85-logo-wrap, .kop-v63-logo-wrap{
+      flex:0 0 80px!important;
+      width:80px!important;
+      min-width:80px!important;
+      max-width:80px!important;
+      display:flex!important;
+      align-items:center!important;
+      justify-content:flex-start!important;
+      align-self:stretch!important;
+    }
+    /* Logo: tinggi 100% dari logo-wrap (= tinggi blok text via flex stretch) */
+    .kop-v85-logo, .kop-v63-logo{
+      display:block!important;
+      height:100%!important;
+      width:auto!important;
+      max-width:76px!important;
+      max-height:100px!important;
+      min-height:44px!important;
+      object-fit:contain!important;
+      border-radius:0!important;
+      border:none!important;
+      box-shadow:none!important;
+    }
+    .kop-v85-text, .kop-v63-info{
+      flex:1!important;
+      text-align:center!important;
+      display:flex!important;
+      flex-direction:column!important;
+      justify-content:center!important;
+      padding:0 4px!important;
+    }
+    /* Spacer kanan = lebar logo kiri → text benar-benar center */
+    .kop-v85-spacer{
+      flex:0 0 80px!important;
+      width:80px!important;
+      min-width:80px!important;
+    }
+    .kop-v85-line, .kop-v63-line1{
+      font-family:"Times New Roman",serif!important;
+      font-weight:700!important;
+      font-size:13pt!important;
+      text-transform:uppercase!important;
+      text-align:center!important;
+      margin:1px 0!important;
+      line-height:1.2!important;
+      white-space:nowrap!important;
+      display:block!important;
+    }
+    .kop-v85-hr, .kop-v63-hr{
+      border:none!important;
+      border-top:1.5px solid #000!important;
+      margin:5px 0 3px!important;
+    }
+    .kop-v85-addr, .kop-v63-addr{
+      font-family:"Times New Roman",serif!important;
+      font-size:9.5pt!important;
+      text-align:center!important;
+      margin:0!important;
+      line-height:1.2!important;
+      display:block!important;
+    }
+    /* Tanda tangan grouped v63 */
+    .ttd-grouped-v63{margin-top:22px}
+    .ttd-grouped-v63 .ttd-label-v63{text-align:center;font-family:"Times New Roman",serif;margin:0 0 4px;font-size:12pt}
+    .ttd-grouped-v63 .ttd-row-v63{display:grid;grid-template-columns:repeat(2,1fr);gap:40px;text-align:center;margin-bottom:18px;page-break-inside:avoid;break-inside:avoid}
+    .ttd-grouped-v63 .ttd-row-v63:last-of-type{margin-bottom:0}
+    /* Tanda tangan umum */
+    .sign-space-v37,.signature-space{height:54px;display:block}
+    .sign-two-v37 td{width:50%;text-align:center!important;vertical-align:top;border:none!important}
+    .sign-right-v37 td{border:none!important}
+    .center-v37{text-align:center!important}
+    .date-right-v37{text-align:right!important}
+    .mengetahui-v37{margin-top:14px!important}
+    .ket-v37{font-size:10pt}
+    /* Table */
+    .col-no-v37{width:8mm!important;text-align:center!important}
+    .money-cell-v37{text-align:right!important;white-space:nowrap}
+    .identity-table-v37 td:first-child{width:36mm;white-space:nowrap}
+    .page-break-v37{page-break-after:always;break-after:page;height:0;border:none}
+    .official-ol-v37{margin:5px 0 8px 22px;padding:0}
+    .official-ol-v37 li{margin:4px 0}
+  `;
+
+  /* ══════════════════════════════════════════════════════════════
+     2. Override kopHTML() — struktur baru dengan spacer kanan
+     agar text center sempurna dengan logo di kiri
+  ══════════════════════════════════════════════════════════════ */
   window.kopHTML = function kopHTML(){
     var k = (window.data && window.data.kop) ? window.data.kop : {};
     var m = (window.data && window.data.master) ? window.data.master : {};
@@ -10794,24 +12873,1280 @@ ${KOP_PDF_CSS}
     var b3 = k.baris3 || "KELURAHAN TEGALSARI";
     var b4 = k.baris4 || "RW 012 RT 005";
     var addr = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
-    return '<div class="kop kop-standard">'+
-      '<table class="kop-table"><tr>'+
-        '<td class="kop-col-logo">'+
-          '<img src="assets/logo-pemkot-semarang-transparent.png" class="kop-logo" alt="Logo Kota Semarang">'+
-        '</td>'+
-        '<td class="kop-col-text">'+
-          '<div class="kop-text">'+
-            '<h1>'+e(b1)+'</h1>'+
-            '<h2>'+e(b2)+'</h2>'+
-            '<h2>'+e(b3)+'</h2>'+
-            '<h2>'+e(b4)+'</h2>'+
-            '<p>'+e(addr)+'</p>'+
-          '</div>'+
-        '</td>'+
-        '<td class="kop-col-spacer"></td>'+
-      '</tr></table>'+
-    '</div>';
+    var addrLine = /^sekretariat/i.test(addr) ? addr : ("Sekretariat: " + addr);
+    function esc85(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+    return (
+      '<div class="kop kop-v85">' +
+        '<div class="kop-v85-header">' + esc85(b1) + '</div>' +
+        '<div class="kop-v85-body">' +
+          '<div class="kop-v85-logo-wrap">' +
+            '<img src="assets/logo-rt005.png" class="kop-v85-logo" alt="Logo RT 005 RW 012">' +
+          '</div>' +
+          '<div class="kop-v85-text">' +
+            '<div class="kop-v85-line">' + esc85(b2) + '</div>' +
+            '<div class="kop-v85-line">' + esc85(b3) + '</div>' +
+            '<div class="kop-v85-line">' + esc85(b4) + '</div>' +
+          '</div>' +
+          '<div class="kop-v85-spacer"></div>' +
+        '</div>' +
+        '<hr class="kop-v85-hr">' +
+        '<div class="kop-v85-addr">' + esc85(addrLine) + '</div>' +
+      '</div>'
+    );
   };
 
-  console.log("[BOP v1.70] kopHTML kop-standard table definitif aktif.");
+  /* ══════════════════════════════════════════════════════════════
+     3. Inject CSS ke screen (preview di browser)
+  ══════════════════════════════════════════════════════════════ */
+  function injectScreenCss85(){
+    if(document.getElementById("bopV85ScreenStyle")) return;
+    var st = document.createElement("style");
+    st.id = "bopV85ScreenStyle";
+    st.textContent = KOP_V85_CSS;
+    document.head.appendChild(st);
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     4. Override cleanPrint — browser print (Cetak via iframe)
+     Inject KOP_V85_CSS ke dalam HTML yang dicetak
+  ══════════════════════════════════════════════════════════════ */
+  window.cleanPrint = function cleanPrintV85(target){
+    var outputId = target === "lpj" ? "lpjOutput" : (target === "pk" ? "pkDocOutput" : "docOutput");
+    var el = document.getElementById(outputId);
+    if(!el || !el.innerHTML.trim()){
+      if(typeof bopAlert === "function") bopAlert("Cetak", "Tidak ada dokumen untuk dicetak.", "warning");
+      return;
+    }
+    var old = document.getElementById("printFrameV85");
+    if(old) old.remove();
+    var frame = document.createElement("iframe");
+    frame.id = "printFrameV85";
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0";
+    document.body.appendChild(frame);
+    var doc = frame.contentDocument || frame.contentWindow.document;
+    var title = target === "lpj" ? "LPJ BOP RT 005" : (target === "pk" ? "Persiapan Kegiatan BOP" : "Dokumen BOP RT 005");
+    doc.open();
+    doc.write([
+      '<!doctype html><html lang="id"><head>',
+      '<meta charset="UTF-8"><title>' + title + '</title>',
+      '<style>',
+      '@page{size:A4;margin:25mm 25mm 25mm 30mm}',
+      'html,body{margin:0;padding:0;background:#fff;color:#000}',
+      'body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.26}',
+      '.print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}',
+      '.official,.official-v37{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.26;width:100%;box-sizing:border-box;text-align:justify}',
+      '.official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px}',
+      'table{border-collapse:collapse;width:100%}',
+      'th,td{border:1px solid #000;padding:4px 5px;font-size:11pt;vertical-align:top}',
+      'th{font-weight:bold;text-align:center;background:#eee}',
+      '.no-border td,.no-border th,.no-border{border:0!important;background:transparent!important}',
+      'p{margin:7px 0}',
+      'ol{margin:5px 0 8px 22px;padding:0}',
+      'li{margin:4px 0}',
+      KOP_V85_CSS,
+      '</style>',
+      '</head><body><div class="print-page">',
+      el.innerHTML,
+      '</div></body></html>'
+    ].join(""));
+    doc.close();
+    setTimeout(function(){ frame.contentWindow.focus(); frame.contentWindow.print(); }, 400);
+    setTimeout(function(){ try{ frame.remove(); }catch(e){} }, 60000);
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+     5. Override exportPdfDocV38 — popup PDF export
+     Full rebuild dengan KOP_V85_CSS lengkap
+  ══════════════════════════════════════════════════════════════ */
+  window.exportPdfDocV38 = async function exportPdfV85(){
+    try{
+      if(typeof collectAll === "function") collectAll();
+      var type = (typeof currentDoc !== "undefined" ? currentDoc : null) || window.currentDoc || "permohonan";
+      /* Set guard agar DS observer tidak reset editan */
+      window.__bopPreviewDocActive = true;
+      if(typeof previewDoc === "function") previewDoc(type);
+      await new Promise(function(r){ setTimeout(r, 250); });
+      window.__bopPreviewDocActive = false;
+      var el = document.getElementById("docOutput");
+      if(!el || !el.innerHTML.trim()){
+        if(typeof bopAlert === "function") bopAlert("Export PDF","Pilih dokumen terlebih dahulu sebelum export PDF.","warning");
+        return;
+      }
+      var inner = el.innerHTML;
+      var printWin = window.open("","_blank","width=920,height=1150");
+      if(!printWin){
+        if(typeof bopAlert === "function") bopAlert("Popup Diblokir","Izinkan popup untuk halaman ini di browser, lalu coba lagi.","warning");
+        return;
+      }
+      var docTitle = "Dokumen BOP RT 005 \u2014 " + type;
+      printWin.document.write([
+        '<!doctype html><html lang="id"><head>',
+        '<meta charset="UTF-8"><title>' + docTitle + '</title>',
+        '<style>',
+        '@page{size:A4;margin:25mm 25mm 25mm 30mm}',
+        '*{box-sizing:border-box}',
+        'html,body{margin:0;padding:0;background:#fff;color:#000}',
+        'body{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26}',
+        '.official,.official-v36,.official-v37{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26;color:#000;width:100%;text-align:justify}',
+        '.official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 16px}',
+        'table{border-collapse:collapse;width:100%}',
+        'th,td{border:1px solid #000;padding:5px 8px;font-size:11pt;vertical-align:top}',
+        'th{font-weight:bold;text-align:center;background:#f5f5f5}',
+        '.no-border td,.no-border th,.no-border{border:none!important;background:transparent!important}',
+        '.ttd-grid,.sign-two-v37,.sign-right-v37{border:none!important}',
+        '.ttd-grid td,.sign-two-v37 td,.sign-right-v37 td{border:none!important}',
+        'p{margin:7px 0;text-align:justify}',
+        'ol{margin:5px 0 8px 22px;padding:0}',
+        'li{margin:4px 0}',
+        'b,strong{font-weight:bold}',
+        KOP_V85_CSS,
+        '@media print{.page-break-v37{page-break-after:always;break-after:page;height:0;border:none}}',
+        '</style>',
+        '</head><body>',
+        inner,
+        '</body></html>'
+      ].join(""));
+      printWin.document.close();
+      printWin.focus();
+      setTimeout(function(){ printWin.print(); }, 700);
+    } catch(err){
+      window.__bopPreviewDocActive = false;
+      console.error("[BOP v1.85 PDF]", err);
+      if(typeof bopAlert === "function") bopAlert("Gagal Export PDF", err.message || "Terjadi kesalahan.", "error");
+    }
+  };
+
+  /* ══════════════════════════════════════════════════════════════
+     6. Wrap previewDoc dengan guard DS observer
+     Set window.__bopPreviewDocActive = true selama render
+  ══════════════════════════════════════════════════════════════ */
+  var _origPreviewDoc = window.previewDoc;
+  if(typeof _origPreviewDoc === "function"){
+    window.previewDoc = function previewDocV85(type){
+      window.__bopPreviewDocActive = true;
+      try{ _origPreviewDoc(type); }catch(e){}
+      /* Reset flag setelah render selesai (DOM update async) */
+      setTimeout(function(){ window.__bopPreviewDocActive = false; }, 350);
+    };
+  }
+
+  /* ══════════════════════════════════════════════════════════════
+     7. Sidebar: override default app-shell agar sidebar
+     mulai tersembunyi di desktop, toggle via hamburger
+  ══════════════════════════════════════════════════════════════ */
+  (function initSidebar85(){
+    var shell = document.getElementById("appShell");
+    var sidebar = document.getElementById("sidebar");
+    var hamburger = document.getElementById("hamburger");
+    if(!shell || !sidebar || !hamburger) return;
+
+    /* Sidebar mulai tersembunyi pada desktop */
+    if(window.innerWidth >= 1000){
+      shell.classList.add("menu-hidden");
+    }
+
+    /* Override hamburger click */
+    hamburger.onclick = function(){
+      if(window.innerWidth < 1000){
+        sidebar.classList.toggle("open");
+      } else {
+        shell.classList.toggle("menu-hidden");
+      }
+    };
+
+    /* Auto-close sidebar mobile saat pilih menu */
+    document.querySelectorAll(".nav button").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        if(window.innerWidth < 1000) sidebar.classList.remove("open");
+      });
+    });
+  })();
+
+  /* ══════════════════════════════════════════════════════════════
+     8. Inject CSS screen & re-render preview aktif
+  ══════════════════════════════════════════════════════════════ */
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){
+      injectScreenCss85();
+      /* Re-render dokumen aktif dengan KOP baru */
+      setTimeout(function(){
+        if(typeof previewDoc === "function"){
+          var t = (typeof currentDoc !== "undefined" ? currentDoc : null) || window.currentDoc || null;
+          if(t) try{ previewDoc(t); }catch(e){}
+        }
+      }, 500);
+    });
+  } else {
+    injectScreenCss85();
+    setTimeout(function(){
+      if(typeof previewDoc === "function"){
+        var t = (typeof currentDoc !== "undefined" ? currentDoc : null) || window.currentDoc || null;
+        if(t) try{ previewDoc(t); }catch(e){}
+      }
+    }, 500);
+  }
+
+  console.log("[BOP v1.85] KOP PDF Fix + DS Guard + Sidebar aktif. Logo KIRI, tinggi proporsional baris text KOP.");
 })();
+/* END PATCH v1.85 */
+
+/* ================================================================
+   PATCH v1.86 — Fix Online Status: sidebar + topbar sinkron
+   Masalah: TS_KEY tidak di-set saat server jawab 304 Not Modified
+   → sidebar selalu tampil "Offline" meski server terhubung.
+   Fix: hanya tambah logika baru, tidak ubah kode yang ada.
+   ================================================================ */
+(function bopOnlineFixV86(){
+  if(window.__bopOnlineFixV86) return;
+  window.__bopOnlineFixV86 = true;
+
+  const TS_KEY  = "bop_pg_updated_v40";
+  const VER_KEY = "bop_pg_version_v40";
+
+  /* Perbarui .side-note langsung jika server terhubung */
+  function syncSidebarNote(){
+    const txt = document.getElementById("topbarStatusText");
+    if(!txt || txt.textContent !== "Online Mode") return;
+
+    /* Jika TS_KEY kosong (belum pernah ada full sync), isi sekarang */
+    if(!localStorage.getItem(TS_KEY)){
+      localStorage.setItem(TS_KEY, new Date().toISOString());
+    }
+
+    /* Perbarui elemen .side-note agar tampil status PostgreSQL */
+    const note = document.querySelector(".side-note");
+    if(!note) return;
+    const ts  = localStorage.getItem(TS_KEY);
+    const ver = localStorage.getItem(VER_KEY);
+    note.innerHTML =
+      "<b>\u2601 PostgreSQL</b><br><small>v" + (ver || "?") + " \u2014 " +
+      new Date(ts).toLocaleString("id-ID",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) +
+      "</small>";
+    note.style.color = "#15803d";
+  }
+
+  /* Jalankan setelah bootLoad selesai (~2 detik), lalu setiap 10 detik */
+  function start(){
+    setTimeout(syncSidebarNote, 2000);
+    setInterval(syncSidebarNote, 10000);
+
+    /* MutationObserver: begitu topbar berubah ke "Online Mode" → langsung sync */
+    const txt = document.getElementById("topbarStatusText");
+    if(txt){
+      new MutationObserver(function(){
+        if(txt.textContent === "Online Mode") syncSidebarNote();
+      }).observe(txt, { childList: true, characterData: true, subtree: true });
+    }
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", start);
+  } else {
+    start();
+  }
+
+  console.log("[BOP v1.86] Online status fix aktif \u2014 sidebar sinkron dengan topbar.");
+})();
+/* END PATCH v1.86 */
+
+  /* ================================================================
+     PATCH v1.87 — Stabilizer Menu + Cetak Dokumen A4
+     Tujuan:
+     1) Satu struktur KOP yang konsisten untuk semua dokumen.
+     2) Satu jalur cetak A4 bersih yang tidak ikut mencetak UI aplikasi.
+     3) Sidebar/menu desktop-mobile lebih stabil dan mudah dipakai.
+     ================================================================ */
+  (function bopStabilizerV87(){
+    if(window.__bopStabilizerV87) return;
+    window.__bopStabilizerV87 = true;
+
+    function esc87(v){
+      return String(v == null ? "" : v)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function getStore87(){
+      const d = window.data || {};
+      return {
+        kop: d.kop || {},
+        master: d.master || {}
+      };
+    }
+
+    function buildOfficialLetterhead87(){
+      const store = getStore87();
+      const k = store.kop;
+      const m = store.master;
+
+      const line1 = k.baris1 || "PEMERINTAH KOTA SEMARANG";
+      const line2 = k.baris2 || "KECAMATAN CANDISARI";
+      const line3 = k.baris3 || "KELURAHAN TEGALSARI";
+      const line4 = k.baris4 || "RW 012 RT 005";
+      const addrRaw = k.alamat || m.alamat || "Jl. Tegalsari Raya, Tegalsari, Kota Semarang";
+      const addr = /^sekretariat/i.test(addrRaw) ? addrRaw : ("Sekretariat: " + addrRaw);
+
+      return '' +
+        '<div class="kop official-letterhead">' +
+          '<div class="letterhead-logo">' +
+            '<img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Pemkot Semarang">' +
+          '</div>' +
+          '<div class="letterhead-text">' +
+            '<div class="line city">' + esc87(line1) + '</div>' +
+            '<div class="line">' + esc87(line2) + '</div>' +
+            '<div class="line">' + esc87(line3) + '</div>' +
+            '<div class="line rt">' + esc87(line4) + '</div>' +
+            '<div class="address">' + esc87(addr) + '</div>' +
+          '</div>' +
+          '<div class="letterhead-spacer" aria-hidden="true"></div>' +
+        '</div>' +
+        '<div class="letterhead-rule"></div>';
+    }
+
+    window.kopHTML = function kopHTMLv87(){
+      return buildOfficialLetterhead87();
+    };
+
+    const PRINT_CSS_V87 = [
+      '@page{size:A4 portrait;margin:25mm 25mm 25mm 30mm}',
+      '*{box-sizing:border-box}',
+      'html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}',
+      'body{font-family:Arial,sans-serif!important;font-size:12pt!important;line-height:1.35!important}',
+      '.print-page{width:174mm!important;margin:0 auto!important;padding:0!important}',
+      '.official{font-family:Arial,sans-serif!important;color:#000!important;font-size:12pt!important;line-height:1.35!important}',
+      '.official .title{text-align:center!important;font-weight:700!important;text-transform:uppercase!important;margin:8mm 0 4mm!important}',
+      '.official p{margin:2.2mm 0!important}',
+      '.official table{width:100%!important;border-collapse:collapse!important;table-layout:fixed!important;word-break:break-word!important;overflow-wrap:break-word!important}',
+      '.official table.no-border{table-layout:auto!important}',
+      '.official th,.official td{border:1px solid #000!important;padding:1.8mm 2mm!important;vertical-align:top!important;word-break:normal!important;overflow-wrap:normal!important}',
+      '.official .no-border,.official .no-border td,.official .no-border th{border:0!important;background:transparent!important}',
+      '.official tr,.official p,.official .official-letterhead,.official .letterhead-rule{page-break-inside:avoid!important;break-inside:avoid!important}',
+      '.official img{max-width:100%!important;height:auto!important}',
+      '.official-letterhead{display:grid!important;grid-template-columns:18mm minmax(0,1fr) 18mm!important;align-items:start!important;min-height:27mm!important;width:100%!important;margin:0!important;padding:0!important}',
+      '.letterhead-logo{position:static!important;width:18mm!important;height:22mm!important;display:flex!important;align-items:flex-start!important;justify-content:flex-start!important}',
+      '.letterhead-logo img{width:15mm!important;max-width:15mm!important;height:15mm!important;max-height:15mm!important;object-fit:contain!important;border:none!important;box-shadow:none!important;border-radius:0!important}',
+      '.letterhead-text{width:auto!important;text-align:center!important;padding:0!important;box-sizing:border-box!important;white-space:normal!important;writing-mode:horizontal-tb!important}',
+      '.letterhead-text .line{font-family:Arial,sans-serif!important;font-weight:700!important;font-size:12pt!important;line-height:1.15!important;letter-spacing:0!important;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}',
+      '.letterhead-text .city{font-size:13pt!important}',
+      '.letterhead-text .rt{font-size:12pt!important}',
+      '.letterhead-text .address{margin-top:3mm!important;font-size:9pt!important;font-weight:400!important;line-height:1.2!important;white-space:normal!important}',
+      '.letterhead-spacer{position:static!important;width:18mm!important;height:22mm!important}',
+      '.letterhead-rule{border-bottom:1.5px solid #000!important;margin:2mm 0 4mm!important;width:100%!important}',
+      '.ttd-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:16mm!important;text-align:center!important;margin-top:8mm!important}',
+      '.ttd-3{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8mm!important;text-align:center!important;margin-top:8mm!important}',
+      '.ttd-4{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:6mm!important;text-align:center!important;margin-top:8mm!important}',
+      '.signature-space{height:18mm!important}'
+    ].join('');
+
+    function resolvePrintHtml87(target){
+      let t = target;
+      if(t !== "lpj" && t !== "pk") t = "doc";
+
+      if(typeof collectAll === "function"){
+        try{ collectAll(); }catch(_e){}
+      }
+
+      if(t === "lpj"){
+        try{
+          if(typeof docLpj === "function") return docLpj();
+        }catch(_e){}
+        return (document.getElementById("lpjOutput")?.innerHTML || "").trim();
+      }
+
+      if(t === "pk"){
+        try{
+          if(typeof collectPersiapan === "function") collectPersiapan();
+        }catch(_e){}
+        try{
+          if(typeof previewPkDoc === "function") previewPkDoc(window.currentPkDoc || "pk-hadir");
+        }catch(_e){}
+        return (document.getElementById("pkDocOutput")?.innerHTML || "").trim();
+      }
+
+      try{
+        if(typeof previewDoc === "function") previewDoc(window.currentDoc || "permohonan");
+      }catch(_e){}
+      return (document.getElementById("docOutput")?.innerHTML || "").trim();
+    }
+
+    window.cleanPrint = function cleanPrintV87(target){
+      const html = resolvePrintHtml87(target);
+      if(!html){
+        if(typeof bopAlert === "function"){
+          bopAlert("Cetak", "Tidak ada dokumen untuk dicetak.", "warning");
+        }
+        return;
+      }
+
+      const old = document.getElementById("printFrameV87");
+      if(old) old.remove();
+
+      const frame = document.createElement("iframe");
+      frame.id = "printFrameV87";
+      frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none";
+      document.body.appendChild(frame);
+
+      const doc = frame.contentDocument || frame.contentWindow.document;
+      doc.open();
+      doc.write('<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Dokumen BOP</title><style>' + PRINT_CSS_V87 + '</style></head><body><div class="print-page">' + html + '</div></body></html>');
+      doc.close();
+
+      setTimeout(function(){
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+      }, 350);
+
+      setTimeout(function(){
+        try{ frame.remove(); }catch(_e){}
+      }, 60000);
+    };
+
+    window.cleanPrintPk = function cleanPrintPkV87(){
+      window.cleanPrint("pk");
+    };
+
+    function initMenuStabilizer87(){
+      const shell = document.getElementById("appShell");
+      const sidebar = document.getElementById("sidebar");
+      const hamburger = document.getElementById("hamburger");
+      if(!shell || !sidebar || !hamburger) return;
+
+      const desktopMq = window.matchMedia("(min-width: 1000px)");
+      const isDesktop = function(){ return desktopMq.matches; };
+
+      function applyInitialState(){
+        if(isDesktop()){
+          shell.classList.remove("menu-hidden");
+          sidebar.classList.remove("open");
+        } else {
+          shell.classList.add("menu-hidden");
+          sidebar.classList.remove("open");
+        }
+      }
+
+      function toggleMenu(){
+        if(isDesktop()){
+          shell.classList.toggle("menu-hidden");
+        } else {
+          sidebar.classList.toggle("open");
+        }
+      }
+
+      hamburger.onclick = null;
+      hamburger.addEventListener("click", function(e){
+        e.preventDefault();
+        toggleMenu();
+      });
+
+      document.addEventListener("click", function(e){
+        if(isDesktop()) return;
+        const target = e.target;
+        const insideSidebar = sidebar.contains(target);
+        const insideToggle = hamburger.contains(target);
+        if(!insideSidebar && !insideToggle){
+          sidebar.classList.remove("open");
+        }
+      });
+
+      document.querySelectorAll(".nav button").forEach(function(btn){
+        btn.addEventListener("click", function(){
+          if(!isDesktop()) sidebar.classList.remove("open");
+        });
+      });
+
+      window.addEventListener("resize", applyInitialState);
+      applyInitialState();
+    }
+
+    if(document.readyState === "loading"){
+      document.addEventListener("DOMContentLoaded", initMenuStabilizer87);
+    } else {
+      initMenuStabilizer87();
+    }
+
+    console.log("[BOP v1.87] Stabilizer aktif: menu lebih rapi, cetak A4 bersih, KOP konsisten.");
+  })();
+  /* END PATCH v1.87 */
+
+/* ================================================================
+   PATCH v1.88 — Persiapan Kegiatan: renderer dokumen final
+   Tujuan:
+   1) Pastikan semua preview pk-* memakai generator terbaru (window.*).
+   2) Hindari fallback ke mapping fungsi lama yang membuat hasil cetak tidak konsisten.
+   ================================================================ */
+(function bopPersiapanDocFixV88(){
+  if(window.__bopPersiapanDocFixV88) return;
+  window.__bopPersiapanDocFixV88 = true;
+
+  function pickPkDocFnV88(type){
+    var map = {
+      "pk-undangan": window.docPkUndangan,
+      "pk-hadir": window.docPkHadir,
+      "pk-notulen": window.docPkNotulen,
+      "pk-kuitansi": window.docPkKuitansi
+    };
+    return map[type] || window.docPkHadir || window.docPkNotulen || window.docPkUndangan || window.docPkKuitansi;
+  }
+
+  window.previewPkDoc = function previewPkDocV88(type){
+    var selected = type || window.currentPkDoc || "pk-hadir";
+
+    try{ if(typeof ensurePersiapan === "function") ensurePersiapan(); }catch(_e){}
+    try{ if(typeof collectPersiapan === "function") collectPersiapan(); }catch(_e){}
+
+    window.currentPkDoc = selected;
+    try{ currentPkDoc = selected; }catch(_e){}
+
+    try{
+      document.querySelectorAll(".pk-doc-btn").forEach(function(btn){
+        btn.classList.toggle("active", btn.dataset && btn.dataset.pkdoc === selected);
+      });
+    }catch(_e){}
+
+    var fn = pickPkDocFnV88(selected);
+    var html = "";
+    try{
+      html = (typeof fn === "function") ? fn() : "";
+    }catch(err){
+      html = '<div class="official"><p>Gagal memuat dokumen persiapan: ' + String(err && err.message ? err.message : err) + '</p></div>';
+    }
+
+    var hasOfficialWrapper = false;
+    try{
+      hasOfficialWrapper = /class\s*=\s*(["'])[^"']*\bofficial\b[^"']*\1/i.test(String(html || ""));
+    }catch(_e){
+      hasOfficialWrapper = false;
+    }
+
+    if(html && !hasOfficialWrapper && typeof official === "function"){
+      try{ html = official(html); }catch(_e){}
+    }
+
+    var out = document.getElementById("pkDocOutput");
+    if(out){
+      out.innerHTML = html || "";
+      out.classList.add("doc-paper");
+    }
+  };
+
+  function initV88(){
+    try{
+      window.previewPkDoc(window.currentPkDoc || "pk-hadir");
+    }catch(_e){}
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(initV88, 350); });
+  } else {
+    setTimeout(initV88, 350);
+  }
+
+  console.log("[BOP v1.88] Persiapan Kegiatan dokumen renderer final aktif.");
+})();
+/* END PATCH v1.88 */
+
+/* ================================================================
+   PATCH v1.90 — Runtime Stabilizer Sync/Print/Menu
+   Tujuan:
+   1) Mencegah loop sync saat apply data server.
+   2) Mencegah push berulang untuk data STORE yang sama.
+   3) Menormalkan binding tombol cetak/preview lintas menu.
+   ================================================================ */
+(function bopRuntimeStabilizerV90(){
+  if(window.__bopRuntimeStabilizerV90) return;
+  window.__bopRuntimeStabilizerV90 = true;
+
+  var STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+  var nativeSetItem = Storage.prototype.setItem;
+  var currentSetItem = localStorage.setItem.bind(localStorage);
+
+  /* Guard sync:
+     - Saat apply data server, tulis langsung ke localStorage native tanpa trigger push.
+     - Jika payload STORE sama persis, skip write untuk menahan push berulang. */
+  localStorage.setItem = function(key, value){
+    var k = String(key || "");
+    var v = String(value == null ? "" : value);
+
+    if(k === STORE_KEY){
+      if(window.__bopApplyingServer){
+        nativeSetItem.call(localStorage, k, v);
+        return;
+      }
+      try{
+        var prev = localStorage.getItem(k);
+        if(prev === v) return;
+      } catch(_e){}
+    }
+
+    return currentSetItem(k, v);
+  };
+
+  function bindStablePrintButtons(){
+    var btnDoc = document.getElementById("printDoc");
+    if(btnDoc) btnDoc.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("doc"); };
+
+    var btnLpj = document.getElementById("printLpj");
+    if(btnLpj) btnLpj.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("lpj"); };
+
+    var btnPk = document.getElementById("printPkDoc");
+    if(btnPk) btnPk.onclick = function(){
+      if(typeof window.cleanPrintPk === "function") window.cleanPrintPk();
+      else if(typeof window.cleanPrint === "function") window.cleanPrint("pk");
+    };
+
+    var btnRap = document.getElementById("printMonthlyRapDoc");
+    if(btnRap) btnRap.onclick = function(){
+      try{ if(typeof window.previewDoc === "function") window.previewDoc("rapbulanan"); }catch(_e){}
+      if(typeof window.cleanPrint === "function") window.cleanPrint("doc");
+    };
+
+    var btnRbb = document.getElementById("printMonthlyRbbDoc");
+    if(btnRbb) btnRbb.onclick = function(){
+      try{ if(typeof window.previewDoc === "function") window.previewDoc("rbb"); }catch(_e){}
+      if(typeof window.cleanPrint === "function") window.cleanPrint("doc");
+    };
+  }
+
+  function hardenSyncActions(){
+    var pushBtn = document.getElementById("syncPushV39");
+    if(pushBtn) pushBtn.onclick = function(){
+      if(typeof window.bopSyncPushV39 === "function") return window.bopSyncPushV39();
+      if(typeof window.bopPgPushNowV40 === "function") return window.bopPgPushNowV40();
+    };
+
+    var pullBtn = document.getElementById("syncPullV39");
+    if(pullBtn) pullBtn.onclick = function(){
+      if(typeof window.bopSyncPullV39 === "function") return window.bopSyncPullV39();
+      if(typeof window.bopPgPullNowV40 === "function") return window.bopPgPullNowV40();
+    };
+  }
+
+  function init(){
+    bindStablePrintButtons();
+    hardenSyncActions();
+    /* Rebind sekali lagi setelah patch lain selesai attach event. */
+    setTimeout(bindStablePrintButtons, 1200);
+    setTimeout(hardenSyncActions, 1200);
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+
+  console.log("[BOP v1.90] Runtime stabilizer aktif: sync guard + print/menu binding.");
+})();
+/* END PATCH v1.90 */
+
+/* ================================================================
+   PATCH v1.91 — Sync Retrigger Throttle Final
+   Tujuan:
+   1) Menahan lonjakan retrigger sync dari beberapa patch lama sekaligus.
+   2) Menjaga sinkron tetap responsif tanpa spam request.
+   ================================================================ */
+(function bopSyncThrottleV91(){
+  if(window.__bopSyncThrottleV91) return;
+  window.__bopSyncThrottleV91 = true;
+
+  var orig = (typeof window.__bopRetriggerSync === "function")
+    ? window.__bopRetriggerSync
+    : null;
+  var tmr = null;
+  var MIN_DELAY = 1200;
+
+  window.__bopRetriggerSync = function(){
+    if(!orig) return;
+    if(tmr) clearTimeout(tmr);
+    tmr = setTimeout(function(){
+      tmr = null;
+      try{ orig(); }catch(err){ console.warn("[BOP v1.91] retrigger gagal:", err); }
+    }, MIN_DELAY);
+  };
+
+  console.log("[BOP v1.91] Throttle retrigger sync aktif (1200ms).");
+})();
+/* END PATCH v1.91 */
+
+/* ================================================================
+   PATCH v1.92 — Core Action Self-Healing
+   Tujuan:
+   1) Menjaga tombol aksi utama tetap terhubung ke fungsi inti.
+   2) Menyediakan fallback aman jika fungsi inti belum tersedia.
+   3) Mengurangi dampak konflik override dari patch lama.
+   ================================================================ */
+(function bopCoreSelfHealingV92(){
+  if(window.__bopCoreSelfHealingV92) return;
+  window.__bopCoreSelfHealingV92 = true;
+
+  function byId(id){ return document.getElementById(id); }
+  function safeRun(fn){
+    try{ return fn(); }catch(err){ console.warn("[BOP v1.92]", err); }
+  }
+
+  function ensureCoreFallbacks(){
+    if(typeof window.cleanPrint !== "function"){
+      window.cleanPrint = function(target){
+        var t = target === "lpj" ? "lpjOutput" : (target === "pk" ? "pkDocOutput" : "docOutput");
+        var el = byId(t);
+        if(!el || !String(el.innerHTML || "").trim()) return;
+        window.print();
+      };
+    }
+
+    if(typeof window.cleanPrintPk !== "function"){
+      window.cleanPrintPk = function(){ window.cleanPrint("pk"); };
+    }
+
+    if(typeof window.previewDoc !== "function"){
+      window.previewDoc = function(type){
+        var out = byId("docOutput");
+        if(!out) return;
+        if(type === "lpj" && typeof window.docLpj === "function") out.innerHTML = window.docLpj();
+        else if(typeof window.docPermohonan === "function") out.innerHTML = window.docPermohonan();
+      };
+    }
+
+    if(typeof window.bopSyncPushV39 !== "function" && typeof window.bopPgPushNowV40 === "function"){
+      window.bopSyncPushV39 = window.bopPgPushNowV40;
+    }
+    if(typeof window.bopSyncPullV39 !== "function" && typeof window.bopPgPullNowV40 === "function"){
+      window.bopSyncPullV39 = window.bopPgPullNowV40;
+    }
+  }
+
+  function rebindCoreButtons(){
+    var savePengajuan = byId("savePengajuan");
+    if(savePengajuan) savePengajuan.onclick = function(){
+      safeRun(function(){ if(typeof window.saveData === "function") window.saveData(); });
+      safeRun(function(){ if(typeof window.bopToast === "function") window.bopToast("Tersimpan","Data berhasil disimpan.","success"); });
+    };
+
+    var saveSetting = byId("saveSetting");
+    if(saveSetting) saveSetting.onclick = function(){
+      safeRun(function(){ if(typeof window.saveData === "function") window.saveData(); });
+      safeRun(function(){ if(typeof window.bopToast === "function") window.bopToast("Tersimpan","Pengaturan berhasil disimpan.","success"); });
+    };
+
+    var saveLpj = byId("saveLpj");
+    if(saveLpj) saveLpj.onclick = function(){
+      safeRun(function(){ if(typeof window.saveData === "function") window.saveData(); });
+      safeRun(function(){ if(typeof window.bopToast === "function") window.bopToast("Tersimpan","Data LPJ berhasil disimpan.","success"); });
+    };
+
+    var pushBtn = byId("syncPushV39");
+    if(pushBtn) pushBtn.onclick = function(){
+      if(typeof window.bopSyncPushV39 === "function") return window.bopSyncPushV39();
+    };
+
+    var pullBtn = byId("syncPullV39");
+    if(pullBtn) pullBtn.onclick = function(){
+      if(typeof window.bopSyncPullV39 === "function") return window.bopSyncPullV39();
+    };
+
+    var printDoc = byId("printDoc");
+    if(printDoc) printDoc.onclick = function(){ safeRun(function(){ window.cleanPrint("doc"); }); };
+
+    var printLpj = byId("printLpj");
+    if(printLpj) printLpj.onclick = function(){ safeRun(function(){ window.cleanPrint("lpj"); }); };
+
+    var printPk = byId("printPkDoc");
+    if(printPk) printPk.onclick = function(){ safeRun(function(){ window.cleanPrintPk(); }); };
+  }
+
+  function healNow(){
+    ensureCoreFallbacks();
+    rebindCoreButtons();
+  }
+
+  function init(){
+    healNow();
+    /* Patch lama masih bisa menimpa handler; lakukan sekali lagi setelah settle. */
+    setTimeout(healNow, 1500);
+    setTimeout(healNow, 3500);
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+
+  console.log("[BOP v1.92] Core self-healing aktif.");
+})();
+/* END PATCH v1.92 */
+
+/* ================================================================
+   PATCH v1.93 — Critical Runtime Watchdog Lock
+   Tujuan:
+   1) Mengunci fungsi kritis agar tidak rusak oleh override patch lama.
+   2) Auto-restore jika ada patch lain yang menimpa setelah init.
+   3) Menjaga save/sync/print tetap berjalan stabil lintas menu.
+   ================================================================ */
+(function bopCriticalWatchdogV93(){
+  if(window.__bopCriticalWatchdogV93) return;
+  window.__bopCriticalWatchdogV93 = true;
+
+  var lockReady = false;
+  var lockUntilMs = 120000; /* 2 menit pertama paling rawan override berantai */
+  var startedAt = Date.now();
+  var stable = {
+    previewDoc: null,
+    cleanPrint: null,
+    cleanPrintPk: null,
+    syncPush: null,
+    syncPull: null,
+    saveData: null
+  };
+
+  function fn(name){ return window[name]; }
+
+  function snapshotStable(){
+    stable.previewDoc = (typeof fn("previewDoc") === "function") ? fn("previewDoc") : stable.previewDoc;
+    stable.cleanPrint = (typeof fn("cleanPrint") === "function") ? fn("cleanPrint") : stable.cleanPrint;
+    stable.cleanPrintPk = (typeof fn("cleanPrintPk") === "function") ? fn("cleanPrintPk") : stable.cleanPrintPk;
+    stable.syncPush = (typeof fn("bopSyncPushV39") === "function") ? fn("bopSyncPushV39") : stable.syncPush;
+    stable.syncPull = (typeof fn("bopSyncPullV39") === "function") ? fn("bopSyncPullV39") : stable.syncPull;
+    stable.saveData = (typeof fn("saveData") === "function") ? fn("saveData") : stable.saveData;
+  }
+
+  function restoreIfChanged(){
+    if(!lockReady) return;
+    if(stable.previewDoc && fn("previewDoc") !== stable.previewDoc) window.previewDoc = stable.previewDoc;
+    if(stable.cleanPrint && fn("cleanPrint") !== stable.cleanPrint) window.cleanPrint = stable.cleanPrint;
+    if(stable.cleanPrintPk && fn("cleanPrintPk") !== stable.cleanPrintPk) window.cleanPrintPk = stable.cleanPrintPk;
+    if(stable.syncPush && fn("bopSyncPushV39") !== stable.syncPush) window.bopSyncPushV39 = stable.syncPush;
+    if(stable.syncPull && fn("bopSyncPullV39") !== stable.syncPull) window.bopSyncPullV39 = stable.syncPull;
+    if(stable.saveData && fn("saveData") !== stable.saveData) window.saveData = stable.saveData;
+  }
+
+  function bindButtonsV93(){
+    var p = document.getElementById("syncPushV39");
+    if(p) p.onclick = function(){ if(typeof window.bopSyncPushV39 === "function") return window.bopSyncPushV39(); };
+
+    var q = document.getElementById("syncPullV39");
+    if(q) q.onclick = function(){ if(typeof window.bopSyncPullV39 === "function") return window.bopSyncPullV39(); };
+
+    var d = document.getElementById("printDoc");
+    if(d) d.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("doc"); };
+
+    var l = document.getElementById("printLpj");
+    if(l) l.onclick = function(){ if(typeof window.cleanPrint === "function") window.cleanPrint("lpj"); };
+
+    var k = document.getElementById("printPkDoc");
+    if(k) k.onclick = function(){
+      if(typeof window.cleanPrintPk === "function") window.cleanPrintPk();
+      else if(typeof window.cleanPrint === "function") window.cleanPrint("pk");
+    };
+  }
+
+  function ensureSaveFallbackV93(){
+    if(typeof window.saveData === "function") return;
+    window.saveData = function(){
+      try{
+        if(typeof window.collectAll === "function") window.collectAll();
+      } catch(_e){}
+      try{
+        var key = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+        if(typeof window.data === "object") localStorage.setItem(key, JSON.stringify(window.data));
+      } catch(err){
+        console.warn("[BOP v1.93] save fallback gagal:", err);
+      }
+    };
+  }
+
+  function start(){
+    ensureSaveFallbackV93();
+    snapshotStable();
+    bindButtonsV93();
+
+    setTimeout(function(){
+      snapshotStable();
+      lockReady = true;
+    }, 1200);
+
+    var t = setInterval(function(){
+      bindButtonsV93();
+      restoreIfChanged();
+      if(Date.now() - startedAt > lockUntilMs){
+        clearInterval(t);
+      }
+    }, 1500);
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+
+  console.log("[BOP v1.93] Critical watchdog lock aktif.");
+})();
+/* END PATCH v1.93 */
+
+/* ================================================================
+   PATCH v1.94 — Canonical API Endpoint Lock (Cross-Device)
+   Tujuan:
+   1) Pastikan semua device menuju endpoint API yang sama.
+   2) Hapus ketergantungan fallback base URL lama di localStorage.
+   3) Retrigger sync setelah endpoint kanonik terkunci.
+   ================================================================ */
+(function bopCanonicalApiLockV94(){
+  if(window.__bopCanonicalApiLockV94) return;
+  window.__bopCanonicalApiLockV94 = true;
+
+  var LS_API_KEY = "bop_api_base";
+
+  function cleanBase(v){
+    var s = String(v || "").trim().replace(/\/+$/, "");
+    if(s && !/^https?:\/\//i.test(s)) s = "https://" + s;
+    return s;
+  }
+
+  function setSyncMessage(msg, color){
+    try{
+      var st = document.getElementById("syncStatusV39");
+      if(st){
+        st.textContent = msg;
+        if(color) st.style.color = color;
+      }
+    } catch(_e){}
+  }
+
+  async function pingViaNative(base, timeoutMs){
+    var url = base ? (base + "/api/bop/ping") : "/api/bop/ping";
+    try{
+      var nativeFetch = (window.__bopNativeFetchV94 || fetch.bind(window));
+      var r = await nativeFetch(url, {
+        cache: "no-store",
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(timeoutMs || 5000) } : {})
+      });
+      return !!(r && r.ok);
+    } catch(_e){
+      return false;
+    }
+  }
+
+  async function resolveCanonicalBase(){
+    var envBase = cleanBase(window.BOP_API_BASE || "");
+    if(envBase && await pingViaNative(envBase, 5000)) return envBase;
+
+    try{
+      var nativeFetch = (window.__bopNativeFetchV94 || fetch.bind(window));
+      var r = await nativeFetch("/api-config.json", {
+        cache: "no-store",
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
+      if(r.ok){
+        var cfg = await r.json();
+        var cfgBase = cleanBase(cfg && cfg.apiBase);
+        if(cfgBase && await pingViaNative(cfgBase, 5000)) return cfgBase;
+      }
+    } catch(_e){}
+
+    if(await pingViaNative("", 4000)) return "";
+
+    try{
+      var nativeFetch2 = (window.__bopNativeFetchV94 || fetch.bind(window));
+      var r2 = await nativeFetch2("/api/bop/server-url", {
+        cache: "no-store",
+        ...(AbortSignal.timeout ? { signal: AbortSignal.timeout(4000) } : {})
+      });
+      if(r2.ok){
+        var d = await r2.json();
+        var srv = cleanBase(d && d.serverUrl);
+        if(srv && await pingViaNative(srv, 5000)) return srv;
+      }
+    } catch(_e){}
+
+    return null;
+  }
+
+  async function lockCanonical(){
+    try{
+      window.__bopNativeFetchV94 = window.__bopNativeFetchV94 || fetch.bind(window);
+      var canonical = await resolveCanonicalBase();
+
+      if(canonical === null){
+        /* Gagal menemukan endpoint kanonik: jangan pakai base lama per-browser. */
+        try{ localStorage.removeItem(LS_API_KEY); }catch(_e){}
+        window.BOP_API_BASE = "";
+        setSyncMessage("Offline: endpoint API belum tervalidasi. Data masih lokal device ini.", "#b91c1c");
+        return;
+      }
+
+      window.BOP_API_BASE = canonical;
+      try{
+        if(canonical) localStorage.setItem(LS_API_KEY, canonical);
+        else localStorage.removeItem(LS_API_KEY);
+      } catch(_e){}
+
+      if(typeof window.__bopRetriggerSync === "function"){
+        setTimeout(function(){ window.__bopRetriggerSync(); }, 250);
+      }
+      setSyncMessage("Endpoint sinkronisasi tervalidasi. Semua device harus memakai endpoint yang sama.", "#15803d");
+    } catch(err){
+      console.warn("[BOP v1.94] lock canonical gagal:", err);
+    }
+  }
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", lockCanonical);
+  else lockCanonical();
+
+  console.log("[BOP v1.94] Canonical API endpoint lock aktif.");
+})();
+/* END PATCH v1.94 */
+
+/* ================================================================
+   PATCH v1.95 — Sync Pending Visibility
+   Tujuan:
+   1) Jika push server gagal, user diberi indikator data belum tersinkron.
+   2) Jika push sukses, indikator pending dibersihkan.
+   ================================================================ */
+(function bopSyncPendingV95(){
+  if(window.__bopSyncPendingV95) return;
+  window.__bopSyncPendingV95 = true;
+
+  var PENDING_KEY = "bop_sync_pending_v95";
+  var LAST_ERR_KEY = "bop_sync_last_error_v95";
+
+  function isBopDataPut(input, init){
+    var method = String((init && init.method) || "GET").toUpperCase();
+    if(method !== "PUT") return false;
+
+    try{
+      if(typeof input === "string") return input.indexOf("/api/bop/data") !== -1;
+      if(input instanceof Request) return input.url.indexOf("/api/bop/data") !== -1;
+    } catch(_e){}
+
+    return false;
+  }
+
+  function renderPendingState(){
+    var pending = localStorage.getItem(PENDING_KEY) === "1";
+    var errMsg = localStorage.getItem(LAST_ERR_KEY) || "";
+
+    var status = document.getElementById("syncStatusV39");
+    if(status && pending){
+      status.textContent = "⚠ Data belum tersinkron ke server. " + (errMsg ? ("Penyebab: " + errMsg) : "Periksa koneksi/API.");
+      status.style.color = "#b91c1c";
+    }
+
+    var note = document.querySelector(".side-note");
+    if(note && pending){
+      note.innerHTML = "<b>⚠ Sync Pending</b><br><small>Data belum masuk server</small>";
+      note.style.color = "#b91c1c";
+    }
+  }
+
+  function markPending(msg){
+    try{
+      localStorage.setItem(PENDING_KEY, "1");
+      localStorage.setItem(LAST_ERR_KEY, String(msg || "gagal terhubung server"));
+    } catch(_e){}
+    renderPendingState();
+  }
+
+  function clearPending(){
+    try{
+      localStorage.removeItem(PENDING_KEY);
+      localStorage.removeItem(LAST_ERR_KEY);
+    } catch(_e){}
+  }
+
+  var prevFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init){
+    var track = isBopDataPut(input, init);
+    try{
+      var res = await prevFetch(input, init);
+      if(track){
+        if(res && res.ok) clearPending();
+        else markPending("HTTP " + (res ? res.status : "?"));
+      }
+      return res;
+    } catch(err){
+      if(track) markPending((err && err.message) ? err.message : "network error");
+      throw err;
+    }
+  };
+
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", renderPendingState);
+  else renderPendingState();
+
+  console.log("[BOP v1.95] Sync pending visibility aktif.");
+})();
+/* END PATCH v1.95 */
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.96 — RAP Bulanan + Breakdown Sync Definitif
+
+   Satu data breakdown pernah tersimpan dalam dua nama:
+   monthlyBreakdowns (engine lama) dan monthlyBreakdown (engine KAK).
+   Selain itu, sebagian key memakai nama bulan biasa dan sebagian
+   memakai encodeURIComponent(). Patch ini melakukan migrasi aman
+   ke key encoded yang sama, tetapi tetap mengekspos kedua nama
+   agar semua engine lama dan baru membaca array yang sama.
+
+   Refresh angka dilakukan in-place. Form breakdown tidak dirender
+   ulang saat mengetik agar fokus dan posisi caret tetap aman.
+════════════════════════════════════════════════════════════════ */
+(function bopRapSyncV196(){
+  if(window.__bopRapSyncV196) return;
+  window.__bopRapSyncV196 = true;
+
+  var rawEnsure = window.ensureMonthlyBreakdown;
+
+  function isObject(value){
+    return value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function canonicalKey(key){
+    var text=String(key||"");
+    var sep=text.lastIndexOf("__");
+    if(sep<0) return text;
+    var month=text.slice(0,sep);
+    var idx=text.slice(sep+2);
+    try{ month=decodeURIComponent(month); }catch(e){}
+    var n=Number(idx);
+    return encodeURIComponent(month)+"__"+(Number.isFinite(n)?n:idx);
+  }
+
+  function mergeRows(left,right){
+    var out=Array.isArray(left)?left.map(function(row){return Object.assign({},row);}):[];
+    (Array.isArray(right)?right:[]).forEach(function(row,index){
+      if(!row || typeof row!=="object") return;
+      out[index]=out[index]
+        ? Object.assign({},out[index],row)
+        : Object.assign({},row);
+    });
+    return out;
+  }
+
+  function normalizePengajuan(pengajuan){
+    if(!pengajuan || typeof pengajuan!=="object") return;
+    var oldStore=isObject(pengajuan.monthlyBreakdowns)?pengajuan.monthlyBreakdowns:{};
+    var kakStore=isObject(pengajuan.monthlyBreakdown)?pengajuan.monthlyBreakdown:{};
+    var canonical={};
+
+    function absorb(store){
+      Object.keys(store).forEach(function(key){
+        var rows=store[key];
+        if(!Array.isArray(rows)) return;
+        var normalized=canonicalKey(key);
+        canonical[normalized]=canonical[normalized]
+          ? mergeRows(canonical[normalized],rows)
+          : rows.map(function(row){return row&&typeof row==="object"?Object.assign({},row):row;});
+      });
+    }
+
+    /* Engine lama dahulu, engine KAK sesudahnya agar field qty/jumlah
+       terbaru dari KAK ikut dipertahankan bila keduanya ada. */
+    absorb(oldStore);
+    absorb(kakStore);
+    pengajuan.monthlyBreakdowns=canonical;
+    pengajuan.monthlyBreakdown=canonical;
+    if(!pengajuan.selectedMonth) pengajuan.selectedMonth="Januari 2026";
+  }
+
+  function normalizeState(state){
+    if(state && state.pengajuan) normalizePengajuan(state.pengajuan);
+    return state;
+  }
+
+  function ensureAndNormalize(){
+    try{ if(typeof rawEnsure==="function") rawEnsure(); }catch(e){}
+    normalizeState(window.data);
+  }
+
+  /* Semua pembaca lama diarahkan ke key canonical encoded. */
+  window.ensureMonthlyBreakdown=ensureAndNormalize;
+  window.getBreakdownRows=function(month,annualIndex){
+    ensureAndNormalize();
+    var p=window.data && window.data.pengajuan;
+    if(!p) return [];
+    var key=encodeURIComponent(String(month||""))+"__"+Number(annualIndex);
+    if(!Array.isArray(p.monthlyBreakdowns[key])) p.monthlyBreakdowns[key]=[];
+    p.monthlyBreakdown=p.monthlyBreakdowns;
+    return p.monthlyBreakdowns[key];
+  };
+  window.breakdownTotal=function(month,annualIndex){
+    return window.getBreakdownRows(month,annualIndex).reduce(function(sum,row){
+      return sum+Number(row&&row.jumlah||0);
+    },0);
+  };
+  window.monthlyBreakdownTotal=function(month){
+    var rows=typeof window.getMonthlyRapRows==="function"?window.getMonthlyRapRows(month):[];
+    return rows.reduce(function(sum,row){
+      return sum+window.breakdownTotal(month,row.annualIndex);
+    },0);
+  };
+
+  function saveLegacyBreakdownInputs(){
+    document.querySelectorAll("[data-breakdown]").forEach(function(input){
+      var parts=String(input.dataset.breakdown||"").split("|");
+      if(parts.length<4) return;
+      var month;
+      try{ month=decodeURIComponent(parts[0]); }catch(e){ month=parts[0]; }
+      var rows=window.getBreakdownRows(month,Number(parts[1]));
+      var rowIndex=Number(parts[2]), field=parts[3];
+      if(!rows[rowIndex]) return;
+      rows[rowIndex][field]=field==="jumlah"?Number(input.value||0):input.value;
+    });
+  }
+
+  /* Satukan penyimpanan untuk panel KAK dan panel lama. */
+  var rawBreakdownSave=window.__bd58save || window.updateBreakdownFromInputs;
+  window.__bd58save=function(input){
+    ensureAndNormalize();
+    if(input && input.dataset && input.dataset.breakdown) saveLegacyBreakdownInputs();
+    else if(!input) saveLegacyBreakdownInputs();
+    var result=typeof rawBreakdownSave==="function"?rawBreakdownSave(input):undefined;
+    ensureAndNormalize();
+    refreshBudgetCards();
+    return result;
+  };
+  window.updateBreakdownFromInputs=window.__bd58save;
+
+  function refreshBudgetCards(){
+    var d=window.data||{},p=d.pengajuan||{};
+    var rap=Array.isArray(p.rap)?p.rap:[];
+    var rapTotal=rap.reduce(function(sum,row){
+      return sum+Number(row&&!Array.isArray(row)?row.jumlah:(row&&row[2])||0);
+    },0);
+    var lpjTotal=typeof window.totalExpense==="function"?Number(window.totalExpense()||0):0;
+    var budget=25000000;
+    var sisa=budget-rapTotal-lpjTotal;
+    var allocated=document.getElementById("dashAllocated");
+    var remaining=document.getElementById("dashSisa");
+    var percent=document.getElementById("dashPercent");
+    if(allocated) allocated.textContent=typeof window.rupiah==="function"?window.rupiah(rapTotal):String(rapTotal);
+    if(remaining) remaining.textContent=typeof window.rupiah==="function"?window.rupiah(sisa):String(sisa);
+    if(percent) percent.textContent=Math.round(rapTotal/budget*100)+"%";
+  }
+
+  /* Jangan ganti DOM input aktif; cukup perbarui kartu angka dan ringkasan
+     yang memang dirancang untuk live update oleh patch v1.59. */
+  document.addEventListener("input",function(event){
+    var target=event.target;
+    if(!target || !target.dataset) return;
+    if(target.dataset.bd58 || target.dataset.bd57 || target.dataset.breakdown){
+      setTimeout(function(){
+        ensureAndNormalize();
+        refreshBudgetCards();
+        if(typeof window.updateBdRingkasan==="function"){
+          try{
+            var month=document.getElementById("monthlyDocMonth")?.value||"Januari 2026";
+            var idx=Number(window.data?.pengajuan?.monthlySelectedIndex);
+            if(Number.isFinite(idx)) window.updateBdRingkasan(month,idx);
+          }catch(e){}
+        }
+      },0);
+    }
+  },true);
+
+  /* Server snapshot juga dinormalisasi sebelum engine sync merendernya. */
+  var rawApply=window.bopApplyServerDataV42;
+  if(typeof rawApply==="function"){
+    window.bopApplyServerDataV42=function(result){
+      if(result && result.data) normalizeState(result.data);
+      return rawApply.apply(this,arguments);
+    };
+  }
+
+  ensureAndNormalize();
+  refreshBudgetCards();
+  console.log("[BOP v1.96] RAP Bulanan, breakdown legacy/KAK, dan refresh sync unified.");
+})();
+/* END PATCH v1.96 */

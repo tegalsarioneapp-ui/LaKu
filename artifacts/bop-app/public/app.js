@@ -8488,6 +8488,7 @@ ${KOP_PDF_CSS}
         +"<td>"+satSel(enc,item.annualIndex,ri,"satTotal",r.satTotal||"Pkt")+"</td>"
         +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td class=\"bd58-jml\" style=\"text-align:right;white-space:nowrap\">"+rp(r.jumlah||0)+"</td>"
+        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.keterangan||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|keterangan\" placeholder=\"Keterangan\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td style=\"text-align:center\"><button type=\"button\" class=\"delete\" onclick=\"window.__bd58del&&window.__bd58del("+item.annualIndex+","+ri+")\">✕</button></td>"
         +"</tr>";
     }).join(""):"<tr><td colspan=\"12\" style=\"text-align:center;color:#888;padding:16px\">Belum ada rincian. Klik + Tambah.</td></tr>";
@@ -8504,7 +8505,9 @@ ${KOP_PDF_CSS}
       +"<th>Qty3</th><th>Sat3</th>"
       +"<th>Sat Total</th>"
       +"<th>Harga Satuan (Rp)</th>"
-      +"<th>Jumlah</th><th></th>"
+      +"<th>Jumlah</th>"
+      +"<th>Keterangan</th>"
+      +"<th></th>"
       +"</tr></thead>"
       +"<tbody>"+tbody+"</tbody>"
       +"</table></div>"

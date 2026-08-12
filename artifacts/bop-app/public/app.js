@@ -3953,7 +3953,7 @@ async function goPage(page){
 
   function printCssV37(){
     return `
-    @page{size:A4;margin:12mm 13mm 12mm 13mm}
+    @page{size:A4;margin:25mm 25mm 25mm 30mm}
     html,body{margin:0;padding:0;background:#fff;color:#000}
     body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.24}
     .print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}
@@ -3968,9 +3968,9 @@ async function goPage(page){
     .kop-addr{font-family:"Times New Roman",serif;font-size:9pt;font-weight:normal;text-align:center;margin-top:3px;line-height:1.2;white-space:normal}
     .official .title{text-align:center;font-weight:bold;text-transform:uppercase;margin:10px 0 12px;font-size:13pt;line-height:1.2}
     .official p{margin:7px 0;text-align:justify}.center-v37{text-align:center!important}.date-right-v37{text-align:right!important}.ket-v37{font-size:10pt}.mengetahui-v37{margin-top:14px!important}
-    .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:normal}
+    .official table{width:100%;border-collapse:collapse;table-layout:auto;margin:4px 0;word-break:break-word;overflow-wrap:break-word}.official th,.official td{border:1px solid #000;padding:4px 5px;vertical-align:top;overflow-wrap:break-word;word-break:break-word}
     .official th{font-weight:bold;text-align:center;background:#eee}.official .no-border td,.official .no-border th,.official table.no-border td,.official table.no-border th{border:0!important;background:transparent!important;padding:2px 3px!important}
-    .col-no-v37,.official table th.col-no-v37,.official table td.col-no-v37{width:8mm!important;min-width:8mm!important;max-width:9mm!important;text-align:center!important;white-space:nowrap!important;padding-left:2px!important;padding-right:2px!important}
+    .col-no-v37,.official table th.col-no-v37,.official table td.col-no-v37{width:8mm!important;min-width:8mm!important;max-width:8mm!important;text-align:center!important;white-space:nowrap!important;padding-left:2px!important;padding-right:2px!important}
     .money-cell-v37{text-align:right!important;white-space:nowrap}.letter-head-v37 td{vertical-align:top}.letter-to-v37{width:42%;text-align:left!important}.letter-meta-v37{width:58%}.meta-inner-v37 td:first-child,.identity-table-v37 td:first-child{width:36mm;white-space:nowrap}.sign-two-v37{margin-top:10px}.sign-two-v37 td{width:50%;text-align:center!important;vertical-align:top}.sign-right-v37 td:first-child{width:55%}.sign-right-v37 td:last-child{text-align:center!important}.sign-note-v37{display:block;margin-top:4px}.sign-space-v37{height:52px}.sign-list-v37 td{text-align:left}.sign-list-v37 td:first-child,.sign-list-v37 td:last-child{text-align:center}.page-break-v37{page-break-after:always;break-after:page;height:0}.official-ol-v37{margin:5px 0 8px 22px;padding:0;text-align:justify}.official-ol-v37 li{margin:4px 0;text-align:justify}
     .perubahan-table-v37{font-size:9.5pt}.perubahan-table-v37 th,.perubahan-table-v37 td{padding:3px 4px}.tanda-terima-v37 th,.tanda-terima-v37 td{padding:4px}
     @media print{html,body{width:210mm;min-height:297mm}.print-page{width:184mm;margin:0 auto}.page-break-v37{page-break-after:always}}
@@ -4079,13 +4079,13 @@ async function goPage(page){
 
   /* CSS cetak A4 bersama — dipakai oleh doExportPdf */
   const PDF_PRINT_CSS = `
-    @page { size: A4; margin: 14mm; }
+    @page { size: A4; margin: 25mm 25mm 25mm 30mm; }
     * { box-sizing: border-box; }
     body { margin: 0; padding: 20px; font-family: "Times New Roman", serif; font-size: 12pt; color: #000; background: #fff; }
     .official, .official-v36, .official-v37 { font-family: "Times New Roman", serif; font-size: 12pt; line-height: 1.26; color: #000; }
     .official .title, .official-v36 .title, .official-v37 .title { text-align: center; font-weight: bold; text-transform: uppercase; margin: 10px 0 16px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #000; padding: 5px 8px; font-size: 11pt; }
+    table { border-collapse: collapse; width: 100%; table-layout: auto; word-break: break-word; overflow-wrap: break-word; }
+    th, td { border: 1px solid #000; padding: 5px 8px; font-size: 11pt; word-break: break-word; overflow-wrap: break-word; }
     .no-border td, .no-border th { border: none; }
     .kop { display: grid; grid-template-columns: 70px 1fr 70px; gap: 12px; align-items: center; border-bottom: 3px double #000; padding-bottom: 8px; margin-bottom: 12px; }
     .kop table { border: none !important; } .kop table td { border: none !important; padding: 0 !important; }
@@ -4102,7 +4102,7 @@ async function goPage(page){
     .date-right-v36 { text-align: right; }
     .center-v36 { text-align: center; }
     .money-cell { text-align: right; white-space: nowrap; }
-    .col-no { width: 38px; text-align: center; }
+    .col-no { width: 8mm; text-align: center; min-width: 8mm; max-width: 8mm; }
     .sign-note-v36 { font-size: 9pt; color: #555; display: block; }
     .sign-right-v36 td, .sign-right-v36 th,
     .letter-head-v36 td, .letter-head-v36 th,
@@ -4761,7 +4761,7 @@ async function goPage(page){
 /* PATCH 010 - Print fix KOP + Daftar Hadir F4/Folio */
 function printCssV22(){
   return `
-  @page{size:215mm 330mm;margin:9mm 10mm}
+  @page{size:215mm 330mm;margin:25mm 25mm 25mm 30mm}
   html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}
   body{font-family:"Times New Roman",serif!important}
   .print-page{width:195mm;max-width:195mm;box-sizing:border-box;margin:0 auto;background:#fff}
@@ -4869,6 +4869,8 @@ function printCssV22(){
   .official table{
     width:100%!important;
     border-collapse:collapse!important;
+    word-break:break-word!important;
+    overflow-wrap:break-word!important;
   }
 
   .official table:not(.no-border){
@@ -5856,7 +5858,7 @@ function printCssV22(){
     printWin.document.write(`<!doctype html><html lang="id"><head>
 <meta charset="UTF-8"><title>${title}</title>
 <style>
-@page{size:A4;margin:14mm}
+@page{size:A4;margin:25mm 25mm 25mm 30mm}
 *{box-sizing:border-box}
 body{margin:0;padding:20px;font-family:"Times New Roman",serif;font-size:12pt;color:#000;background:#fff}
 .official,.official-v36,.official-v37{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26;color:#000}
@@ -12719,7 +12721,7 @@ ${KOP_PDF_CSS}
       '<!doctype html><html lang="id"><head>',
       '<meta charset="UTF-8"><title>' + title + '</title>',
       '<style>',
-      '@page{size:A4;margin:12mm 13mm 12mm 13mm}',
+      '@page{size:A4;margin:25mm 25mm 25mm 30mm}',
       'html,body{margin:0;padding:0;background:#fff;color:#000}',
       'body{font-family:"Times New Roman",serif;font-size:11.5pt;line-height:1.26}',
       '.print-page{width:184mm;box-sizing:border-box;margin:0 auto;background:#fff}',
@@ -12772,7 +12774,7 @@ ${KOP_PDF_CSS}
         '<!doctype html><html lang="id"><head>',
         '<meta charset="UTF-8"><title>' + docTitle + '</title>',
         '<style>',
-        '@page{size:A4;margin:14mm}',
+        '@page{size:A4;margin:25mm 25mm 25mm 30mm}',
         '*{box-sizing:border-box}',
         'html,body{margin:0;padding:0;background:#fff;color:#000}',
         'body{font-family:"Times New Roman",serif;font-size:12pt;line-height:1.26}',
@@ -12998,7 +13000,7 @@ ${KOP_PDF_CSS}
     };
 
     const PRINT_CSS_V87 = [
-      '@page{size:A4 portrait;margin:15mm 18mm 15mm 18mm}',
+      '@page{size:A4 portrait;margin:25mm 25mm 25mm 30mm}',
       '*{box-sizing:border-box}',
       'html,body{margin:0!important;padding:0!important;background:#fff!important;color:#000!important}',
       'body{font-family:Arial,sans-serif!important;font-size:12pt!important;line-height:1.35!important}',
@@ -13006,7 +13008,7 @@ ${KOP_PDF_CSS}
       '.official{font-family:Arial,sans-serif!important;color:#000!important;font-size:12pt!important;line-height:1.35!important}',
       '.official .title{text-align:center!important;font-weight:700!important;text-transform:uppercase!important;margin:8mm 0 4mm!important}',
       '.official p{margin:2.2mm 0!important}',
-      '.official table{width:100%!important;border-collapse:collapse!important;table-layout:fixed!important}',
+      '.official table{width:100%!important;border-collapse:collapse!important;table-layout:fixed!important;word-break:break-word!important;overflow-wrap:break-word!important}',
       '.official table.no-border{table-layout:auto!important}',
       '.official th,.official td{border:1px solid #000!important;padding:1.8mm 2mm!important;vertical-align:top!important;word-break:normal!important;overflow-wrap:normal!important}',
       '.official .no-border,.official .no-border td,.official .no-border th{border:0!important;background:transparent!important}',

@@ -1969,7 +1969,7 @@ function setupNotificationsV19(){
     if(!t||!t.matches||!t.matches("input,select,textarea")) return;
     let label=t.closest("label")?.childNodes?.[0]?.textContent?.trim() || t.placeholder || "Data";
     if(t.dataset?.rap) label="RAP 1 Tahun";
-    if(t.dataset?.breakdown || t.dataset?.bd57) label="Breakdown RAP Bulanan";
+    if(t.dataset?.breakdown || t.dataset?.bd57 || t.dataset?.bd58) label="Breakdown RAP Bulanan";
     if(t.dataset?.exp) label="LPJ / Pengeluaran";
     notifyChangeV19("Perubahan tersimpan",`${label} berhasil diperbarui otomatis.`,"success");
   },true);
@@ -2935,7 +2935,7 @@ function bind(){
   document.querySelectorAll(".subtab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
   document.addEventListener("change",e=>{if(e.target?.id==="monthlyDocMonth"){data.pengajuan.selectedMonth=e.target.value;data.pengajuan.monthlyBreakdownOpen=false;data.pengajuan.monthlySelectedIndex=null;localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();if(currentDoc==="rapbulanan"||currentDoc==="rbb")previewDoc(currentDoc)} if(e.target?.dataset?.rap){updateRapFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderRap();}});
   document.addEventListener("input",e=>{
-    if(e.target?.dataset?.breakdown || e.target?.dataset?.bd57){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));updateBreakdownLiveStatus();return;}
+    if(e.target?.dataset?.breakdown || e.target?.dataset?.bd57 || e.target?.dataset?.bd58){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));updateBreakdownLiveStatus();return;}
     if(e.target.matches("input,textarea,select")){collectAll(); updateDashboard();}
     if(e.target.dataset.rap){updateRapFromInputs(); $("rapTotalCell").textContent=rupiah(totalRap());}
     if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();}
@@ -8380,20 +8380,19 @@ ${KOP_PDF_CSS}
   /* ════════════════════════════════════════════════════════════
      FIX 3: updateBreakdownFromInputs — baca data-bd58
   ════════════════════════════════════════════════════════════ */
-  window.__bd58save = function(){
+  window.__bd58save = function(inp){
     ensureBD();
-    document.querySelectorAll("[data-bd58]").forEach(function(inp){
-      var p=inp.dataset.bd58.split("|");
+    function processInput(input){
+      var p=input.dataset.bd58.split("|");
       if(p.length<4) return;
       var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
       var rows=getBD(month,idx);
       if(!rows[ri]) return;
-      rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
+      rows[ri][field]=(input.type==="number")?Number(input.value||0):input.value;
       if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
         rows[ri].jumlah=calcJml(rows[ri]);
-        var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
+        var cell=input.closest&&input.closest("tr")&&input.closest("tr").querySelector(".bd58-jml");
         if(cell) cell.textContent=rp(rows[ri].jumlah);
-        /* Update notice bar */
         var panel=document.getElementById("bd58Panel");
         if(panel){
           var notice=panel.querySelector(".bd58-notice");
@@ -8407,7 +8406,13 @@ ${KOP_PDF_CSS}
           }
         }
       }
-    });
+      return true;
+    }
+    if(inp && inp.dataset && inp.dataset.bd58){
+      processInput(inp);
+    } else {
+      document.querySelectorAll("[data-bd58]").forEach(processInput);
+    }
     saveBD();
   };
   window.updateBreakdownFromInputs = window.__bd58save;
@@ -8460,15 +8465,15 @@ ${KOP_PDF_CSS}
     var tbody=rows.length?rows.map(function(r,ri){
       return "<tr>"
         +"<td style=\"text-align:center;color:#888\">"+(ri+1)+"</td>"
-        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.uraian||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|uraian\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
-        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty1||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty1\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp\" type=\"text\" value=\""+es(r.uraian||"")+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|uraian\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty1||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty1\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"sat1",r.sat1||"Pkt")+"</td>"
-        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty2||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty2\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+Number(r.qty2||1)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty2\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"sat2",r.sat2||"Keg")+"</td>"
-        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+(r.qty3||"")+"\" placeholder=\"opt\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty3\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-xs\" type=\"number\" min=\"0\" value=\""+(r.qty3||"")+"\" placeholder=\"opt\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|qty3\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"sat3",r.sat3||"")+"</td>"
         +"<td>"+satSel(enc,item.annualIndex,ri,"satTotal",r.satTotal||"Pkt")+"</td>"
-        +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save()\"></td>"
+        +"<td><input class=\"mini-inp-sm\" type=\"number\" min=\"0\" value=\""+Number(r.hargaSatuan||0)+"\" data-bd58=\""+enc+"|"+item.annualIndex+"|"+ri+"|hargaSatuan\" oninput=\"window.__bd58save&&window.__bd58save(this)\"></td>"
         +"<td class=\"bd58-jml\" style=\"text-align:right;white-space:nowrap\">"+rp(r.jumlah||0)+"</td>"
         +"<td style=\"text-align:center\"><button type=\"button\" class=\"delete\" onclick=\"window.__bd58del&&window.__bd58del("+item.annualIndex+","+ri+")\">✕</button></td>"
         +"</tr>";

@@ -1967,9 +1967,10 @@ function setupNotificationsV19(){
   document.addEventListener("change",e=>{
     const t=e.target;
     if(!t||!t.matches||!t.matches("input,select,textarea")) return;
+    if(t.dataset?.bd57 || t.dataset?.bd58) return;
     let label=t.closest("label")?.childNodes?.[0]?.textContent?.trim() || t.placeholder || "Data";
     if(t.dataset?.rap) label="RAP 1 Tahun";
-    if(t.dataset?.breakdown || t.dataset?.bd57 || t.dataset?.bd58) label="Breakdown RAP Bulanan";
+    if(t.dataset?.breakdown) label="Breakdown RAP Bulanan";
     if(t.dataset?.exp) label="LPJ / Pengeluaran";
     notifyChangeV19("Perubahan tersimpan",`${label} berhasil diperbarui otomatis.`,"success");
   },true);
@@ -2935,11 +2936,18 @@ function bind(){
   document.querySelectorAll(".subtab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
   document.addEventListener("change",e=>{if(e.target?.id==="monthlyDocMonth"){data.pengajuan.selectedMonth=e.target.value;data.pengajuan.monthlyBreakdownOpen=false;data.pengajuan.monthlySelectedIndex=null;localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();if(currentDoc==="rapbulanan"||currentDoc==="rbb")previewDoc(currentDoc)} if(e.target?.dataset?.rap){updateRapFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderRap();}});
   document.addEventListener("input",e=>{
-    if(e.target?.dataset?.breakdown || e.target?.dataset?.bd57 || e.target?.dataset?.bd58){updateBreakdownFromInputs();localStorage.setItem(STORE,JSON.stringify(data));updateBreakdownLiveStatus();return;}
+    if(e.target?.dataset?.bd57 || e.target?.dataset?.bd58){
+      return;
+    if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();}
+    scheduleLocalSave();
     if(e.target.matches("input,textarea,select")){collectAll(); updateDashboard();}
     if(e.target.dataset.rap){updateRapFromInputs(); $("rapTotalCell").textContent=rupiah(totalRap());}
     if(e.target.dataset.exp){updateExpensesFromInputs(); $("expenseTotalCell").textContent=rupiah(totalExpense()); if($("lpjOutput")) $("lpjOutput").innerHTML=docLpj();}
+<<<<<<< HEAD
     scheduleLocalSave();
+=======
+    localStorage.setItem(STORE,JSON.stringify(data));
+>>>>>>> dd286c8 (fix: sync Document Studio preview/load with previewDoc and currentDoc state)
   });
   ["savePengajuan","saveSetting","saveLpj"].forEach(id=>$(id).onclick=()=>{saveData();bopToast("Tersimpan","Data berhasil disimpan.","success");}); if($("savePersiapan")) $("savePersiapan").onclick=()=>{collectPersiapan();ensureMobileSync();try{localStorage.setItem(STORE,JSON.stringify(data));}catch(e){}renderPersiapan();renderMobileDocumentationToLPJ();bopToast("Tersimpan","Data persiapan kegiatan berhasil disimpan.","success");}; if($("sendToMobile")) $("sendToMobile").onclick=saveActivityToMobileQueue; if($("exportActivities")) $("exportActivities").onclick=exportActivitiesForMobile; if($("importMobileResult")) $("importMobileResult").onchange=(e)=>{if(e.target.files[0]) importMobileResultFile(e.target.files[0]);};
   $("addRap").onclick=addRap; $("addPeserta").onclick=addPeserta; $("addExpense").onclick=addExpense; if($("addActionPlan")) $("addActionPlan").onclick=addActionPlan; if($("addPkPeserta")) $("addPkPeserta").onclick=addPkPeserta; if($("addPkAction")) $("addPkAction").onclick=addPkAction;
@@ -8450,7 +8458,7 @@ ${KOP_PDF_CSS}
   function satSel(enc,idx,ri,field,val){
     var opts=SATUAN58.map(function(s){return "<option value=\""+s+"\""+(s===val?" selected":"")+">"+s+"</option>";}).join("");
     if(val&&SATUAN58.indexOf(val)<0) opts+="<option value=\""+es(val)+"\" selected>"+es(val)+"</option>";
-    return "<select class=\"mini-inp-sm\" data-bd58=\""+enc+"|"+idx+"|"+ri+"|"+field+"\" onchange=\"window.__bd58save&&window.__bd58save()\">"+opts+"</select>";
+    return "<select class=\"mini-inp-sm\" data-bd58=\""+enc+"|"+idx+"|"+ri+"|"+field+"\" onchange=\"window.__bd58save&&window.__bd58save(this)\">"+opts+"</select>";
   }
   window.renderBreakdownPanel = function(month,item){
     ensureBD();
@@ -8692,49 +8700,43 @@ ${KOP_PDF_CSS}
        - TIDAK pernah call renderMonthlyRapSummary saat mengetik
   ════════════════════════════════════════════════════════════ */
   var _saveTimer=null;
-  var _origBd58Save=window.__bd58save;
 
-  window.__bd58save = function(){
-    /* 1. Update data in-memory dari semua input bd58 (tanpa re-render DOM) */
-    if(typeof _origBd58Save==="function"){
-      /* Patch: jalankan original tapi blok saveBD */
-      var _origSaveBD=window.__bd58saveBD;
-      /* Panggil langsung versi yang hanya update in-memory */
+  function processBd58Input(input){
+    if(!input || !input.dataset || !input.dataset.bd58) return;
+    var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
+    var bdKey=function(m,i){return encodeURIComponent(m)+"__"+i;};
+    var calcJml=function(r){var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));};
+    ensureBD();
+    var d=window.data;
+    var p=input.dataset.bd58.split("|");
+    if(p.length<4) return;
+    var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
+    var k=bdKey(month,idx);
+    if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
+    var rows=d.pengajuan.monthlyBreakdown[k];
+    if(!rows[ri]) return;
+    rows[ri][field]=(input.type==="number")?Number(input.value||0):input.value;
+    if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
+      rows[ri].jumlah=calcJml(rows[ri]);
+      var cell=input.closest&&input.closest("tr")&&input.closest("tr").querySelector(".bd58-jml");
+      if(cell) cell.textContent=rp(rows[ri].jumlah);
+      updateBdRingkasan(month,idx);
     }
+  }
 
-    /* In-memory update manual yang aman (tidak ganti DOM) */
-    try{
-      var ensureBD=function(){var d=window.data||{};if(!d.pengajuan)d.pengajuan={};if(!d.pengajuan.monthlyBreakdown)d.pengajuan.monthlyBreakdown={};};
-      var bdKey=function(m,i){return encodeURIComponent(m)+"__"+i;};
-      var calcJml=function(r){var q1=Number(r.qty1||1),q2=Number(r.qty2||1),q3=r.qty3?Number(r.qty3):1;return Math.round(q1*q2*q3*Number(r.hargaSatuan||0));};
-      ensureBD();
-      var d=window.data;
-      document.querySelectorAll("[data-bd58]").forEach(function(inp){
-        var p=inp.dataset.bd58.split("|");
-        if(p.length<4) return;
-        var month=decodeURIComponent(p[0]),idx=Number(p[1]),ri=Number(p[2]),field=p[3];
-        var k=bdKey(month,idx);
-        if(!Array.isArray(d.pengajuan.monthlyBreakdown[k])) d.pengajuan.monthlyBreakdown[k]=[];
-        var rows=d.pengajuan.monthlyBreakdown[k];
-        if(!rows[ri]) return;
-        rows[ri][field]=(inp.type==="number")?Number(inp.value||0):inp.value;
-        /* Auto-calc jumlah in-place */
-        if(["qty1","qty2","qty3","hargaSatuan"].indexOf(field)>=0){
-          rows[ri].jumlah=calcJml(rows[ri]);
-          var cell=inp.closest&&inp.closest("tr")&&inp.closest("tr").querySelector(".bd58-jml");
-          if(cell) cell.textContent=rp(rows[ri].jumlah);
-          /* Update progress bar & notice without re-rendering panel */
-          updateBdRingkasan(month,idx);
-        }
-      });
-    }catch(e){console.warn("[v1.59] bd58save err:",e);}
-
-    /* 2. Debounce localStorage save */
+  function saveBd58(input){
+    if(input && input.dataset && input.dataset.bd58){
+      processBd58Input(input);
+    } else {
+      document.querySelectorAll("[data-bd58]").forEach(processBd58Input);
+    }
     clearTimeout(_saveTimer);
     _saveTimer=setTimeout(function(){
       try{localStorage.setItem((typeof STORE!=="undefined"?STORE:"bop_rt005_data_v1_25"),JSON.stringify(window.data));}catch(e){}
     },600);
-  };
+  }
+
+  window.__bd58save = saveBd58;
   window.updateBreakdownFromInputs=window.__bd58save;
 
   /* Update ringkasan panel in-place (tidak re-render) */
@@ -10750,18 +10752,31 @@ ${KOP_PDF_CSS}
   ═══════════════════════════════════════════════════════════════ */
   var _origPD70 = window.previewDoc;
   window.previewDoc = function previewDoc70(type){
+    var docType = type || window.currentDoc || "permohonan";
     /* Pastikan hidden .doc-btn[data-doc=type] ada di DOM */
-    var existing = document.querySelector('.doc-btn[data-doc="'+type+'"]');
+    var existing = document.querySelector('.doc-btn[data-doc="'+docType+'"]');
     if(!existing){
       var hiddenBtns = document.querySelector('.ds-doc-hidden-btns');
       if(hiddenBtns){
         var nb = document.createElement('button');
         nb.className = 'doc-btn';
-        nb.dataset.doc = type;
+        nb.dataset.doc = docType;
         nb.style.display = 'none';
-        nb.textContent = type;
+        nb.textContent = docType;
         hiddenBtns.appendChild(nb);
+        existing = nb;
       }
+    }
+    if(existing){
+      document.querySelectorAll('.doc-btn.active[data-doc]').forEach(function(b){ b.classList.remove('active'); });
+      existing.classList.add('active');
+    }
+    try{ currentDoc = docType; }catch(e){ window.currentDoc = docType; }
+    window.currentDoc = docType;
+    var sel = document.getElementById("dsDocSelectV43");
+    if(sel && sel.value !== docType){
+      var match = Array.from(sel.options).find(function(o){ return o.value === docType; });
+      if(match) sel.value = docType;
     }
     /* Dispatch ke previewDoc69 */
     if(_origPD70) _origPD70.apply(this, arguments);

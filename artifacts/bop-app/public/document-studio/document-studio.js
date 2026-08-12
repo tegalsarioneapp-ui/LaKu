@@ -30,6 +30,9 @@
   let isSidebarOpen    = true;
   let toastTimer       = null;
   let bypassTemplate   = false; /* true = skip saved template on next loadDoc */
+  let _pendingDocHtml  = null;
+  let _pendingDocType  = null;
+  let _pendingDocTimer = null;
 
   /* ── DOM helpers ────────────────────────────────────────────────── */
   const $  = id  => document.getElementById(id);
@@ -140,6 +143,7 @@
      LOAD DOC INTO EDITOR
   ════════════════════════════════════════════════════════════════ */
   function loadDoc(type, freshHtml) {
+    type = type || window.currentDoc || currentDocType || "permohonan";
     /* ── Auto-simpan sesi saat ini sebagai draft sebelum pindah ── */
     if (currentDocType && currentDocType !== type) {
       clearTimeout(_draftTimer);
@@ -150,7 +154,17 @@
     }
 
     currentDocType = type;
+    try{ window.currentDoc = type; }catch(_){ window.currentDoc = type; }
     isModified     = false;
+
+    var sel = document.getElementById("dsDocSelectV43");
+    if (sel && sel.value !== type) {
+      var match = Array.from(sel.options).find(function(o){ return o.value === type; });
+      if (match) sel.value = type;
+    }
+    document.querySelectorAll('.doc-btn.active[data-doc]').forEach(function(b){ b.classList.remove('active'); });
+    var btn = document.querySelector(".doc-btn[data-doc='" + type + "']");
+    if (btn) btn.classList.add("active");
 
     const page = getPage();
     if (!page) return;
@@ -169,7 +183,12 @@
       const savedTime = saved?.savedAt ? new Date(saved.savedAt).getTime() : 0;
       const draftTime = draft?.savedAt ? new Date(draft.savedAt).getTime() : 0;
 
-      if (saved?.html || draft?.html) {
+      if (freshHtml && String(freshHtml).trim()) {
+        /* Prioritas: fresh generated HTML jika tersedia */
+        page.innerHTML = freshHtml;
+        setStatus("Dokumen digenerate dari data terkini", "saved");
+        setBadge(!!saved?.html);
+      } else if (saved?.html || draft?.html) {
         if (draftTime > savedTime && draft?.html) {
           /* Draft lebih baru dari simpanan → ada editan belum tersimpan */
           page.innerHTML = draft.html;
@@ -818,6 +837,29 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
      Observe #docOutput for changes and sync to editor.
   ════════════════════════════════════════════════════════════════ */
   let _dsDebounce = null;
+  function processPendingDocOutput() {
+    if (! _pendingDocHtml) return;
+    if (window.__bopPreviewDocActive) {
+      clearTimeout(_pendingDocTimer);
+      _pendingDocTimer = setTimeout(processPendingDocOutput, 180);
+      return;
+    }
+    if (isModified) {
+      _pendingDocHtml = null;
+      _pendingDocType = null;
+      return;
+    }
+    const html = _pendingDocHtml;
+    const type = _pendingDocType || window.currentDoc || currentDocType || "permohonan";
+    _pendingDocHtml = null;
+    _pendingDocType = null;
+    loadDoc(type, html);
+    const wrap = $("docStudioWrap");
+    if (wrap) {
+      setTimeout(() => wrap.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
+  }
+
   function hookDocOutput() {
     const docOutput = document.getElementById("docOutput");
     if (!docOutput) return;
@@ -832,8 +874,6 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
     });
 
     const observer  = new MutationObserver(() => { clearTimeout(_dsDebounce); _dsDebounce = setTimeout(() => {
-      /* Guard: skip saat previewDoc sedang aktif me-render ulang */
-      if (window.__bopPreviewDocActive) return;
       /* Guard: skip saat user punya editan belum tersimpan di editor */
       if (isModified) {
         const page85 = getPage();
@@ -844,9 +884,16 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
       }
       const html = docOutput.innerHTML.trim();
       if (html && html !== lastContent) {
-        lastContent = html;
         const activeBtn = document.querySelector(".doc-btn.active[data-doc]");
-        const type      = activeBtn?.dataset?.doc || currentDocType || "permohonan";
+        const type      = activeBtn?.dataset?.doc || currentDocType || window.currentDoc || "permohonan";
+        if (window.__bopPreviewDocActive) {
+          _pendingDocHtml = html;
+          _pendingDocType = type;
+          clearTimeout(_pendingDocTimer);
+          _pendingDocTimer = setTimeout(processPendingDocOutput, 450);
+          return;
+        }
+        lastContent = html;
         loadDoc(type, html);
         const wrap = $("docStudioWrap");
         if (wrap) {
@@ -864,7 +911,12 @@ p{margin:8px 0}ol{margin:8px 0;padding-left:24px}li{margin-bottom:6px}
       const btn = e.target.closest(".doc-btn[data-doc]");
       if (btn) {
         const type = btn.dataset.doc;
-        if (type) currentDocType = type;
+        if (type) {
+          currentDocType = type;
+          try{ window.currentDoc = type; }catch(_){ window.currentDoc = type; }
+          document.querySelectorAll('.doc-btn.active[data-doc]').forEach(function(b){ b.classList.remove('active'); });
+          btn.classList.add('active');
+        }
       }
     }, true); /* capture phase */
   }

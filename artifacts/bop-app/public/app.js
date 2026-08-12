@@ -2927,6 +2927,8 @@ function insertAiLpjPanelV29(){
 }
 
 function bind(){
+  let breakdownUpdateTimer=null;
+  
   $("hamburger").onclick=()=>{
     if(window.innerWidth<1000) $("sidebar").classList.toggle("open");
     else $("appShell").classList.toggle("menu-hidden");
@@ -2937,6 +2939,16 @@ function bind(){
   document.addEventListener("change",e=>{if(e.target?.id==="monthlyDocMonth"){data.pengajuan.selectedMonth=e.target.value;data.pengajuan.monthlyBreakdownOpen=false;data.pengajuan.monthlySelectedIndex=null;localStorage.setItem(STORE,JSON.stringify(data));renderMonthlyRapSummary();if(currentDoc==="rapbulanan"||currentDoc==="rbb")previewDoc(currentDoc)} if(e.target?.dataset?.rap){updateRapFromInputs();localStorage.setItem(STORE,JSON.stringify(data));renderRap();}});
   document.addEventListener("input", e => {
     if (e.target?.dataset?.bd57 || e.target?.dataset?.bd58) {
+      return;
+    }
+    if (e.target?.dataset?.breakdown) {
+      updateBreakdownFromInputs();
+      updateBreakdownLiveStatus();
+      clearTimeout(breakdownUpdateTimer);
+      breakdownUpdateTimer=setTimeout(()=>{
+        localStorage.setItem(STORE,JSON.stringify(data));
+        renderMonthlyRapSummary();
+      },500);
       return;
     }
     if (e.target.dataset.exp) {

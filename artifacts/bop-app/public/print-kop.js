@@ -13,9 +13,7 @@
 
   var DEFAULTS = {
     leftLogo: "assets/logo-rt005.png",
-    rightLogo: "assets/logo-pemkot-semarang-transparent.png",
-    leftAlt: "Logo RT 005 RW 012",
-    rightAlt: "Logo Pemerintah Kota Semarang"
+    leftAlt: "Logo RT 005 RW 012"
   };
 
   function escapeHtml(value) {
@@ -58,10 +56,6 @@
           '<div class="print-kop__line">', escapeHtml(identity.village), '</div>',
           '<div class="print-kop__line print-kop__line--rt">', escapeHtml(identity.neighbourhood), '</div>',
           '<div class="print-kop__address">', escapeHtml(identity.address), '</div>',
-        '</div>',
-        '<div class="print-kop__side print-kop__side--right">',
-          '<img class="print-kop__logo" width="90" height="90" src="', escapeHtml(opts.rightLogo),
-            '" alt="', escapeHtml(opts.rightAlt), '">',
         '</div>',
       '</div>'
     ].join("");

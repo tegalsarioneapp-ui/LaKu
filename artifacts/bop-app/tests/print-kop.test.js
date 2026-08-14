@@ -31,12 +31,13 @@ function loadTemplate() {
   return window.PrintKopTemplate;
 }
 
-test("global KOP renders both balanced logos and identity hierarchy", () => {
+test("global KOP renders only the RT logo and identity hierarchy", () => {
   const template = loadTemplate();
   const html = template.render();
 
   assert.match(html, /assets\/logo-rt005\.png/);
-  assert.match(html, /assets\/logo-pemkot-semarang-transparent\.png/);
+  assert.doesNotMatch(html, /logo-pemkot-semarang|Logo Pemerintah Kota Semarang|Logo Pemkot Semarang/);
+  assert.doesNotMatch(html, /print-kop__side--right/);
   assert.match(html, /width="90" height="90"/);
   assert.match(html, /PEMERINTAH KOTA SEMARANG/);
   assert.match(html, /KECAMATAN CANDISARI/);

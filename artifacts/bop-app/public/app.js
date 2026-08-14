@@ -13190,7 +13190,7 @@ ${KOP_PDF_CSS}
       return '' +
         '<div class="kop official-letterhead">' +
           '<div class="letterhead-logo">' +
-            '<img src="assets/logo-pemkot-semarang-transparent.png" alt="Logo Pemkot Semarang">' +
+            '<img src="assets/logo-rt005.png" alt="Logo RT 005 RW 012">' +
           '</div>' +
           '<div class="letterhead-text">' +
             '<div class="line city">' + esc87(line1) + '</div>' +

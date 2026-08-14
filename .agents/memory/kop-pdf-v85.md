@@ -13,7 +13,7 @@ KOP resmi dipusatkan di `public/print-kop.js` dan `public/print-kop.css`. Script
 
 - `.print-area` memakai A4 portrait dengan margin atas 2cm, kanan 2cm, bawah 2cm, kiri 3cm.
 - `-webkit-print-color-adjust: exact` dan `print-color-adjust: exact` diterapkan pada area cetak.
-- `.print-kop` memakai Flexbox tiga kolom seimbang: Logo RT 005 kiri, teks tengah, Logo Pemkot Semarang kanan.
+- `.print-kop` memakai layout Flexbox dengan Logo RT 005 saja di kiri dan teks KOP tetap terpusat.
 - Logo utama memakai ukuran tetap 90px.
 - Garis ganda di bawah KOP dibuat dengan `.print-kop::after` agar tajam saat diprint.
 

@@ -61,11 +61,11 @@
 }
 
 .print-kop__side--left {
+  position: absolute;
+  top: 50%;
+  left: 0;
   justify-content: flex-start;
-}
-
-.print-kop__side--right {
-  justify-content: flex-end;
+  transform: translateY(-50%);
 }
 
 .print-kop__logo {
@@ -84,6 +84,7 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
+  width: 100%;
   padding: 0 12px;
   text-align: center;
 }

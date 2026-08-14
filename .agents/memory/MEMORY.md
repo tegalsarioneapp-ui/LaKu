@@ -3,7 +3,7 @@
 - [MoKu IndexedDB + BOP Sync](moku-idb-sync.md) — Photos stored in IndexedDB (db.js) + photoCache Map; BOP sync reads bop_rt005_data_v1_25; PostgreSQL tables: moku_photos, bop_snapshots, moku_results_sync.
 - [BOP PostgreSQL Sync Bugs Fixed](bop-pg-sync-fixes.md) — 5 critical multi-device sync bugs fixed; see file for details.
 - [MoKu initEvents crash fix](moku-init-crash.md) — importActivityFile null crash kills clock+GPS; always null-guard DOM queries in initEvents before addEventListener.
-- [Global Print KOP](kop-pdf-v85.md) — seluruh jalur cetak memakai public/print-kop.js + print-kop.css; modul dimuat terakhir untuk mengambil alih window.kopHTML dan iframe print.
+- [Global Print KOP](kop-pdf-v85.md) — seluruh jalur cetak memakai public/print-kop.js + print-kop.css; modul terakhir menampilkan Logo RT saja.
 - [BOP Patch v1.58-v1.59 Fixes](bop-v58-v59-fixes.md) — annualIndex fix, debounce cursor, Ringkasan Anggaran, Pengambilan Bank multi-bulan, mobile CSS.
 - [MoKu Watermark Premium v2](moku-watermark-v2.md) — drawWatermark redesigned: 3 font tiers, gold accent bar, address gold/coords small, RT always shown both corners.
 - [BOP dm-card60 Output Unwrap](bop-dm-card60-unwrap.md) — docOutput/pkDocOutput/lpjOutput show content directly; dm-card60 hidden via ID CSS override in v1.62.

@@ -1,42 +1,29 @@
 ---
-name: KOP PDF Fix v1.85
-description: Perbaikan KOP surat di semua PDF/cetak path — struktur HTML baru .kop-v85-*, logo KIRI proporsional, DS observer guard.
+name: Global Print KOP
+description: Arsitektur KOP surat reusable untuk seluruh jalur dokumen, screen preview, browser print, dan iframe PDF.
 ---
 
-## Masalah
-`kopHTML()` v63 menghasilkan HTML dengan class `.kop-v63-*` tapi SEMUA print CSS (printCssV37, PDF_PRINT_CSS, KOP_PDF_CSS, exportPdfDocV38) hanya punya old class names → KOP layout hancur di setiap PDF.
+## Rule
 
-## Solusi (PATCH v1.85 di akhir app.js)
+KOP resmi dipusatkan di `public/print-kop.js` dan `public/print-kop.css`. Script global dimuat paling akhir setelah seluruh script legacy sehingga `window.kopHTML()` menjadi satu sumber KOP untuk semua generator dokumen.
 
-### KOP HTML baru (`.kop-v85-*`)
-```
-div.kop.kop-v85
-  div.kop-v85-header  ← b1 full width
-  div.kop-v85-body    ← flex, align-items:stretch
-    div.kop-v85-logo-wrap  ← 80px, flex:0 0 80px, align-self:stretch
-      img.kop-v85-logo     ← height:100%, width:auto (= tinggi blok text)
-    div.kop-v85-text   ← flex:1, text-align:center
-      div.kop-v85-line × 3
-    div.kop-v85-spacer ← 80px mirror logo → text benar-benar center
-  hr.kop-v85-hr
-  div.kop-v85-addr
-```
+**Why:** Aplikasi LaKu adalah renderer vanilla-JS legacy dengan banyak patch historis. Memusatkan KOP di script terakhir menghindari pengeditan manual di setiap generator dan membuat screen preview serta iframe print memakai kontrak yang sama.
 
-### Sizing logo proporsional
-- `align-items: stretch` pada row → logo-wrap tingginya = tinggi text block
-- `height: 100%` pada img → logo mengisi tinggi logo-wrap
-- `max-height: 100px`, `max-width: 76px`, `object-fit: contain`
+## Global print contract
 
-### Print path yang dipatch
-1. `window.cleanPrint` — browser print (iframe) → HTML baru dengan KOP_V85_CSS
-2. `window.exportPdfDocV38` — popup PDF export → HTML baru dengan KOP_V85_CSS
-3. Screen inject CSS via `<style id="bopV85ScreenStyle">`
+- `.print-area` memakai A4 portrait dengan margin atas 2cm, kanan 2cm, bawah 2cm, kiri 3cm.
+- `-webkit-print-color-adjust: exact` dan `print-color-adjust: exact` diterapkan pada area cetak.
+- `.print-kop` memakai Flexbox tiga kolom seimbang: Logo RT 005 kiri, teks tengah, Logo Pemkot Semarang kanan.
+- Logo utama memakai ukuran tetap 90px.
+- Garis ganda di bawah KOP dibuat dengan `.print-kop::after` agar tajam saat diprint.
 
-### DS Observer guard
-- document-studio.js: MutationObserver skip jika `window.__bopPreviewDocActive === true`
-- app.js: `window.previewDoc` wrapped → set flag true, reset setelah 350ms
-- Juga skip jika `isModified === true` (editan user belum tersimpan) + auto-save draft
+## Jalur yang memakai modul
 
-**Why:** Ada banyak patch kopHTML() yang tumpang tindih. Selalu tambahkan CSS print ke SEMUA export path, bukan hanya screen.
+1. `window.kopHTML()` untuk `official()`, `docLpj()`, RAP, RBB, dan dokumen PK.
+2. `window.cleanPrint()` dan `window.cleanPrintPk()` untuk cetak browser.
+3. `window.exportPdfDocV38()` dan `window.exportPdfLpjV38()` untuk alur simpan PDF melalui dialog print browser.
+4. `PrintKopTemplate.render()`, `.wrap()`, dan `.print()` untuk integrasi baru.
 
-**How to apply:** Setiap kali kopHTML() diubah, pastikan KOP CSS yang sesuai ada di `window.cleanPrint`, `window.exportPdfDocV38`, DAN screen inject.
+## How to apply
+
+Jika format KOP diubah, ubah `print-kop.js` dan `print-kop.css`; jangan menambah KOP baru ke generator dokumen individual. Pastikan `print-kop.js` tetap menjadi script legacy terakhir di `index.html`.

@@ -14150,3 +14150,107 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.96] RAP Bulanan, breakdown legacy/KAK, dan refresh sync unified.");
 })();
 /* END PATCH v1.96 */
+
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.97 — Dashboard data source unified + server-sync refresh
+
+   Dashboard harus membaca snapshot data yang sama dengan modul BOP,
+   bukan bergantung pada patch KPI sebelumnya yang hanya memperbarui
+   sebagian kartu. Patch ini tidak me-render ulang form aktif.
+════════════════════════════════════════════════════════════════ */
+(function bopDashboardSyncV97(){
+  if(window.__bopDashboardSyncV97) return;
+  window.__bopDashboardSyncV97 = true;
+
+  const BUDGET = 25000000;
+  const STORE_KEY = "bop_rt005_data_v1_25";
+
+  function numberValue(value){
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function rapTotalOf(state){
+    const rows = Array.isArray(state?.pengajuan?.rap) ? state.pengajuan.rap : [];
+    return rows.reduce((sum, row) => {
+      if(Array.isArray(row)) return sum + numberValue(row[2]);
+      return sum + numberValue(row?.jumlah ?? row?.anggaran ?? row?.rencanaAnggaran);
+    }, 0);
+  }
+
+  function expenseTotalOf(state){
+    const rows = Array.isArray(state?.lpj?.pengeluaran) ? state.lpj.pengeluaran : [];
+    return rows.reduce((sum, row) => {
+      if(Array.isArray(row)) return sum + numberValue(row[2]);
+      return sum + numberValue(row?.jumlah ?? row?.nominal ?? row?.nilai);
+    }, 0);
+  }
+
+  function setText(id, value){
+    const el = document.getElementById(id);
+    if(el) el.textContent = String(value);
+  }
+
+  function refresh(){
+    const state = (typeof data !== "undefined" && data) || window.data || {};
+    const rap = rapTotalOf(state);
+    const realisasi = expenseTotalOf(state);
+    const sisa = BUDGET - rap - realisasi;
+    const allocatedPercent = BUDGET > 0 ? Math.round((rap / BUDGET) * 100) : 0;
+    const checklist = state.pengajuan?.checklist || {};
+    const checklistKeys = Object.keys(checklist);
+    const selesai = checklistKeys.filter(key => Boolean(checklist[key])).length;
+    const history = Array.isArray(state.history) ? state.history.length : 0;
+
+    setText("dashTotal", rupiah(BUDGET));
+    setText("dashAllocated", rupiah(rap));
+    setText("dashSisa", rupiah(sisa));
+    setText("dashPercent", `${allocatedPercent}% dari total`);
+    setText("dashHistory", history);
+    setText("checkProgress", `${selesai} / ${checklistKeys.length || 7}`);
+
+    if(typeof updateSidebarNote === "function"){
+      try{ updateSidebarNote(); }catch(_e){}
+    }
+  }
+
+  window.__bopDashboardRefreshV97 = refresh;
+
+  /* Local edit/save and explicit render paths. */
+  const originalUpdateDashboard = window.updateDashboard;
+  window.updateDashboard = function dashboardUpdateV97(){
+    try{
+      if(typeof originalUpdateDashboard === "function") originalUpdateDashboard();
+    } finally {
+      refresh();
+    }
+  };
+
+  /* Remote snapshot path: refresh after the existing conflict/version logic. */
+  const originalApply = window.bopApplyServerDataV42;
+  if(typeof originalApply === "function"){
+    window.bopApplyServerDataV42 = function applyServerDataV97(result){
+      const output = originalApply.apply(this, arguments);
+      refresh();
+      return output;
+    };
+  }
+
+  /* A second tab can update local cache without a full page render. */
+  window.addEventListener("storage", event => {
+    if(event.key !== STORE_KEY) return;
+    try{
+      const incoming = JSON.parse(event.newValue || "{}");
+      if(typeof data !== "undefined" && incoming && typeof incoming === "object"){
+        data = incoming;
+        window.data = data;
+      }
+      refresh();
+    }catch(_e){}
+  });
+
+  refresh();
+  console.log("[BOP v1.97] Dashboard unified dengan data RAP, LPJ, checklist, history, dan snapshot server.");
+})();
+/* END PATCH v1.97 */

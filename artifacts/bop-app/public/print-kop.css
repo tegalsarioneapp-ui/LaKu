@@ -4,8 +4,13 @@
  */
 
 @page {
-  size: A4 portrait;
-  margin: 2cm 2cm 2cm 3cm;
+  /*
+   * Margin surat resmi: atas 4 cm, kanan 3 cm, bawah 3 cm, kiri 3 cm.
+   * size:auto sengaja dipakai agar pilihan kertas A4 maupun Folio/F4
+   * dari dialog printer tetap dihormati.
+   */
+  size: auto;
+  margin: 4cm 3cm 3cm 3cm;
 }
 
 .print-area {
@@ -153,8 +158,8 @@
 
 @media print {
   @page {
-    size: A4 portrait;
-    margin: 2cm 2cm 2cm 3cm;
+    size: auto;
+    margin: 4cm 3cm 3cm 3cm;
   }
 
   html,
@@ -204,6 +209,30 @@
     background: #fff !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+
+  /*
+   * Ruang tanda tangan surat resmi.
+   * 3 cm memberi ruang untuk paraf/tanda tangan sebelum nama tercetak.
+   */
+  .print-document .sign-space-v37,
+  .print-document .signature-space,
+  .print-document .signature-space-v37 {
+    display: block !important;
+    height: 3cm !important;
+    min-height: 3cm !important;
+  }
+
+  .print-document .sign-two-v37 b,
+  .print-document .sign-right-v37 b,
+  .print-document .ttd-2 b,
+  .print-document .ttd-grid b,
+  .print-document .ttd-3 b,
+  .print-document .ttd-4 b,
+  .print-document .signature-name {
+    display: inline-block !important;
+    margin-top: 2mm !important;
+    line-height: 1.2 !important;
   }
 }
 

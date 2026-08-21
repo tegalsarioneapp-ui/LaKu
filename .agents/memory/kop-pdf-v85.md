@@ -35,3 +35,11 @@ Iframe cetak harus memuat `styles.css`, `document-studio.css`, dan `print-kop.cs
 **Why:** Menyalin HTML preview tanpa CSS dokumen membuat hasil print preview berbeda walaupun generator datanya sama.
 
 **How to apply:** Saat menambah jalur cetak baru, ambil `innerHTML` dari output preview yang sudah dirender dan gunakan stack stylesheet yang sama; jangan membuat CSS dokumen kedua di fungsi cetak.
+
+## Official margins and signatures
+
+Jalur cetak memakai margin atas 4 cm, kanan/kiri/bawah 3 cm, dan tidak memaksa ukuran kertas agar A4 maupun Folio/F4 dari dialog printer tetap didukung; ruang tanda tangan 3 cm.
+
+**Why:** Margin 2 cm membuat surat terlalu rapat, sementara ruang tanda tangan pendek menempatkan nama terlalu dekat dengan posisi tanda tangan.
+
+**How to apply:** Pertahankan aturan ini di `print-kop.css` untuk semua dokumen global; jangan memperbaiki margin atau tanda tangan per generator.

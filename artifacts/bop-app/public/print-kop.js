@@ -223,6 +223,28 @@
     if (rbbButton) rbbButton.onclick = function () { print("doc"); };
     if (pdfDocButton) pdfDocButton.onclick = function () { print("doc"); };
     if (pdfLpjButton) pdfLpjButton.onclick = function () { print("lpj"); };
+
+    /*
+     * Document Studio creates its toolbar buttons dynamically. Rebind its
+     * print action to this same pipeline instead of allowing the legacy
+     * popup/iframe implementation to take over.
+     */
+    var studioPrintButton = document.getElementById("dsPrintDoc");
+    if (studioPrintButton) {
+      studioPrintButton.onclick = function () { print("doc"); };
+    }
+  }
+
+  function watchDynamicPrintButtons() {
+    if (typeof MutationObserver === "undefined" || !document.body) return;
+    var observer = new MutationObserver(function () {
+      var button = document.getElementById("dsPrintDoc");
+      if (button && button.__globalPrintKopBound !== true) {
+        button.__globalPrintKopBound = true;
+        button.onclick = function () { print("doc"); };
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   global.PrintKopTemplate = {
@@ -255,8 +277,12 @@
 
   if (typeof document !== "undefined") {
     bindPrintButtons();
+    watchDynamicPrintButtons();
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", bindPrintButtons);
+      document.addEventListener("DOMContentLoaded", function () {
+        bindPrintButtons();
+        watchDynamicPrintButtons();
+      });
     }
   }
 

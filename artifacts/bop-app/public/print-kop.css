@@ -5,12 +5,13 @@
 
 @page {
   /*
-   * Margin surat resmi: atas 4 cm, kanan 3 cm, bawah 3 cm, kiri 3 cm.
+   * Margin surat resmi sesuai pedoman tata naskah:
+   * atas 3 cm, kanan 2 cm, bawah 2 cm, kiri 3 cm.
    * size:auto sengaja dipakai agar pilihan kertas A4 maupun Folio/F4
    * dari dialog printer tetap dihormati.
    */
   size: auto;
-  margin: 4cm 3cm 3cm 3cm;
+  margin: 3cm 2cm 2cm 3cm;
 }
 
 .print-area {
@@ -156,10 +157,34 @@
   break-inside: avoid;
 }
 
+/*
+ * Preview and print must use the same signature geometry. The more specific
+ * selector intentionally wins over historical inline patch styles in app.js.
+ */
+.doc-paper .official .sign-space-v37,
+.doc-paper .official .signature-space,
+.doc-paper .official .signature-space-v37 {
+  display: block !important;
+  height: 30mm !important;
+  min-height: 30mm !important;
+}
+
+.doc-paper .official .sign-two-v37 b,
+.doc-paper .official .sign-right-v37 b,
+.doc-paper .official .ttd-2 b,
+.doc-paper .official .ttd-grid b,
+.doc-paper .official .ttd-3 b,
+.doc-paper .official .ttd-4 b,
+.doc-paper .official .signature-name {
+  display: inline-block !important;
+  margin-top: 2mm !important;
+  line-height: 1.2 !important;
+}
+
 @media print {
   @page {
     size: auto;
-    margin: 4cm 3cm 3cm 3cm;
+    margin: 3cm 2cm 2cm 3cm;
   }
 
   html,
@@ -219,8 +244,8 @@
   .print-document .signature-space,
   .print-document .signature-space-v37 {
     display: block !important;
-    height: 3cm !important;
-    min-height: 3cm !important;
+    height: 30mm !important;
+    min-height: 30mm !important;
   }
 
   .print-document .sign-two-v37 b,

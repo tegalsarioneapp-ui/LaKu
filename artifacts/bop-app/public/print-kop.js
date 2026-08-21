@@ -115,10 +115,14 @@
     if (!body) return "";
 
     /*
-     * previewDoc/docLpj/pk preview now call the global kopHTML. The
-     * fallback only handles a stale DOM generated before this module loaded.
+     * The preview renderer owns the document structure, including KOP.
+     * Only add a KOP for a genuinely old/partial output. Checking for any
+     * historical KOP class prevents the old and new letterheads being printed
+     * together while legacy output is being migrated.
      */
-    if (body.indexOf('data-print-kop="global"') === -1) {
+    var hasLetterhead = /class=["'][^"']*(?:\bkop\b|print-kop|letterhead)[^"']*["']/i.test(body) ||
+      /data-print-kop=["']global["']/i.test(body);
+    if (!hasLetterhead) {
       body = render() + body;
     }
 
@@ -171,7 +175,7 @@
       '<link rel="stylesheet" href="' + escapeHtml(studioStylesUrl) + '">' +
       '<link rel="stylesheet" href="' + escapeHtml(kopStylesUrl) + '">' +
       '<style>' +
-        '.print-document{padding:32px!important;box-sizing:border-box!important}' +
+        'html,body,.print-area,.print-document{margin:0!important;padding:0!important;box-sizing:border-box!important}' +
         '.print-document .doc-paper{padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important}' +
         '.print-document .official{display:block!important;visibility:visible!important}' +
         '.print-document table{border-collapse:collapse!important}' +

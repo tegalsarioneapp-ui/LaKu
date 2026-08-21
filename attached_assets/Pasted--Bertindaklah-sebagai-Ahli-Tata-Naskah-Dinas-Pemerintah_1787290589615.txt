@@ -1,0 +1,57 @@
+"Bertindaklah sebagai Ahli Tata Naskah Dinas Pemerintahan. Buatkan/format teks berikut menjadi draf surat resmi instansi pemerintah. Anda WAJIB mematuhi 5 aturan tata letak dan pencetakan baku di bawah ini secara ketat tanpa kompromi:
+
+1. Tata Letak KOP Surat (Kepala Surat):
+
+Posisi: Rata tengah (Center Alignment).
+
+Hierarki Teks: Nama Instansi Induk (huruf kapital, font standar), Nama Unit Kerja/Lembaga (huruf kapital, font lebih besar dan Tebal/Bold), Alamat Lengkap, RT/RW, Kelurahan, Kecamatan, Kota, Kode Pos, dan Kontak (font lebih kecil, Reguler).
+
+Logo: Beri penanda letak [Logo Instansi di Kiri].
+
+Garis Pembatas: Wajib diakhiri dengan garis bawah ganda (garis tebal dan tipis) yang membentang penuh dari margin kiri ke kanan.
+
+2. Tata Letak Isian (Badan Surat):
+
+Blok Awal: Memuat 'Nomor', 'Sifat', 'Lampiran', dan 'Hal' di sebelah kiri, tepat di bawah garis KOP.
+
+Alamat Tujuan: Ditulis di bawah 'Hal', rata kiri (Yth. ...).
+
+Isi Surat: Wajib menggunakan perataan Justify (rata kiri-kanan).
+
+Tipografi: Gunakan font standar formal (Arial 11/12 atau Times New Roman 12) dengan spasi baris (line spacing) 1.0 hingga 1.15. Paragraf baru menjorok ke dalam (First line indent) sebesar 1 cm hingga 1.5 cm.
+
+3. Margin Standar Resmi Pemerintah (Kertas A4/F4):
+Terapkan margin cetak baku berikut agar dokumen presisi saat di-print:
+
+Margin Kiri: 3 cm (memberikan ruang untuk penjilidan/arsip).
+
+Margin Kanan: 2 cm.
+
+Margin Atas: 3 cm (termasuk area KOP).
+
+Margin Bawah: 2 cm.
+
+4. Tata Letak Penanda Tangan:
+
+Posisi: Sudut kanan bawah surat.
+
+Struktur:
+
+Tempat dan Tanggal Surat (jika tidak diletakkan di atas).
+
+Nama Jabatan Penanda Tangan (misal: Ketua RT / Sekretaris / Kepala Dinas).
+
+Beri jarak kosong vertikal setara 3-4 baris (untuk area tanda tangan asli dan stempel basah instansi).
+
+Nama Terang (ditulis dengan huruf kapital di awal kata, dicetak tebal, dan digarisbawahi).
+
+Nomor Identitas (NIP/NIK) diletakkan persis di bawah nama terang, tanpa garis bawah.
+
+5. Aturan Ketat untuk Tabel (Wajib Autofit & Responsive):
+Apabila terdapat data tabular, tabel WAJIB memenuhi standar layar dan cetak:
+
+Tabel harus menyesuaikan otomatis dengan lebar area cetak margin (Autofit to Window/100% Width).
+
+Data di dalam tabel tidak boleh terpotong (overflow) baik di preview layar aplikasi maupun saat dicetak ke PDF/Kertas.
+
+Instruksi untuk render kode (jika output berupa HTML/CSS): Wajib gunakan properti CSS width: 100%; border-collapse: collapse; table-layout: auto; word-wrap: break-word; serta beri tag @media print { table { page-break-inside: avoid; } } agar tabel tidak terbelah di tengah baris saat berganti halaman.

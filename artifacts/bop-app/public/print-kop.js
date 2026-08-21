@@ -142,10 +142,22 @@
     document.body.appendChild(frame);
 
     var printDocument = frame.contentDocument || frame.contentWindow.document;
-    var cssUrl = new URL("print-kop.css", global.location.href).href;
+    /*
+     * The on-screen preview is rendered inside .doc-paper from styles.css.
+     * Loading only print-kop.css here used to drop the preview's document
+     * rules (table borders, official typography, spacing), so print preview
+     * looked like a different document. Keep the same document CSS in the
+     * print frame, then let print-kop.css apply its print-specific rules.
+     */
+    var stylesUrl = new URL("styles.css", global.location.href).href;
+    var studioStylesUrl = new URL("document-studio/document-studio.css", global.location.href).href;
+    var kopStylesUrl = new URL("print-kop.css", global.location.href).href;
     var printed = false;
+    var linksLoaded = 0;
+    var requiredLinks = 3;
     function invokePrint() {
       if (printed) return;
+      if (linksLoaded < requiredLinks) return;
       printed = true;
       frame.contentWindow.focus();
       frame.contentWindow.print();
@@ -155,14 +167,34 @@
     printDocument.write(
       '<!doctype html><html lang="id"><head><meta charset="utf-8">' +
       '<title>Dokumen Resmi LaKu Warga</title>' +
-      '<link rel="stylesheet" href="' + escapeHtml(cssUrl) + '">' +
+      '<link rel="stylesheet" href="' + escapeHtml(stylesUrl) + '">' +
+      '<link rel="stylesheet" href="' + escapeHtml(studioStylesUrl) + '">' +
+      '<link rel="stylesheet" href="' + escapeHtml(kopStylesUrl) + '">' +
+      '<style>' +
+        '.print-document{padding:32px!important;box-sizing:border-box!important}' +
+        '.print-document .doc-paper{padding:0!important;border:0!important;box-shadow:none!important;min-height:0!important}' +
+        '.print-document .official{display:block!important;visibility:visible!important}' +
+        '.print-document table{border-collapse:collapse!important}' +
+      '</style>' +
       '</head><body>' + html + "</body></html>"
     );
     printDocument.close();
 
-    var link = printDocument.querySelector("link");
-    if (link) link.onload = invokePrint;
-    setTimeout(invokePrint, 650);
+    printDocument.querySelectorAll("link").forEach(function(link) {
+      link.onload = function() {
+        linksLoaded += 1;
+        invokePrint();
+      };
+      link.onerror = function() {
+        /* A missing optional stylesheet must not block printing forever. */
+        linksLoaded += 1;
+        invokePrint();
+      };
+    });
+    setTimeout(function() {
+      linksLoaded = requiredLinks;
+      invokePrint();
+    }, 1200);
     setTimeout(function () {
       try { frame.remove(); } catch (_) {}
     }, 60000);

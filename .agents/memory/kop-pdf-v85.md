@@ -27,3 +27,11 @@ KOP resmi dipusatkan di `public/print-kop.js` dan `public/print-kop.css`. Script
 ## How to apply
 
 Jika format KOP diubah, ubah `print-kop.js` dan `print-kop.css`; jangan menambah KOP baru ke generator dokumen individual. Pastikan `print-kop.js` tetap menjadi script legacy terakhir di `index.html`.
+
+## Print parity
+
+Iframe cetak harus memuat `styles.css`, `document-studio.css`, dan `print-kop.css` secara berurutan, serta mempertahankan padding `.doc-paper` melalui `.print-document`.
+
+**Why:** Menyalin HTML preview tanpa CSS dokumen membuat hasil print preview berbeda walaupun generator datanya sama.
+
+**How to apply:** Saat menambah jalur cetak baru, ambil `innerHTML` dari output preview yang sudah dirender dan gunakan stack stylesheet yang sama; jangan membuat CSS dokumen kedua di fungsi cetak.

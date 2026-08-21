@@ -901,6 +901,52 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
   padding:0!important;
 }
 
+/* Tata letak cetak Pengajuan: proporsi baku A4 dan nomor selalu mengikuti isi. */
+.official-v37 .official-table-v37,
+.official-v37 .official-table-v37 colgroup{
+  width:100%;
+}
+.official-v37 .official-table-v37{
+  table-layout:fixed!important;
+}
+.official-v37 .official-table-v37 .col-no-v37,
+.official-v37 .official-table-v37 col.col-no-v37{
+  width:9mm!important;
+  min-width:9mm!important;
+  max-width:9mm!important;
+}
+.official-v37 .official-table-v37 col.col-uraian-v37{width:35%}
+.official-v37 .official-table-v37 col.col-volume-v37{width:18%}
+.official-v37 .official-table-v37 col.col-anggaran-v37{width:22%}
+.official-v37 .official-table-v37 col.col-keterangan-v37{width:auto}
+.official-v37 .official-table-v37 th,
+.official-v37 .official-table-v37 td{
+  overflow-wrap:anywhere;
+  word-break:normal;
+}
+.official-v37 .sign-two-v37{
+  width:100%!important;
+  table-layout:fixed!important;
+  margin-top:12px!important;
+}
+.official-v37 .sign-two-v37 td{
+  width:50%!important;
+  padding:3px 12px!important;
+  vertical-align:top!important;
+  text-align:center!important;
+}
+.official-v37 .sign-right-v37{
+  width:100%!important;
+  table-layout:fixed!important;
+  margin-top:10px!important;
+}
+.official-v37 .sign-right-v37 td:last-child{
+  width:45%!important;
+  padding:3px 8px!important;
+  text-align:center!important;
+  vertical-align:top!important;
+}
+
 .official .kop.kop-standard .kop-table td,
 .kop.kop-standard .kop-table td{
   border:0!important;

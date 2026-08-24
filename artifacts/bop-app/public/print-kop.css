@@ -44,6 +44,15 @@
   break-inside: avoid;
 }
 
+.print-kop-global {
+  display: grid !important;
+  grid-template-columns: 24mm minmax(0, 1fr) 24mm !important;
+  align-items: center !important;
+  min-height: 32mm !important;
+  padding: 0 0 4mm !important;
+  margin: 0 0 5mm !important;
+}
+
 /* Garis ganda presisi: garis tebal di atas, garis tipis di bawah. */
 .print-kop::after {
   position: absolute;
@@ -74,6 +83,17 @@
   transform: translateY(-50%);
 }
 
+.print-kop-global .print-kop__side--left {
+  position: static !important;
+  grid-column: 1;
+  grid-row: 1;
+  width: 24mm !important;
+  min-width: 24mm !important;
+  height: 24mm !important;
+  transform: none !important;
+  justify-content: flex-start !important;
+}
+
 .print-kop__logo {
   display: block;
   width: 90px;
@@ -81,6 +101,13 @@
   max-width: 90px;
   max-height: 90px;
   object-fit: contain;
+}
+
+.print-kop-global .print-kop__logo {
+  width: 22mm !important;
+  height: 22mm !important;
+  max-width: 22mm !important;
+  max-height: 22mm !important;
 }
 
 .print-kop__center {
@@ -93,6 +120,21 @@
   width: 100%;
   padding: 0 12px;
   text-align: center;
+}
+
+.print-kop-global .print-kop__center {
+  grid-column: 2;
+  grid-row: 1;
+  width: auto !important;
+  padding: 0 2mm !important;
+}
+
+.print-kop-global::before {
+  grid-column: 3;
+  grid-row: 1;
+  width: 24mm;
+  height: 24mm;
+  content: "";
 }
 
 .print-kop__line {
@@ -226,6 +268,8 @@
 .doc-paper .official .ttd-3 b,
 .doc-paper .official .ttd-4 b,
 .doc-paper .official .signature-name {
+  font-weight: 700 !important;
+  text-decoration: underline !important;
   display: inline-block !important;
   margin-top: 2mm !important;
   line-height: 1.2 !important;

@@ -45,7 +45,7 @@
     var identity = Object.assign(getIdentity(), opts.identity || {});
 
     return [
-      '<div class="print-kop" data-print-kop="global" role="presentation">',
+      '<div class="print-kop print-kop-global" data-print-kop="global" role="presentation">',
         '<div class="print-kop__side print-kop__side--left">',
           '<img class="print-kop__logo" width="90" height="90" src="', escapeHtml(opts.leftLogo),
             '" alt="', escapeHtml(opts.leftAlt), '">',
@@ -123,10 +123,44 @@
     if (typeof document !== "undefined") {
       var holder = document.createElement("div");
       holder.innerHTML = body;
+      /*
+       * Remove old KOP variants even when a patch renamed the root class
+       * (kop-v63, kop-v85, official-letterhead, etc.). Do not use a broad
+       * CSS selector in the stylesheet; this cleanup is limited to the
+       * detached print DOM and leaves the application preview untouched.
+       */
+      Array.prototype.slice.call(holder.querySelectorAll("[class]")).forEach(function (element) {
+        var tokens = String(element.className || "").split(/\s+/).filter(Boolean);
+        var isLegacyLetterhead = tokens.some(function (token) {
+          return token === "kop" ||
+            /^kop[-_]/i.test(token) ||
+            /^print-kop/i.test(token) ||
+            /letterhead/i.test(token);
+        });
+        if (isLegacyLetterhead) element.remove();
+      });
+
+      /*
+       * Convert plain text after the signature spacer into a named block so
+       * legacy generators receive the same formal typography as newer ones.
+       */
       holder.querySelectorAll(
-        ".kop, .print-kop, [data-print-kop], .official-letterhead, .letterhead-rule"
-      ).forEach(function (letterhead) {
-        letterhead.remove();
+        ".ttd-grid > div, .ttd-2 > div, .ttd-3 > div, .ttd-4 > div, " +
+        ".sign-two-v37 td, .sign-right-v37 td"
+      ).forEach(function (signature) {
+        var spacer = signature.querySelector(".signature-space, .sign-space-v37");
+        if (!spacer) return;
+        var node = spacer.nextSibling;
+        while (node) {
+          var next = node.nextSibling;
+          if (node.nodeType === 3 && node.nodeValue.trim()) {
+            var named = document.createElement("span");
+            named.className = "signature-name";
+            named.textContent = node.nodeValue.trim();
+            node.parentNode.replaceChild(named, node);
+          }
+          node = next;
+        }
       });
       body = holder.innerHTML;
     }

@@ -110,8 +110,10 @@
     return doc ? doc.innerHTML : "";
   }
 
-  function createPrintHtml(target) {
-    var body = String(resolvePrintHtml(target) || "").trim();
+  function createPrintHtml(target, bodyOverride) {
+    var body = bodyOverride == null
+      ? String(resolvePrintHtml(target) || "").trim()
+      : String(bodyOverride || "").trim();
     if (!body) return "";
 
     /*
@@ -169,8 +171,8 @@
     return '<div class="print-area"><div class="print-document">' + body + "</div></div>";
   }
 
-  function print(target) {
-    var html = createPrintHtml(target);
+  function print(target, bodyOverride) {
+    var html = createPrintHtml(target, bodyOverride);
     if (!html) {
       showPrintError("Tidak ada dokumen untuk dicetak.");
       return false;
@@ -293,6 +295,34 @@
         print("doc");
       };
     }
+
+    /*
+     * Modal Preview/Cetak v60 memiliki tombol berbeda dari Document Studio:
+     * #dm60PrintBtn. Handler lama di document modal memakai window.open()
+     * langsung, sehingga tidak pernah melewati Global Print KOP.
+     */
+    var modalPrintButton = document.getElementById("dm60PrintBtn");
+    if (modalPrintButton) {
+      if (!modalPrintButton.__globalPrintKopCaptureBound) {
+        modalPrintButton.__globalPrintKopCaptureBound = true;
+        modalPrintButton.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          var content = document.getElementById("dm60DocCetak") ||
+            document.getElementById("dm60DocPreview");
+          print("doc", content ? content.innerHTML : null);
+        }, true);
+      }
+      modalPrintButton.onclick = function (event) {
+        if (event) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        var content = document.getElementById("dm60DocCetak") ||
+          document.getElementById("dm60DocPreview");
+        print("doc", content ? content.innerHTML : null);
+      };
+    }
   }
 
   function watchDynamicPrintButtons() {
@@ -315,6 +345,30 @@
             event.stopPropagation();
           }
           print("doc");
+        };
+      }
+
+      var modalPrint = document.getElementById("dm60PrintBtn");
+      if (modalPrint && modalPrint.__globalPrintKopModalBound !== true) {
+        modalPrint.__globalPrintKopModalBound = true;
+        if (!modalPrint.__globalPrintKopCaptureBound) {
+          modalPrint.__globalPrintKopCaptureBound = true;
+          modalPrint.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            var content = document.getElementById("dm60DocCetak") ||
+              document.getElementById("dm60DocPreview");
+            print("doc", content ? content.innerHTML : null);
+          }, true);
+        }
+        modalPrint.onclick = function (event) {
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          var content = document.getElementById("dm60DocCetak") ||
+            document.getElementById("dm60DocPreview");
+          print("doc", content ? content.innerHTML : null);
         };
       }
     });

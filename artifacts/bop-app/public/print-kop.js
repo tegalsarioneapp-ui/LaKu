@@ -271,7 +271,27 @@
      */
     var studioPrintButton = document.getElementById("dsPrintDoc");
     if (studioPrintButton) {
-      studioPrintButton.onclick = function () { print("doc"); };
+      /*
+       * Document Studio memasang handler melalui addEventListener(). Karena
+       * handler tersebut tidak bisa dihapus hanya dengan mengganti onclick,
+       * gunakan listener capture untuk menghentikan jalur popup/print lama
+       * sebelum sampai ke handler Document Studio.
+       */
+      if (!studioPrintButton.__globalPrintKopCaptureBound) {
+        studioPrintButton.__globalPrintKopCaptureBound = true;
+        studioPrintButton.addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          print("doc");
+        }, true);
+      }
+      studioPrintButton.onclick = function (event) {
+        if (event) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        print("doc");
+      };
     }
   }
 
@@ -281,7 +301,21 @@
       var button = document.getElementById("dsPrintDoc");
       if (button && button.__globalPrintKopBound !== true) {
         button.__globalPrintKopBound = true;
-        button.onclick = function () { print("doc"); };
+        if (!button.__globalPrintKopCaptureBound) {
+          button.__globalPrintKopCaptureBound = true;
+          button.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            print("doc");
+          }, true);
+        }
+        button.onclick = function (event) {
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          print("doc");
+        };
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });

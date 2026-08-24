@@ -14244,3 +14244,110 @@ ${KOP_PDF_CSS}
   }
 })();
 /* END PATCH v1.98 */
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v1.99 — Fix definitif Dashboard Sisa Anggaran
+
+   Bug:
+   Dashboard sebelumnya menghitung:
+     Pagu - Total RAP - Total Realisasi
+   Padahal realisasi LPJ adalah penggunaan dari RAP, bukan alokasi
+   tambahan. Akibatnya sisa anggaran terpotong dua kali.
+
+   Rumus yang benar:
+     Sisa Anggaran = Pagu - Total RAP
+
+   Total Realisasi tetap ditampilkan di menu RAP vs Realisasi.
+════════════════════════════════════════════════════════════════ */
+(function bopDashboardRemainingFixV99(){
+  if(window.__bopDashboardRemainingFixV99) return;
+  window.__bopDashboardRemainingFixV99 = true;
+
+  var BUDGET_99 = 25000000;
+  var STORE_99 = "bop_rt005_data_v1_25";
+
+  function num99(value){
+    var n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function rapTotal99(state){
+    var rows = Array.isArray(state && state.pengajuan && state.pengajuan.rap)
+      ? state.pengajuan.rap : [];
+    return rows.reduce(function(total, row){
+      if(Array.isArray(row)) return total + num99(row[2]);
+      return total + num99(row && (row.jumlah ?? row.anggaran ?? row.rencanaAnggaran));
+    }, 0);
+  }
+
+  function expenseTotal99(state){
+    var rows = Array.isArray(state && state.lpj && state.lpj.pengeluaran)
+      ? state.lpj.pengeluaran : [];
+    return rows.reduce(function(total, row){
+      if(Array.isArray(row)) return total + num99(row[2]);
+      return total + num99(row && (row.jumlah ?? row.nominal ?? row.nilai));
+    }, 0);
+  }
+
+  function set99(id, value){
+    var el = document.getElementById(id);
+    if(el) el.textContent = String(value);
+  }
+
+  function refresh99(){
+    var state = (typeof data !== "undefined" && data) || window.data || {};
+    var rap = rapTotal99(state);
+    var realisasi = expenseTotal99(state);
+    var sisa = BUDGET_99 - rap;
+    var persen = BUDGET_99 > 0 ? Math.round((rap / BUDGET_99) * 100) : 0;
+    var checklist = state.pengajuan && state.pengajuan.checklist || {};
+    var checklistKeys = Object.keys(checklist);
+    var selesai = checklistKeys.filter(function(key){ return Boolean(checklist[key]); }).length;
+    var history = Array.isArray(state.history) ? state.history.length : 0;
+    var format = typeof rupiah === "function"
+      ? rupiah
+      : function(value){ return "Rp" + num99(value).toLocaleString("id-ID"); };
+
+    set99("dashTotal", format(BUDGET_99));
+    set99("dashAllocated", format(rap));
+    set99("dashSisa", format(sisa));
+    set99("dashPercent", persen + "% dari total");
+    set99("dashHistory", history);
+    set99("checkProgress", selesai + " / " + (checklistKeys.length || 7));
+
+    /* Simpan angka aktual untuk komponen lain tanpa mengubah makna
+       kartu Sisa Anggaran. */
+    var dashboard = document.getElementById("page-dashboard");
+    if(dashboard){
+      dashboard.dataset.rapTotal = String(rap);
+      dashboard.dataset.realisasiTotal = String(realisasi);
+      dashboard.dataset.sisaAnggaran = String(sisa);
+    }
+  }
+
+  /* Jadikan callback publik v1.97 memakai rumus yang sudah diperbaiki. */
+  window.__bopDashboardRefreshV97 = refresh99;
+
+  var previousUpdate99 = window.updateDashboard;
+  window.updateDashboard = function dashboardUpdateV99(){
+    try{
+      if(typeof previousUpdate99 === "function") previousUpdate99();
+    } finally {
+      refresh99();
+    }
+  };
+
+  window.addEventListener("storage", function(event){
+    if(event.key !== STORE_99) return;
+    setTimeout(refresh99, 0);
+  });
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(refresh99, 300); });
+  } else {
+    setTimeout(refresh99, 300);
+  }
+
+  console.log("[BOP v1.99] Rumus Sisa Anggaran diperbaiki: Pagu - Total RAP.");
+})();
+/* END PATCH v1.99 */

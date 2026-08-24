@@ -303,14 +303,20 @@
      */
     var modalPrintButton = document.getElementById("dm60PrintBtn");
     if (modalPrintButton) {
+      function getModalDocumentHtml() {
+        var editor = document.getElementById("dm60DocEdit");
+        if (editor && editor.innerHTML && editor.innerHTML.trim().length > 40) {
+          return editor.innerHTML;
+        }
+        var preview = document.getElementById("dm60DocPreview");
+        return preview ? preview.innerHTML : null;
+      }
       if (!modalPrintButton.__globalPrintKopCaptureBound) {
         modalPrintButton.__globalPrintKopCaptureBound = true;
         modalPrintButton.addEventListener("click", function (event) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          var content = document.getElementById("dm60DocCetak") ||
-            document.getElementById("dm60DocPreview");
-          print("doc", content ? content.innerHTML : null);
+          print("doc", getModalDocumentHtml());
         }, true);
       }
       modalPrintButton.onclick = function (event) {
@@ -318,9 +324,7 @@
           event.preventDefault();
           event.stopPropagation();
         }
-        var content = document.getElementById("dm60DocCetak") ||
-          document.getElementById("dm60DocPreview");
-        print("doc", content ? content.innerHTML : null);
+        print("doc", getModalDocumentHtml());
       };
     }
   }
@@ -356,9 +360,11 @@
           modalPrint.addEventListener("click", function (event) {
             event.preventDefault();
             event.stopImmediatePropagation();
-            var content = document.getElementById("dm60DocCetak") ||
-              document.getElementById("dm60DocPreview");
-            print("doc", content ? content.innerHTML : null);
+            var editor = document.getElementById("dm60DocEdit");
+            var preview = document.getElementById("dm60DocPreview");
+            var html = editor && editor.innerHTML && editor.innerHTML.trim().length > 40
+              ? editor.innerHTML : (preview ? preview.innerHTML : null);
+            print("doc", html);
           }, true);
         }
         modalPrint.onclick = function (event) {
@@ -366,9 +372,11 @@
             event.preventDefault();
             event.stopPropagation();
           }
-          var content = document.getElementById("dm60DocCetak") ||
-            document.getElementById("dm60DocPreview");
-          print("doc", content ? content.innerHTML : null);
+          var editor = document.getElementById("dm60DocEdit");
+          var preview = document.getElementById("dm60DocPreview");
+          var html = editor && editor.innerHTML && editor.innerHTML.trim().length > 40
+            ? editor.innerHTML : (preview ? preview.innerHTML : null);
+          print("doc", html);
         };
       }
     });

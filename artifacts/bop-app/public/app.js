@@ -9193,16 +9193,9 @@ ${KOP_PDF_CSS}
     '.dm60-copy-ds{margin-left:auto!important;background:#1e40af!important;color:#fff!important;border-color:#1e40af!important}',
     '.dm60-copy-ds:hover{background:#1d4ed8!important}',
     '.dm60-edit-content{width:100%;max-width:780px;border:2px solid #3b82f6;border-radius:8px;padding:20px;min-height:400px;outline:none;font-family:"Times New Roman",serif;font-size:12pt;line-height:1.7}',
-    /* cetak panel */
-    '.dm60-cetak-top{width:100%;max-width:780px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:18px;margin-bottom:20px}',
-    '.dm60-cetak-top h4{margin:0 0 12px;font-size:13px;color:#374151;font-weight:700}',
-    '.dm60-cetak-btns{display:flex;gap:10px;flex-wrap:wrap}',
-    '.dm60-cetak-btns button{flex:1 1 150px;padding:11px 16px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;border:none;transition:background .15s}',
-    '.dm60-btn-print{background:#1e293b;color:#fff}',
-    '.dm60-btn-print:hover{background:#334155}',
-    '.dm60-btn-dl{background:#e2e8f0;color:#374151}',
-    '.dm60-btn-dl:hover{background:#cbd5e1}',
-    '.dm60-cetak-hint{font-size:11px;color:#94a3b8;margin:10px 0 0}',
+    /* single print action */
+    '.dm60-print-single{margin-left:8px;padding:8px 14px;border:0;border-radius:8px;background:#d5a83f;color:#172033;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}',
+    '.dm60-print-single:hover{background:#edc45e}',
     /* doc card (replaces inline preview) */
     '.doc-paper.has-doc60{padding:0!important;background:transparent!important;border:none!important;box-shadow:none!important;display:block!important}',
     '.doc-paper.has-doc60>*:not(.dm-card60){display:none!important}',
@@ -9216,8 +9209,6 @@ ${KOP_PDF_CSS}
     '.dm-card60-btns button{padding:7px 15px;border:none;border-radius:9px;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s}',
     '.dm-btn-view60{background:#1e40af;color:#fff}',
     '.dm-btn-view60:hover{background:#1d4ed8}',
-    '.dm-btn-print60{background:#f1f5f9;color:#374151}',
-    '.dm-btn-print60:hover{background:#e2e8f0}',
     /* print media */
     '@media print{.doc-paper.has-doc60>*:not(.dm-card60){display:block!important}.dm-card60{display:none!important}.dm60-overlay{display:none!important}}',
     /* mobile */
@@ -9234,10 +9225,10 @@ ${KOP_PDF_CSS}
     + '<div class="dm60-header">'
     +   '<span class="dm60-hicon">📄</span>'
     +   '<span class="dm60-htitle" id="dm60TitleText">Dokumen</span>'
-    +   '<div class="dm60-tabs">'
+     +   '<div class="dm60-tabs">'
     +     '<button class="dm60-tab active" data-dmtab="preview">👁 Preview</button>'
     +     '<button class="dm60-tab" data-dmtab="edit">✏️ Edit</button>'
-    +     '<button class="dm60-tab" data-dmtab="cetak">🖨 Cetak</button>'
+     +     '<button class="dm60-print-single" id="dm60PrintBtn" type="button">🖨 Cetak / Simpan PDF</button>'
     +   '</div>'
     +   '<button class="dm60-close" id="dm60CloseBtn">✕</button>'
     + '</div>'
@@ -9262,17 +9253,6 @@ ${KOP_PDF_CSS}
     +       '<button class="dm60-copy-ds" id="dm60CopyDsBtn">📋 Salin ke Document Studio</button>'
     +     '</div>'
     +     '<div class="dm60-edit-content" id="dm60DocEdit" contenteditable="true" spellcheck="false"></div>'
-    +   '</div>'
-    +   '<div class="dm60-panel" id="dm60PanelCetak">'
-    +     '<div class="dm60-cetak-top">'
-    +       '<h4>🖨 Cetak atau Simpan sebagai PDF</h4>'
-    +       '<div class="dm60-cetak-btns">'
-    +         '<button class="dm60-btn-print" id="dm60PrintBtn">🖨 Cetak / Simpan PDF</button>'
-    +         '<button class="dm60-btn-dl" id="dm60DlBtn">⬇ Download HTML</button>'
-    +       '</div>'
-    +       '<p class="dm60-cetak-hint">Tips: Pilih "Save as PDF" atau "Microsoft Print to PDF" di dialog print browser untuk mendapatkan file PDF.</p>'
-    +     '</div>'
-    +     '<div class="dm60-doc-area" id="dm60DocCetak"></div>'
     +   '</div>'
     + '</div>'
     + '</div>';
@@ -9302,7 +9282,7 @@ ${KOP_PDF_CSS}
 
   /* ── Tab switching ── */
   function switchTab(tab) {
-    var panels = {preview:'dm60PanelPreview', edit:'dm60PanelEdit', cetak:'dm60PanelCetak'};
+    var panels = {preview:'dm60PanelPreview', edit:'dm60PanelEdit'};
     Object.keys(panels).forEach(function(k) {
       var p = document.getElementById(panels[k]);
       var b = modalEl.querySelector('[data-dmtab="'+k+'"]');
@@ -9311,7 +9291,6 @@ ${KOP_PDF_CSS}
     });
     if(tab==='preview') { var e=document.getElementById('dm60DocPreview'); if(e) e.innerHTML=_curHtml; }
     if(tab==='edit')    { var e=document.getElementById('dm60DocEdit');    if(e) e.innerHTML=_curHtml; }
-    if(tab==='cetak')   { var e=document.getElementById('dm60DocCetak');   if(e) e.innerHTML=_curHtml; }
   }
 
   /* ── Wire modal buttons ── */
@@ -9328,30 +9307,18 @@ ${KOP_PDF_CSS}
     btn.addEventListener('click', function(){ switchTab(this.dataset.dmtab); });
   });
 
-  /* ── Print ── */
+  /* ── Single print action ── */
   var printBtn = document.getElementById('dm60PrintBtn');
   if(printBtn) printBtn.onclick = function(){
-    var w = window.open('','_blank');
-    if(!w) return;
-    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
-      +_curTitle+'</title><link rel="stylesheet" href="styles.css">'
-      +'<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
-      +'</head><body>'+_curHtml+'</body></html>');
-    w.document.close();
-    setTimeout(function(){w.print();},400);
-  };
-
-  /* ── Download HTML ── */
-  var dlBtn = document.getElementById('dm60DlBtn');
-  if(dlBtn) dlBtn.onclick = function(){
-    var blob = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
-      +_curTitle+'</title><link rel="stylesheet" href="styles.css">'
-      +'</head><body>'+_curHtml+'</body></html>'],{type:'text/html'});
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = (_curTitle||'dokumen').replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50)+'.html';
-    a.click();
-    setTimeout(function(){URL.revokeObjectURL(a.href);},2000);
+    var editEl = document.getElementById('dm60DocEdit');
+    var html = editEl && editEl.innerHTML.trim().length > 40 ? editEl.innerHTML : _curHtml;
+    if(window.PrintKopTemplate && typeof window.PrintKopTemplate.print === 'function'){
+      window.PrintKopTemplate.print('doc', html);
+    } else if(typeof window.cleanPrint === 'function'){
+      window.cleanPrint('doc');
+    } else {
+      alert('Mesin cetak belum siap. Silakan coba lagi.');
+    }
   };
 
   /* ── Salin ke Document Studio ── */
@@ -9428,26 +9395,12 @@ ${KOP_PDF_CSS}
     card.innerHTML = '<span class="dm-card60-icon">📄</span>'
       +'<div class="dm-card60-text"><strong>'+title+'</strong>'
       +'<small>Klik kartu ini untuk membuka preview dokumen</small></div>'
-      +'<div class="dm-card60-btns">'
-      +'<button class="dm-btn-view60">👁 Lihat</button>'
-      +'<button class="dm-btn-print60">🖨 Cetak</button>'
-      +'</div>';
+      +'<button class="dm-btn-view60">👁 Lihat</button>';
 
     card.querySelector('.dm-btn-view60').onclick = function(e){
       e.stopPropagation();
       window.openDocModal(el.__docHtml60, el.__docTitle60, el);
     };
-    card.querySelector('.dm-btn-print60').onclick = function(e){
-      e.stopPropagation();
-      var w = window.open('','_blank');
-      if(!w) return;
-      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+el.__docTitle60+'</title>'
-        +'<link rel="stylesheet" href="styles.css">'
-        +'</head><body>'+el.__docHtml60+'</body></html>');
-      w.document.close();
-      setTimeout(function(){w.print();},400);
-    };
-
     el.classList.add('has-doc60');
     el.insertBefore(card, el.firstChild);
     el.style.display = 'block';
@@ -9665,7 +9618,7 @@ ${KOP_PDF_CSS}
     }, 600);
   }
 
-  /* ── (C) Edit → Preview/Cetak sync ──────────────────────────
+   /* ── (C) Edit → Preview sync ──────────────────────────
      Gunakan document capture-phase delegation agar listener
      terpasang sebelum v1.60 switchTab meng-overwrite konten. */
 
@@ -9676,63 +9629,24 @@ ${KOP_PDF_CSS}
     return window.__dm60CurHtml || '';
   }
 
-  /* Tab click: update preview/cetak setelah switchTab asli selesai */
+   /* Tab click: update preview setelah switchTab asli selesai */
   document.addEventListener('click', function(e) {
     var tab = e.target.closest && e.target.closest('[data-dmtab]');
     if (!tab) return;
     var modal = document.getElementById('docModal60');
     if (!modal || !modal.contains(tab)) return;
     var toTab = tab.dataset.dmtab;
-    if (toTab !== 'preview' && toTab !== 'cetak') return;
+     if (toTab !== 'preview') return;
     /* Ambil HTML dari editor — 50ms cukup untuk switchTab selesai */
     var captured = liveHtml();
     if (!captured || captured.trim().length < 40) return;
     setTimeout(function() {
-      if (toTab === 'preview') {
-        var pv = document.getElementById('dm60DocPreview');
-        if (pv) pv.innerHTML = captured;
-      } else {
-        var ct = document.getElementById('dm60DocCetak');
-        if (ct) ct.innerHTML = captured;
-      }
+       var pv = document.getElementById('dm60DocPreview');
+       if (pv) pv.innerHTML = captured;
     }, 50);
   }, true /* capture — before v1.60 switchTab */);
 
-  /* ── (D) Tombol Cetak & Download selalu pakai konten editor ─ */
-  document.addEventListener('click', function(e) {
-    var btn = e.target;
-    while (btn && btn !== document) {
-      if (btn.id === 'dm60PrintBtn' || btn.id === 'dm60DlBtn') break;
-      btn = btn.parentElement;
-    }
-    if (!btn || (btn.id !== 'dm60PrintBtn' && btn.id !== 'dm60DlBtn')) return;
-
-    e.stopImmediatePropagation();
-    var html  = liveHtml();
-    var title = (document.getElementById('dm60TitleText') || {}).textContent || 'Dokumen';
-
-    if (btn.id === 'dm60PrintBtn') {
-      var w = window.open('', '_blank');
-      if (!w) return;
-      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'
-        + title + '</title><link rel="stylesheet" href="styles.css">'
-        + '<style>body{margin:0;padding:20px;font-family:"Times New Roman",serif}</style>'
-        + '</head><body>' + html + '</body></html>');
-      w.document.close();
-      setTimeout(function(){ w.print(); }, 400);
-    } else {
-      var blob = new Blob(['<!doctype html><html><head><meta charset="utf-8"><title>'
-        + title + '</title><link rel="stylesheet" href="styles.css">'
-        + '</head><body>' + html + '</body></html>'], {type:'text/html'});
-      var a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = title.replace(/[^\w\s]/g,'_').replace(/\s+/g,'_').slice(0,50) + '.html';
-      a.click();
-      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
-    }
-  }, true);
-
-  /* ── (E) Klik card di luar output containers → buka modal ── */
+   /* ── (D) Klik card di luar output containers → buka modal ── */
   document.addEventListener('click', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     var card = e.target.closest && e.target.closest('.dm-card60');
@@ -9744,7 +9658,7 @@ ${KOP_PDF_CSS}
       window.openDocModal(container.__docHtml60, container.__docTitle60 || 'Dokumen', container);
   }, false);
 
-  /* ── (F) Patch openDocModal: isi editor saat modal dibuka ── */
+   /* ── (E) Patch openDocModal: isi editor saat modal dibuka ── */
   function patchOpenModal() {
     if (window.__openDocModal62) return;
     if (typeof window.openDocModal !== 'function') return;

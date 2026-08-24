@@ -167,13 +167,17 @@
         </div>
       </section>
 
-      <section class="page" id="page-pengajuan">
-        <div class="section-title">
+      <section class="page pengajuan-page-v2" id="page-pengajuan">
+        <div class="section-title pengajuan-title-v2">
           <div>
+            <span class="eyebrow-v2">BOP ADMINISTRASI · TAHUN ANGGARAN 2026</span>
             <h2>Pengajuan Dana Operasional</h2>
             <p>Semua 7 syarat pengajuan dibuat dan dikelola dalam satu menu.</p>
           </div>
-          <button class="primary" id="savePengajuan">Simpan Pengajuan</button>
+          <div class="pengajuan-title-actions-v2">
+            <span class="save-state-v2"><span class="save-dot-v2"></span> Tersimpan di perangkat</span>
+            <button class="primary save-button-v2" id="savePengajuan">Simpan Pengajuan</button>
+          </div>
         </div>
 
         <div class="subnav-wrapper-v30">
@@ -234,7 +238,31 @@
               </div>
             </div>
 
-            <!-- ── Kolom Kanan: Pratinjau Langsung (hidden per permintaan) ── -->
+             <aside class="pengajuan-aside-v2" aria-label="Ringkasan pengajuan">
+               <div class="aside-intro-v2">
+                 <div class="aside-icon-v2">01</div>
+                 <div>
+                   <span class="aside-kicker-v2">PROGRES PENGAJUAN</span>
+                   <h3>Siap untuk dilengkapi</h3>
+                 </div>
+               </div>
+               <div class="progress-card-v2">
+                 <div class="progress-card-head-v2"><span>Kelengkapan dokumen</span><strong>0 / 7</strong></div>
+                 <div class="progress-track-v2"><span style="width:0%"></span></div>
+                 <p>Centang dokumen yang sudah tersedia. Status akan tersimpan otomatis di perangkat.</p>
+               </div>
+               <div class="aside-block-v2">
+                 <span class="aside-label-v2">ALUR PENGAJUAN</span>
+                 <div class="flow-list-v2">
+                   <div class="flow-item-v2 active"><span>01</span><div><b>Data pengajuan</b><small>Surat, rekening, dan pejabat terkait</small></div></div>
+                   <div class="flow-item-v2"><span>02</span><div><b>RAP & jadwal</b><small>Rencana anggaran satu tahun</small></div></div>
+                   <div class="flow-item-v2"><span>03</span><div><b>Rapat & dokumen</b><small>BA, hadir, dan berkas resmi</small></div></div>
+                 </div>
+               </div>
+               <div class="aside-tip-v2"><span>i</span><p><b>Tips pengisian</b><br>Lengkapi data surat dan rekening terlebih dahulu agar dokumen resmi dapat dibuat tanpa input ulang.</p></div>
+             </aside>
+
+             <!-- ── Kolom Kanan: Pratinjau Langsung (hidden per permintaan) ── -->
             <div class="pq-right" style="display:none">
               <div class="pq-preview-panel">
                 <div class="pq-preview-header">

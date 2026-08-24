@@ -14351,3 +14351,209 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.99] Rumus Sisa Anggaran diperbaiki: Pagu - Total RAP.");
 })();
 /* END PATCH v1.99 */
+
+/* ════════════════════════════════════════════════════════════════
+   PATCH v2.00 — Rebuild Dashboard Pelaporan BOP
+
+   Dashboard memakai satu sumber angka yang jelas:
+   - RAP Valid: hanya item yang breakdown seluruh bulan = nilai RAP.
+   - Realisasi LPJ: seluruh pengeluaran LPJ.
+   - Sisa Pagu: Pagu - RAP Valid.
+   - Realisasi tidak mengurangi sisa pagu dua kali.
+════════════════════════════════════════════════════════════════ */
+(function rebuildDashboardV200(){
+  if(window.__rebuildDashboardV200) return;
+  window.__rebuildDashboardV200 = true;
+
+  var BUDGET = 25000000;
+  var MONTHS = (typeof RAP_MONTHS !== "undefined" && Array.isArray(RAP_MONTHS))
+    ? RAP_MONTHS.slice()
+    : ["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026",
+       "Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+  var TOLERANCE = 1;
+
+  function number(value){
+    var n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function money(value){
+    return typeof rupiah === "function" ? rupiah(value) : "Rp" + number(value).toLocaleString("id-ID");
+  }
+  function setText(id,value){
+    var el = document.getElementById(id);
+    if(el) el.textContent = String(value);
+  }
+  function escapeText(value){
+    var el = document.createElement("div");
+    el.textContent = String(value || "");
+    return el.innerHTML;
+  }
+
+  function rapRows(){
+    var rows = (typeof data !== "undefined" && data.pengajuan && Array.isArray(data.pengajuan.rap))
+      ? data.pengajuan.rap : [];
+    return rows.map(function(row,index){
+      if(Array.isArray(row)){
+        return { index:index, uraian:row[0] || "Tanpa uraian", kategori:"Belum dikategorikan", jumlah:number(row[2]) };
+      }
+      return {
+        index:index,
+        uraian:row && row.uraian || "Tanpa uraian",
+        kategori:row && (row.kategori || row.subKategori) || "Belum dikategorikan",
+        jumlah:number(row && (row.jumlah ?? row.anggaran ?? row.rencanaAnggaran))
+      };
+    }).filter(function(row){ return row.jumlah > 0 || row.uraian !== "Tanpa uraian"; });
+  }
+
+  function lpjRows(){
+    var rows = (typeof data !== "undefined" && data.lpj && Array.isArray(data.lpj.pengeluaran))
+      ? data.lpj.pengeluaran : [];
+    return rows.map(function(row){
+      if(Array.isArray(row)){
+        return { tanggal:row[0] || "", uraian:row[1] || "", jumlah:number(row[2]), keterangan:row[3] || "" };
+      }
+      return { tanggal:row && row.tanggal || "", uraian:row && (row.uraian || row.kegiatan || row.nama) || "",
+        jumlah:number(row && (row.jumlah ?? row.nominal ?? row.nilai)), keterangan:row && row.keterangan || "" };
+    }).filter(function(row){ return row.uraian || row.jumlah; });
+  }
+
+  function breakdownFor(row){
+    var total = 0;
+    var hasBreakdown = false;
+    MONTHS.forEach(function(month){
+      var monthRows = [];
+      try{
+        if(typeof window.getBreakdownRows === "function"){
+          monthRows = window.getBreakdownRows(month,row.index) || [];
+        }
+      }catch(_e){}
+      if(monthRows.length) hasBreakdown = true;
+      total += monthRows.reduce(function(sum,item){ return sum + number(item && item.jumlah); },0);
+    });
+    return { total:total, hasBreakdown:hasBreakdown, valid:hasBreakdown && Math.abs(total-row.jumlah) <= TOLERANCE };
+  }
+
+  function calculate(){
+    var rap = rapRows();
+    var lpj = lpjRows();
+    var items = rap.map(function(row){
+      var breakdown = breakdownFor(row);
+      return Object.assign({},row,breakdown);
+    });
+    var validRap = items.reduce(function(sum,row){ return sum + (row.valid ? row.jumlah : 0); },0);
+    var totalRap = items.reduce(function(sum,row){ return sum + row.jumlah; },0);
+    var realisasi = lpj.reduce(function(sum,row){ return sum + row.jumlah; },0);
+    var validCount = items.filter(function(row){ return row.valid; }).length;
+    return {
+      items:items, lpj:lpj, totalRap:totalRap, validRap:validRap, realisasi:realisasi,
+      sisa:BUDGET-validRap, validCount:validCount, totalCount:items.length,
+      breakdownPercent:items.length ? Math.round(validCount/items.length*100) : 0,
+      realizationPercent:validRap > 0 ? Math.round(realisasi/validRap*100) : 0
+    };
+  }
+
+  function renderBreakdownStatus(result){
+    setText("dashBreakdownProgress", result.validCount + " / " + result.totalCount);
+    var bar = document.getElementById("dashBreakdownBar");
+    if(bar) bar.style.width = result.breakdownPercent + "%";
+    var summary = document.getElementById("dashBreakdownSummary");
+    if(summary){
+      summary.innerHTML =
+        '<div class="status-box"><strong>'+result.validCount+'</strong><span>Breakdown sesuai</span></div>'+
+        '<div class="status-box"><strong>'+(result.totalCount-result.validCount)+'</strong><span>Perlu diperbaiki</span></div>'+
+        '<div class="status-box"><strong>'+result.breakdownPercent+'%</strong><span>Kesiapan RAP</span></div>';
+    }
+    var issues = document.getElementById("dashBreakdownIssues");
+    if(!issues) return;
+    var invalid = result.items.filter(function(row){ return !row.valid; });
+    if(!invalid.length){
+      issues.innerHTML = '<div class="dash-breakdown-ok">✓ Semua mata anggaran RAP sudah memiliki breakdown yang sesuai.</div>';
+      return;
+    }
+    issues.innerHTML = invalid.map(function(row){
+      var diff = row.jumlah-row.total;
+      var detail = row.hasBreakdown ? ("Selisih " + money(Math.abs(diff))) : "Belum ada breakdown";
+      return '<div class="dash-breakdown-issue"><span class="issue-name">'+escapeText(row.uraian)+'</span><span class="issue-value">'+detail+'</span></div>';
+    }).join("");
+  }
+
+  function renderCategories(result){
+    var groups = {};
+    result.items.filter(function(row){ return row.valid; }).forEach(function(row){
+      var key = row.kategori || "Belum dikategorikan";
+      if(!groups[key]) groups[key] = {rap:0,realisasi:0};
+      groups[key].rap += row.jumlah;
+    });
+    result.lpj.forEach(function(row){
+      var key = typeof guessKategori === "function" ? guessKategori(row.uraian) : "Realisasi LPJ";
+      if(!groups[key]) groups[key] = {rap:0,realisasi:0};
+      groups[key].realisasi += row.jumlah;
+    });
+    var tbody = document.getElementById("dashCategoryTbody");
+    if(!tbody) return;
+    var keys = Object.keys(groups);
+    tbody.innerHTML = keys.length ? keys.map(function(key){
+      var group=groups[key], sisa=group.rap-group.realisasi;
+      var cls = group.realisasi > group.rap && group.rap > 0 ? "over" : (group.rap > 0 ? "ok" : "warn");
+      var status = group.rap === 0 ? "Belum ada RAP" : (sisa < 0 ? "Melebihi RAP" : (sisa === 0 ? "Sesuai" : "Masih tersisa"));
+      return '<tr><td>'+escapeText(key)+'</td><td>'+money(group.rap)+'</td><td>'+money(group.realisasi)+'</td>'+
+        '<td>'+money(Math.abs(sisa))+'</td><td><span class="dash-category-status '+cls+'">'+status+'</span></td></tr>';
+    }).join("") : '<tr><td colspan="5" style="text-align:center;color:#64748b">Belum ada data RAP atau LPJ.</td></tr>';
+  }
+
+  function renderDashboardV200(){
+    var result = calculate();
+    setText("dashTotal",money(BUDGET));
+    setText("dashAllocated",money(result.validRap));
+    setText("dashPercent",Math.round(result.validRap/BUDGET*100)+"% dari pagu • "+result.validCount+"/"+result.totalCount+" item valid");
+    setText("dashRealized",money(result.realisasi));
+    setText("dashRealizedPercent",result.validRap > 0 ? result.realizationPercent+"% dari RAP valid" : "Belum ada RAP valid");
+    setText("dashSisa",money(result.sisa));
+    renderBreakdownStatus(result);
+    renderCategories(result);
+    var note = document.getElementById("dashValidationNote");
+    if(note){
+      note.className = result.totalCount && result.validCount < result.totalCount
+        ? "dbx-dashboard-note warning" : "dbx-dashboard-note";
+      var strong = note.querySelector("strong");
+      var small = note.querySelector("small");
+      if(strong) strong.textContent = result.totalCount && result.validCount < result.totalCount
+        ? "Sebagian RAP belum masuk alokasi valid." : "Angka dashboard menggunakan data tervalidasi.";
+      if(small) small.textContent = result.totalCount && result.validCount < result.totalCount
+        ? "Perbaiki breakdown yang ditampilkan di bawah agar item tersebut ikut dihitung sebagai Teralokasi RAP."
+        : "Teralokasi RAP hanya menghitung item yang total breakdown bulanannya sudah sama dengan nilai RAP.";
+    }
+  }
+
+  var oldUpdate = window.updateDashboard;
+  window.updateDashboard = function dashboardUpdateV200(){
+    try{ if(typeof oldUpdate === "function") oldUpdate(); }catch(_e){}
+    renderDashboardV200();
+  };
+  window.__bopDashboardRefreshV200 = renderDashboardV200;
+
+  document.addEventListener("input",function(event){
+    var target=event.target;
+    if(!target) return;
+    if(target.dataset && (target.dataset.rap || target.dataset.breakdown || target.dataset.exp)){
+      setTimeout(renderDashboardV200,0);
+    }
+  },true);
+  document.addEventListener("change",function(){ setTimeout(renderDashboardV200,0); },true);
+
+  var oldGoPage=window.goPage;
+  window.goPage=async function dashboardGoPageV200(page){
+    var result;
+    if(typeof oldGoPage === "function") result=await oldGoPage.apply(this,arguments);
+    if(page === "dashboard") setTimeout(renderDashboardV200,50);
+    return result;
+  };
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded",function(){ setTimeout(renderDashboardV200,350); });
+  }else{
+    setTimeout(renderDashboardV200,350);
+  }
+  console.log("[BOP v2.00] Dashboard rebuilt: RAP valid breakdown, realisasi LPJ, kategori, dan status.");
+})();
+/* END PATCH v2.00 */

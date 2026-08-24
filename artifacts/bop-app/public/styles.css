@@ -1751,6 +1751,53 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 }
 .ds-doc-gen-btn-v43:active{transform:scale(.96);transition:.08s}
 
+/* ════════════════════════════════════════════════════════════════
+   DASHBOARD PELAPORAN BOP V2
+════════════════════════════════════════════════════════════════ */
+.dbx-dashboard-note{
+  display:flex;align-items:flex-start;gap:10px;margin:14px 0;padding:12px 15px;
+  border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:10px;
+  background:#eff6ff;color:#1e3a5f;line-height:1.45
+}
+.dbx-dashboard-note-icon{
+  display:inline-flex;align-items:center;justify-content:center;flex:0 0 23px;
+  width:23px;height:23px;border-radius:50%;background:#2563eb;color:#fff;font-weight:800
+}
+.dbx-kpi-row-v2{grid-template-columns:repeat(4,minmax(0,1fr))}
+.dbx-dashboard-grid-v2{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px}
+.dbx-progress-line{height:12px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin:5px 0 12px}
+.dbx-progress-line-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#2563eb,#10b981);transition:width .5s ease}
+.dbx-status-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.dbx-status-summary .status-box{padding:9px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0}
+.dbx-status-summary .status-box strong{display:block;font-size:17px;color:#0f172a}
+.dbx-status-summary .status-box span{font-size:11px;color:#64748b}
+.dash-breakdown-issues{max-height:175px;overflow:auto}
+.dash-breakdown-issue{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #eef2f7;font-size:12px}
+.dash-breakdown-issue:last-child{border-bottom:0}
+.dash-breakdown-issue .issue-name{font-weight:600;color:#334155}
+.dash-breakdown-issue .issue-value{color:#b45309;text-align:right;white-space:nowrap}
+.dash-breakdown-ok{padding:12px;border-radius:8px;background:#f0fdf4;color:#166534;font-size:13px}
+.dash-history-mini{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:11px;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px}
+.dash-history-mini strong{font-size:18px;color:#334155}
+.dash-category-wrap{overflow-x:auto}
+.dash-category-table{width:100%;border-collapse:collapse;min-width:670px}
+.dash-category-table th{background:#f1f5f9;color:#334155;font-size:12px;text-align:left;padding:9px}
+.dash-category-table td{padding:9px;border-bottom:1px solid #e2e8f0;font-size:12px}
+.dash-category-table td:not(:first-child){text-align:right}
+.dash-category-table td:last-child{text-align:center}
+.dash-category-status{display:inline-block;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:700;white-space:nowrap}
+.dash-category-status.ok{background:#dcfce7;color:#166534}
+.dash-category-status.warn{background:#fef3c7;color:#92400e}
+.dash-category-status.over{background:#fee2e2;color:#991b1b}
+@media(max-width:900px){
+  .dbx-kpi-row-v2{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dbx-dashboard-grid-v2{grid-template-columns:1fr}
+}
+@media(max-width:560px){
+  .dbx-kpi-row-v2{grid-template-columns:1fr}
+  .dbx-status-summary{grid-template-columns:1fr 1fr 1fr}
+}
+
 /* ══════════════════════════════════════════
    RAP vs REALISASI — CSS (patch v1.84)
 ══════════════════════════════════════════ */

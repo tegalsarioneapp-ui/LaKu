@@ -14168,3 +14168,79 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.97] Dashboard unified dengan data RAP, LPJ, checklist, history, dan snapshot server.");
 })();
 /* END PATCH v1.97 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.98 — Generate 7 Dokumen: one stable document selector
+   The old selector had several competing listeners and included
+   unrelated RAP Bulanan/LPJ options. Keep RAP Bulanan in its own tab.
+═══════════════════════════════════════════════════════════════ */
+(function installPengajuanSevenDocsV98(){
+  if(window.__pengajuanSevenDocsV98) return;
+  window.__pengajuanSevenDocsV98 = true;
+
+  var DOCS = [
+    { value:"permohonan", label:"1. Surat Permohonan Pencairan" },
+    { value:"sk",         label:"2. SK Lurah Pembentukan RT" },
+    { value:"rekening",   label:"3. Rekening Bank Lembaga RT" },
+    { value:"rap",        label:"4. Rencana Anggaran Penggunaan" },
+    { value:"ba",         label:"5. Berita Acara RT" },
+    { value:"hadir",      label:"6. Daftar Hadir serta Dokumentasi Pembahasan RAP" },
+    { value:"sptjm",      label:"7. Surat Pertanggungjawaban Mutlak" }
+  ];
+
+  function rebuild(){
+    var select = document.getElementById("dsDocSelectV43");
+    var generate = document.getElementById("dsDocGenBtnV43");
+    if(!select || !generate) return false;
+
+    /* Clone once: this removes every legacy change/click listener. */
+    var cleanSelect = select.cloneNode(false);
+    DOCS.forEach(function(doc){
+      var option = document.createElement("option");
+      option.value = doc.value;
+      option.textContent = doc.label;
+      cleanSelect.appendChild(option);
+    });
+    var oldValue = select.value;
+    var saved = localStorage.getItem("bop_last_doc_v98");
+    var selected = DOCS.some(function(doc){ return doc.value === oldValue; })
+      ? oldValue
+      : (DOCS.some(function(doc){ return doc.value === saved; }) ? saved : "permohonan");
+    cleanSelect.value = selected;
+    select.parentNode.replaceChild(cleanSelect, select);
+
+    /* Clone once: only this button is allowed to generate this selector. */
+    var cleanGenerate = generate.cloneNode(true);
+    generate.parentNode.replaceChild(cleanGenerate, generate);
+    cleanGenerate.addEventListener("click", function(){
+      var type = cleanSelect.value;
+      if(!type) return;
+      localStorage.setItem("bop_last_doc_v98", type);
+      window.currentDoc = type;
+      if(typeof window.previewDoc === "function") window.previewDoc(type);
+    });
+
+    /* Do not generate on change. The value must remain visible and stable. */
+    cleanSelect.addEventListener("change", function(){
+      if(DOCS.some(function(doc){ return doc.value === cleanSelect.value; })){
+        localStorage.setItem("bop_last_doc_v98", cleanSelect.value);
+      }
+    });
+
+    var monthWrap = document.getElementById("v48RapBulanWrap");
+    if(monthWrap) monthWrap.style.display = "none";
+    console.log("[BOP v1.98] Generate Dokumen dikunci ke 7 dokumen resmi.");
+    return true;
+  }
+
+  function init(){
+    if(rebuild()) return;
+    setTimeout(init, 500);
+  }
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(init, 5000); });
+  } else {
+    setTimeout(init, 5000);
+  }
+})();
+/* END PATCH v1.98 */

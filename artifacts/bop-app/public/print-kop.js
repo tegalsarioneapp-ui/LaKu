@@ -115,16 +115,22 @@
     if (!body) return "";
 
     /*
-     * The preview renderer owns the document structure, including KOP.
-     * Only add a KOP for a genuinely old/partial output. Checking for any
-     * historical KOP class prevents the old and new letterheads being printed
-     * together while legacy output is being migrated.
+     * Legacy document builders close over their original kopHTML() function,
+     * so replacing window.kopHTML alone cannot replace their already-rendered
+     * KOP. Normalize the print DOM instead: remove every historical
+     * letterhead, then prepend exactly one official global letterhead.
      */
-    var hasLetterhead = /class=["'][^"']*(?:\bkop\b|print-kop|letterhead)[^"']*["']/i.test(body) ||
-      /data-print-kop=["']global["']/i.test(body);
-    if (!hasLetterhead) {
-      body = render() + body;
+    if (typeof document !== "undefined") {
+      var holder = document.createElement("div");
+      holder.innerHTML = body;
+      holder.querySelectorAll(
+        ".kop, .print-kop, [data-print-kop], .official-letterhead, .letterhead-rule"
+      ).forEach(function (letterhead) {
+        letterhead.remove();
+      });
+      body = holder.innerHTML;
     }
+    body = render() + body;
 
     return '<div class="print-area"><div class="print-document">' + body + "</div></div>";
   }

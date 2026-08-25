@@ -732,6 +732,49 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 }
 .doc-paper .official table:not(.no-border):not(.notulen-sign-table-v28):not(.lpj-signature-table-v29) th:first-child{padding-left:4px!important;padding-right:4px!important}
 .official .amount-col-v29{text-align:right!important;white-space:nowrap!important}
+.lpj-doc-v29 .lpj-summary-table-v29,
+.lpj-doc-v29 .lpj-expense-table-v29{
+  width:100%!important;
+  table-layout:fixed!important;
+}
+.lpj-doc-v29 .lpj-summary-table-v29 th,
+.lpj-doc-v29 .lpj-summary-table-v29 td,
+.lpj-doc-v29 .lpj-expense-table-v29 th,
+.lpj-doc-v29 .lpj-expense-table-v29 td{
+  padding:5px 6px!important;
+  vertical-align:top!important;
+  overflow-wrap:break-word!important;
+  word-break:normal!important;
+}
+.lpj-doc-v29 .lpj-summary-table-v29 th:first-child,
+.lpj-doc-v29 .lpj-summary-table-v29 td:first-child,
+.lpj-doc-v29 .lpj-expense-table-v29 th:first-child,
+.lpj-doc-v29 .lpj-expense-table-v29 td:first-child,
+.lpj-doc-v29 .lpj-summary-table-v29 .no-col-v29,
+.lpj-doc-v29 .lpj-expense-table-v29 .no-col-v29{
+  width:12mm!important;
+  min-width:12mm!important;
+  max-width:12mm!important;
+  padding-left:3px!important;
+  padding-right:3px!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+  vertical-align:middle!important;
+}
+.lpj-doc-v29 .lpj-summary-table-v29 th:nth-child(2),
+.lpj-doc-v29 .lpj-summary-table-v29 td:nth-child(2){width:auto}
+.lpj-doc-v29 .lpj-summary-table-v29 th:nth-child(3),
+.lpj-doc-v29 .lpj-summary-table-v29 td:nth-child(3){width:31mm}
+.lpj-doc-v29 .lpj-summary-table-v29 th:nth-child(4),
+.lpj-doc-v29 .lpj-summary-table-v29 td:nth-child(4){width:43mm}
+.lpj-doc-v29 .lpj-expense-table-v29 th:nth-child(2),
+.lpj-doc-v29 .lpj-expense-table-v29 td:nth-child(2){width:25mm}
+.lpj-doc-v29 .lpj-expense-table-v29 th:nth-child(3),
+.lpj-doc-v29 .lpj-expense-table-v29 td:nth-child(3){width:auto}
+.lpj-doc-v29 .lpj-expense-table-v29 th:nth-child(4),
+.lpj-doc-v29 .lpj-expense-table-v29 td:nth-child(4){width:31mm}
+.lpj-doc-v29 .lpj-expense-table-v29 th:nth-child(5),
+.lpj-doc-v29 .lpj-expense-table-v29 td:nth-child(5){width:42mm}
 .lpj-doc-v29 .notulen-section-title-v28{margin-top:14px}.lpj-doc-v29 .notulen-paragraph-v28{text-align:justify}.lpj-meta-v29 td{padding:3px 2px!important}.lpj-signature-table-v29{width:100%;margin-top:26px;text-align:center}.lpj-signature-table-v29 td{width:50%;border:0!important;text-align:center}.sign-space-row-v29 td{height:74px}.ai-lpj-panel-v29{border-left:5px solid #2f9d66;background:linear-gradient(135deg,#f7fffb,#ffffff)}
 
 @media(max-width:1000px){.access-choice-grid-v29{grid-template-columns:1fr}.access-hero-v29{min-height:auto;padding:24px}.moku-shell-v29{height:calc(100vh - 170px);min-height:560px}.moku-frame-bar-v29{display:block}.moku-frame-bar-v29 span{display:block;margin-top:4px}}

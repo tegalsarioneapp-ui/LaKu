@@ -2981,7 +2981,7 @@ function bind(){
   if($("printMeetingDoc")) $("printMeetingDoc").onclick=()=>cleanPrint("doc");
   $("printDoc").onclick=()=>cleanPrint("doc"); if($("printPkDoc")) $("printPkDoc").onclick=cleanPrintPk;
   $("exportHtml").onclick=()=>{previewDoc(currentDoc); download(new Blob([`<!doctype html><html><head><meta charset="utf-8"><title>Dokumen BOP</title><link rel="stylesheet" href="styles.css"></head><body><div class="doc-paper">${$("docOutput").innerHTML}</div></body></html>`],{type:"text/html"}),`dokumen_${currentDoc}_rt005.html`);};
-  $("saveLpjHistory").onclick=()=>{collectAll(); $("lpjOutput").innerHTML=docLpj(); addHistory("LPJ","laporan",`LPJ Periode ${data.lpj.periode}`,$("lpjOutput").innerHTML);}; if($("savePkHistory")) $("savePkHistory").onclick=()=>{previewPkDoc(currentPkDoc); addHistory("Persiapan Kegiatan",currentPkDoc,`Bukti SPJ - ${data.persiapan.nama}`,$("pkDocOutput").innerHTML);};
+  if($("saveLpjHistory")) $("saveLpjHistory").onclick=()=>{collectAll(); $("lpjOutput").innerHTML=docLpj(); addHistory("LPJ","laporan",`LPJ Periode ${data.lpj.periode}`,$("lpjOutput").innerHTML);}; if($("savePkHistory")) $("savePkHistory").onclick=()=>{previewPkDoc(currentPkDoc); addHistory("Persiapan Kegiatan",currentPkDoc,`Bukti SPJ - ${data.persiapan.nama}`,$("pkDocOutput").innerHTML);};
   $("printLpj").onclick=()=>cleanPrint("lpj");
   if($("previewMonthlyRapDoc")) $("previewMonthlyRapDoc").onclick=previewMonthlyRapFromTab;
   if($("printMonthlyRapDoc")) $("printMonthlyRapDoc").onclick=printMonthlyRapFromTab;

@@ -14557,3 +14557,48 @@ ${KOP_PDF_CSS}
   console.log("[BOP v2.00] Dashboard rebuilt: RAP valid breakdown, realisasi LPJ, kategori, dan status.");
 })();
 /* END PATCH v2.00 */
+
+
+/* PATCH v2.01 — Single LPJ print action
+   Satu tombol LPJ mengarsipkan snapshot terbaru lalu membuka jalur
+   cetak resmi global. Tombol export lama tidak lagi diperlukan. */
+(function bopSingleLpjPrintV201(){
+  if(window.__bopSingleLpjPrintV201) return;
+  window.__bopSingleLpjPrintV201 = true;
+
+  function bind(){
+    var button = document.getElementById("printLpj");
+    if(!button) return;
+    button.textContent = "Cetak / Simpan PDF";
+    button.title = "Simpan snapshot LPJ dan buka dialog cetak / Simpan sebagai PDF";
+    button.onclick = function(){
+      try{
+        if(typeof window.collectAll === "function") window.collectAll();
+        if(typeof window.docLpj === "function"){
+          var output = document.getElementById("lpjOutput");
+          if(output) output.innerHTML = window.docLpj();
+        }
+        if(typeof window.addHistory === "function"){
+          var current = document.getElementById("lpjOutput");
+          if(current && current.innerHTML.trim() && typeof data !== "undefined"){
+            window.addHistory(
+              "LPJ",
+              "laporan",
+              "LPJ Periode " + (data.lpj?.periode || ""),
+              current.innerHTML
+            );
+          }
+        }
+      }catch(error){
+        console.warn("[BOP v2.01] Snapshot LPJ sebelum cetak gagal:", error);
+      }
+      if(typeof window.cleanPrint === "function") window.cleanPrint("lpj");
+    };
+  }
+
+  bind();
+  setTimeout(bind, 800);
+  setTimeout(bind, 1800);
+  console.log("[BOP v2.01] LPJ memakai satu tombol Cetak / Simpan PDF.");
+})();
+/* END PATCH v2.01 */

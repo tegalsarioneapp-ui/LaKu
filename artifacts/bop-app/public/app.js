@@ -11479,7 +11479,8 @@ ${KOP_PDF_CSS}
       if(typeof normalizeRapV17 === "function") normalizeRapV17();
       var total  = typeof totalRap === "function" ? totalRap() : 0;
       var budget = 25000000;
-      var sisa   = budget - total;
+       var realisasi = typeof totalExpense === "function" ? Number(totalExpense() || 0) : 0;
+       var sisa   = budget - realisasi;
       var pct    = Math.min(Math.round(total / budget * 100), 100);
 
       function safeSet(id, val){
@@ -14021,7 +14022,8 @@ ${KOP_PDF_CSS}
     },0);
     var lpjTotal=typeof window.totalExpense==="function"?Number(window.totalExpense()||0):0;
     var budget=25000000;
-    var sisa=budget-rapTotal-lpjTotal;
+     /* RAP is a plan, not cash already spent. Saldo only subtracts LPJ. */
+     var sisa=budget-lpjTotal;
     var allocated=document.getElementById("dashAllocated");
     var remaining=document.getElementById("dashSisa");
     var percent=document.getElementById("dashPercent");
@@ -14110,7 +14112,8 @@ ${KOP_PDF_CSS}
     const state = (typeof data !== "undefined" && data) || window.data || {};
     const rap = rapTotalOf(state);
     const realisasi = expenseTotalOf(state);
-    const sisa = BUDGET - rap - realisasi;
+    /* RAP is allocation only; saldo kas is reduced by actual LPJ spending. */
+    const sisa = BUDGET - realisasi;
     const allocatedPercent = BUDGET > 0 ? Math.round((rap / BUDGET) * 100) : 0;
     const checklist = state.pengajuan?.checklist || {};
     const checklistKeys = Object.keys(checklist);

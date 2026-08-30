@@ -14247,3 +14247,521 @@ ${KOP_PDF_CSS}
   }
 })();
 /* END PATCH v1.98 */
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH v1.99 — Workspace Kegiatan Operasional per kegiatan
+
+   Tujuan:
+   1. Mengubah Persiapan Kegiatan menjadi daftar kartu kegiatan.
+   2. Menyimpan snapshot form per kegiatan, bukan satu form global.
+   3. Menampilkan semua form SPJ dalam satu workspace panjang.
+   4. Mempertahankan kontrak ID/renderer lama agar dokumen dan backup
+      tetap kompatibel.
+═══════════════════════════════════════════════════════════════ */
+(function installActivityWorkspaceV99(){
+  if(window.__activityWorkspaceV99) return;
+  window.__activityWorkspaceV99 = true;
+
+  var MONTHS = (typeof RAP_MONTHS !== "undefined" && Array.isArray(RAP_MONTHS))
+    ? RAP_MONTHS.slice()
+    : ["Januari 2026","Februari 2026","Maret 2026","April 2026","Mei 2026","Juni 2026","Juli 2026","Agustus 2026","September 2026","Oktober 2026","November 2026","Desember 2026"];
+  var STORE_KEY = (typeof STORE !== "undefined") ? STORE : "bop_rt005_data_v1_25";
+  var activeView = "index";
+  var autosaveTimer = null;
+  var originalRenderPersiapan = window.renderPersiapan;
+  var originalActivateTab = window.activateTab;
+  var originalGoPage = window.goPage;
+  var originalRapLoader = window._pkLoadRap49;
+
+  function d99(){ return (typeof data !== "undefined" && data) || window.data || {}; }
+  function p99(){ return d99().persiapan || {}; }
+  function copy99(value){
+    try{ return JSON.parse(JSON.stringify(value)); }catch(_e){ return {}; }
+  }
+  function esc99(value){
+    if(typeof esc === "function") return esc(value == null ? "" : String(value));
+    return String(value == null ? "" : value).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function attr99(value){
+    if(typeof escapeAttr === "function") return escapeAttr(value == null ? "" : String(value));
+    return esc99(value).replace(/"/g,"&quot;");
+  }
+  function rupiah99(value){
+    try{ return typeof rupiah === "function" ? rupiah(Number(value || 0)) : "Rp " + Number(value || 0).toLocaleString("id-ID"); }
+    catch(_e){ return "Rp 0"; }
+  }
+  function now99(){ return new Date().toISOString(); }
+  function persist99(){
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(d99())); }catch(err){ console.warn("[BOP v1.99] Penyimpanan kegiatan gagal:",err); }
+  }
+  function toast99(title,text,icon){
+    try{ if(typeof bopToast === "function") bopToast(title,text,icon || "success"); }catch(_e){}
+  }
+
+  function withoutIndex99(value){
+    var result=copy99(value || {});
+    delete result.activities;
+    delete result.activeActivityId;
+    delete result.workspaceView;
+    return result;
+  }
+  function mapJenis99(row){
+    var text=((row && (row.tipe||""))+" "+(row && (row.subKategori||""))+" "+(row && (row.uraian||""))).toLowerCase();
+    if(text.indexOf("konsumsi")>=0||text.indexOf("makan")>=0||text.indexOf("rapat")>=0||text.indexOf("pertemuan")>=0) return "Konsumsi Rapat / Pertemuan Warga";
+    if(text.indexOf("bakti")>=0||text.indexOf("gotong")>=0) return "Kerja Bakti / Gotong Royong";
+    if(text.indexOf("hut")>=0||text.indexOf("17 agustus")>=0||text.indexOf("sosial")>=0||text.indexOf("budaya")>=0) return "HUT RI / Kegiatan Sosial Budaya";
+    if(text.indexOf("sampah")>=0||text.indexOf("kebersihan")>=0) return "Pengelolaan Sampah / Kebersihan Lingkungan";
+    if(text.indexOf("tukang")>=0||text.indexOf("jasa")>=0||text.indexOf("honor")>=0||text.indexOf("pemeliharaan")>=0) return "Jasa Tukang / Pemeliharaan Sarpras";
+    if(text.indexOf("sewa")>=0) return "Sewa Peralatan / Tempat";
+    if(text.indexOf("barang")>=0||text.indexOf("material")>=0||text.indexOf("atk")>=0) return "Belanja Barang / Material";
+    return "Lainnya";
+  }
+  function rapRows99(month){
+    try{
+      if(typeof getMonthlyRapRows === "function") return getMonthlyRapRows(month) || [];
+    }catch(err){ console.warn("[BOP v1.99] Gagal membaca RAP:",err); }
+    return [];
+  }
+  function rapId99(month,index,row){
+    /* Loader RAP lama menerima annualIndex; gunakan identitas yang sama
+       agar kartu dan pemilih RAP selalu menunjuk record yang sama. */
+    return "rap:"+month+":"+String(index);
+  }
+  function defaultActivityData99(){
+    var base=withoutIndex99(p99());
+    base.jenis=base.jenis || "Lainnya";
+    base.nama="Kegiatan Operasional Baru";
+    base.hariTanggal="";
+    base.waktu="";
+    base.tempat="";
+    base.agenda="";
+    base.pimpinan="";
+    base.notulis="";
+    base.nominal=0;
+    base.penerima="";
+    base.jabatanPenerima="";
+    base.keperluan="";
+    base.tanggalTerima="";
+    base.nomorKuitansi="";
+    base.hadir=0;
+    base.tidakHadir=0;
+    base.pembahasan="";
+    base.keputusan="";
+    base.rapatBerikutnya="";
+    base.rapAutoIdx=undefined;
+    base.rapAutoMonth=undefined;
+    return base;
+  }
+  function applyRapToData99(base, row, month, index){
+    var result=withoutIndex99(base);
+    var name=(row && row.uraian) || "Kegiatan Operasional RT";
+    var amount=Number((row && (row.jumlahBulanan != null ? row.jumlahBulanan : row.jumlah)) || 0);
+    result.jenis=mapJenis99(row);
+    result.nama=name;
+    result.agenda=result.agenda && result.agenda.indexOf("Kegiatan Operasional Baru")<0
+      ? result.agenda
+      : "Pelaksanaan "+name+" dan kelengkapan administrasi pertanggungjawaban.";
+    result.keperluan="Pembayaran "+name+" ("+((row && (row.volume||row.satuan))||"sesuai RAP")+") — Bulan "+month+". "+((row&&row.keterangan)||"Sesuai mata belanja dalam RAP BOP RT.");
+    result.nominal=amount;
+    result.rapAutoIdx=index;
+    result.rapAutoMonth=month;
+    return result;
+  }
+  function createRecord99(id, recordData, meta){
+    var timestamp=now99();
+    return {
+      id:id,
+      source:(meta&&meta.source)||"manual",
+      rapRef:(meta&&meta.rapRef)||null,
+      createdAt:timestamp,
+      updatedAt:timestamp,
+      data:withoutIndex99(recordData),
+      archived:false
+    };
+  }
+  function ensureActivities99(){
+    if(typeof ensurePersiapan === "function") ensurePersiapan();
+    var state=d99();
+    if(!state.persiapan) state.persiapan={};
+    var p=state.persiapan;
+    if(!Array.isArray(p.activities)){
+      p.activities=[];
+      var legacyId=(p.rapAutoIdx!==undefined && p.rapAutoMonth)
+        ? rapId99(p.rapAutoMonth,p.rapAutoIdx)
+        : "legacy:persiapan";
+      p.activities.push(createRecord99(legacyId,p,{
+        source:(p.rapAutoIdx!==undefined ? "rap" : "legacy"),
+        rapRef:(p.rapAutoIdx!==undefined ? {month:p.rapAutoMonth,index:p.rapAutoIdx} : null)
+      }));
+      p.activeActivityId=legacyId;
+    }
+    var existing={};
+    p.activities.forEach(function(item){
+      if(!item || !item.id) return;
+      if(!item.data) item.data=withoutIndex99(p);
+      item.data=withoutIndex99(item.data);
+      if(!item.createdAt) item.createdAt=now99();
+      if(!item.updatedAt) item.updatedAt=item.createdAt;
+      if(item.archived==null) item.archived=false;
+      existing[item.id]=item;
+    });
+
+    /* Buat kartu untuk semua kegiatan RAP yang aktif per bulan, tanpa
+       menimpa snapshot daftar hadir/notulen yang sudah pernah diisi. */
+    MONTHS.forEach(function(month){
+      rapRows99(month).forEach(function(row,index){
+        var rapIndex=(row && row.annualIndex!=null) ? Number(row.annualIndex) : index;
+        var id=rapId99(month,rapIndex,row);
+        var item=existing[id];
+        if(!item){
+          var sourceData=(p.rapAutoMonth===month && Number(p.rapAutoIdx)===rapIndex)
+            ? withoutIndex99(p)
+            : applyRapToData99(defaultActivityData99(),row,month,rapIndex);
+          item=createRecord99(id,sourceData,{source:"rap",rapRef:{month:month,index:rapIndex}});
+          p.activities.push(item);
+          existing[id]=item;
+        }else{
+          item.source="rap";
+          item.rapRef={month:month,index:rapIndex};
+          item.data.rapAutoIdx=rapIndex;
+          item.data.rapAutoMonth=month;
+        }
+      });
+    });
+    if(!p.activeActivityId || !existing[p.activeActivityId]){
+      p.activeActivityId=p.activities.find(function(item){return !item.archived;})?.id || p.activities[0]?.id;
+    }
+    return p.activities;
+  }
+  function activeRecord99(){
+    var items=ensureActivities99(), id=p99().activeActivityId;
+    return items.find(function(item){return item.id===id;}) || null;
+  }
+  function saveActive99(){
+    var record=activeRecord99();
+    if(!record) return;
+    try{ if(typeof collectPersiapan==="function") collectPersiapan(); }catch(err){ console.warn("[BOP v1.99] Collect kegiatan gagal:",err); }
+    record.data=withoutIndex99(p99());
+    record.updatedAt=now99();
+    record.archived=false;
+  }
+  function renderForms99(){
+    try{
+      if(typeof fillPersiapan==="function") fillPersiapan();
+      if(typeof renderPkPeserta==="function") renderPkPeserta();
+      if(typeof renderPkAction==="function") renderPkAction();
+      if(typeof previewPkDoc==="function") previewPkDoc((typeof currentPkDoc!=="undefined" && currentPkDoc) || window.currentPkDoc || "pk-hadir");
+    }catch(err){ console.warn("[BOP v1.99] Render workspace gagal:",err); }
+  }
+  function openActivity99(id, options){
+    var opts=options||{}, items=ensureActivities99();
+    var target=items.find(function(item){return item.id===id && !item.archived;});
+    if(!target) return;
+    if(!opts.skipSave && p99().activeActivityId && p99().activeActivityId!==id) saveActive99();
+    var state=d99(), p=state.persiapan;
+    var allItems=p.activities;
+    Object.keys(p).forEach(function(key){
+      if(key!=="activities" && key!=="activeActivityId" && key!=="workspaceView") delete p[key];
+    });
+    Object.assign(p,copy99(target.data||{}));
+    p.activities=allItems;
+    p.activeActivityId=id;
+    p.workspaceView="detail";
+    activeView="detail";
+    renderForms99();
+    persist99();
+    renderHub99();
+    updateWorkspaceBar99(target);
+    scrollTo(0,0);
+  }
+  function newManual99(){
+    saveActive99();
+    var p=p99(), id="manual:"+Date.now().toString(36);
+    var record=createRecord99(id,defaultActivityData99(),{source:"manual"});
+    p.activities.push(record);
+    p.activeActivityId=id;
+    p.workspaceView="detail";
+    openActivity99(id,{skipSave:true});
+    toast99("Kegiatan baru dibuat","Lengkapi data kegiatan pada workspace ini.","info");
+  }
+  function archiveActive99(){
+    var record=activeRecord99();
+    if(!record) return;
+    var proceed=function(ok){
+      if(!ok) return;
+      record.archived=true;
+      persist99();
+      activeView="index";
+      p99().workspaceView="index";
+      renderHub99();
+      toast99("Kegiatan diarsipkan","Data tetap tersimpan dan tidak dihapus.","success");
+    };
+    try{
+      if(typeof bopConfirm==="function") bopConfirm("Arsipkan Kegiatan","Kegiatan ini akan disembunyikan dari daftar aktif. Data tidak dihapus.","warning","Arsipkan","Batal").then(proceed);
+      else proceed(window.confirm("Arsipkan kegiatan ini?"));
+    }catch(_e){ proceed(false); }
+  }
+  function getMonthFilter99(){
+    var select=document.getElementById("pkActivityMonthV99");
+    return select ? select.value : "all";
+  }
+  function progress99(record){
+    var q=record.data||{}, people=Array.isArray(q.peserta)?q.peserta:[];
+    var checks=[
+      !!(q.nama&&q.hariTanggal&&q.tempat&&q.agenda),
+      people.some(function(row){return Array.isArray(row)&&String(row[0]||"").trim();}),
+      !!(q.pembahasan&&q.keputusan),
+      Number(q.nominal||0)>0 && !!q.penerima
+    ];
+    return {done:checks.filter(Boolean).length,total:checks.length,checks:checks};
+  }
+  function status99(progress){
+    if(progress.done===progress.total) return {label:"Siap SPJ",tone:"ready"};
+    if(progress.done>0) return {label:"Belum lengkap",tone:"pending"};
+    return {label:"Draft",tone:"draft"};
+  }
+  function renderCards99(){
+    var grid=document.getElementById("pkActivityGridV99");
+    if(!grid) return;
+    var filter=getMonthFilter99(), active=p99().activeActivityId;
+    var records=ensureActivities99().filter(function(item){
+      if(item.archived) return false;
+      return filter==="all" || (item.rapRef && item.rapRef.month===filter);
+    });
+    var stats=document.getElementById("pkActivityStatsV99");
+    var ready=records.filter(function(item){return progress99(item).done===4;}).length;
+    if(stats) stats.innerHTML='<div><strong>'+records.length+'</strong><span>Kegiatan aktif</span></div><div><strong>'+ready+'</strong><span>Siap SPJ</span></div><div><strong>'+records.reduce(function(sum,item){return sum+Number((item.data||{}).nominal||0);},0).toLocaleString("id-ID")+'</strong><span>Total alokasi</span></div>';
+    if(!records.length){
+      grid.innerHTML='<div class="pk-empty-v99"><strong>Belum ada kegiatan pada filter ini.</strong><span>Tambahkan kegiatan di RAP atau buat kegiatan manual.</span></div>';
+      return;
+    }
+    grid.innerHTML=records.map(function(item,index){
+      var q=item.data||{}, prog=progress99(item), state=status99(prog);
+      var source=item.rapRef ? "RAP "+esc99(item.rapRef.month) : "Kegiatan manual";
+      var updated=item.updatedAt ? new Date(item.updatedAt).toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}) : "-";
+      var isActive=item.id===active;
+      return '<article class="pk-activity-card-v99 '+(isActive?"is-active":"")+'" style="--card-order:'+index+'">'+
+        '<div class="pk-card-topline-v99"><span class="pk-card-source-v99">'+source+'</span><span class="pk-status-v99 '+state.tone+'">'+state.label+'</span></div>'+
+        '<div class="pk-card-type-v99">'+esc99(q.jenis||"Kegiatan Operasional")+'</div>'+
+        '<h3>'+esc99(q.nama||"Kegiatan tanpa nama")+'</h3>'+
+        '<div class="pk-card-meta-v99"><span>'+esc99(q.hariTanggal||"Tanggal belum diisi")+'</span><span>'+esc99(q.tempat||"Tempat belum diisi")+'</span></div>'+
+        '<div class="pk-card-bottom-v99"><div><small>Anggaran kegiatan</small><strong>'+rupiah99(q.nominal)+'</strong></div><div><small>Terakhir disimpan</small><strong>'+updated+'</strong></div></div>'+
+        '<div class="pk-progress-v99"><span style="width:'+Math.round(prog.done/prog.total*100)+'%"></span></div>'+
+        '<div class="pk-card-footer-v99"><span>'+prog.done+'/'+prog.total+' kelengkapan SPJ</span><button type="button" data-pk-open-v99="'+attr99(item.id)+'">Buka Kegiatan</button></div>'+
+      '</article>';
+    }).join("");
+  }
+  function updateWorkspaceBar99(record){
+    var bar=document.getElementById("pkWorkspaceBarV99");
+    if(!bar) return;
+    var q=(record&&record.data)||p99(), prog=record?progress99(record):progress99({data:q}), state=status99(prog);
+    var title=document.getElementById("pkWorkspaceTitleV99");
+    var meta=document.getElementById("pkWorkspaceMetaV99");
+    var badge=document.getElementById("pkWorkspaceStatusV99");
+    if(title) title.textContent=q.nama||"Kegiatan Operasional";
+    if(meta) meta.textContent=(q.hariTanggal||"Tanggal belum diisi")+" · "+(q.tempat||"Tempat belum diisi")+" · "+rupiah99(q.nominal);
+    if(badge){badge.textContent=state.label;badge.className="pk-status-v99 "+state.tone;}
+    var progress=document.getElementById("pkWorkspaceProgressV99");
+    if(progress) progress.textContent=prog.done+"/"+prog.total+" kelengkapan siap";
+  }
+  function installShell99(){
+    var page=document.getElementById("page-persiapan");
+    if(!page || document.getElementById("pkActivityHubV99")) return;
+    var hub=document.createElement("div");
+    hub.id="pkActivityHubV99";
+    hub.innerHTML='<div class="pk-hub-hero-v99"><div><span class="pk-eyebrow-v99">PERSIAPAN KEGIATAN OPERASIONAL</span><h3>Semua kegiatan, satu tempat kerja</h3><p>Pilih kegiatan untuk membuka data, daftar hadir, notulen, kuitansi, dan bukti SPJ yang tersimpan bersama.</p></div><button class="primary pk-manual-btn-v99" id="pkAddManualV99" type="button">+ Kegiatan Baru</button></div>'+
+      '<div class="pk-hub-toolbar-v99"><label>Filter bulan<select id="pkActivityMonthV99"><option value="all">Semua bulan</option>'+MONTHS.map(function(month){return '<option value="'+attr99(month)+'">'+esc99(month)+'</option>';}).join("")+'</select></label><div class="pk-hub-stats-v99" id="pkActivityStatsV99"></div></div>'+
+      '<div class="pk-activity-grid-v99" id="pkActivityGridV99"></div>';
+    var bar=document.createElement("div");
+    bar.id="pkWorkspaceBarV99";
+    bar.innerHTML='<div class="pk-workspace-back-v99"><button type="button" class="secondary" id="pkBackToActivitiesV99">Kembali ke Daftar Kegiatan</button><span>WORKSPACE KEGIATAN</span></div><div class="pk-workspace-title-v99"><div><h3 id="pkWorkspaceTitleV99">Kegiatan Operasional</h3><p id="pkWorkspaceMetaV99"></p></div><div class="pk-workspace-status-v99"><span id="pkWorkspaceStatusV99" class="pk-status-v99 draft">Draft</span><span id="pkWorkspaceProgressV99">0/4 kelengkapan siap</span></div></div>';
+    var anchor=page.querySelector(".subnav-wrapper-v30") || page.firstElementChild;
+    page.insertBefore(hub,anchor);
+    page.insertBefore(bar,anchor);
+    var month=document.getElementById("pkActivityMonthV99");
+    var selected=(d99().pengajuan||{}).selectedMonth;
+    if(month && MONTHS.indexOf(selected)>=0) month.value=selected;
+    document.getElementById("pkAddManualV99").addEventListener("click",newManual99);
+    document.getElementById("pkBackToActivitiesV99").addEventListener("click",function(){
+      saveActive99(); persist99(); activeView="index"; p99().workspaceView="index"; renderHub99(); scrollTo(0,0);
+    });
+    month.addEventListener("change",renderCards99);
+    hub.addEventListener("click",function(event){
+      var button=event.target.closest("[data-pk-open-v99]");
+      if(button) openActivity99(button.getAttribute("data-pk-open-v99"));
+    });
+  }
+  function renderHub99(){
+    installShell99();
+    var page=document.getElementById("page-persiapan"), hub=document.getElementById("pkActivityHubV99"), bar=document.getElementById("pkWorkspaceBarV99");
+    if(!page||!hub||!bar) return;
+    ensureActivities99();
+    var detail=activeView==="detail";
+    page.classList.toggle("pk-workspace-detail-v99",detail);
+    page.classList.toggle("pk-workspace-index-v99",!detail);
+    hub.style.display=detail?"none":"block";
+    bar.style.display=detail?"block":"none";
+    renderCards99();
+    if(detail) updateWorkspaceBar99(activeRecord99());
+  }
+  function enterIndex99(){
+    ensureActivities99();
+    activeView="index";
+    p99().workspaceView="index";
+    renderHub99();
+  }
+
+  function installRuntimeOverrides99(){
+    var currentActivate=window.activateTab;
+    if(!currentActivate || !currentActivate.__pkWorkspaceV99){
+      var baseActivate=currentActivate;
+      var activateV99=function(id){
+        var isPk=String(id||"").indexOf("pk-")===0;
+        var page=document.getElementById("page-persiapan");
+        if(!isPk || !page || !page.classList.contains("active") || activeView!=="detail"){
+          if(typeof baseActivate==="function") return baseActivate.apply(this,arguments);
+          return;
+        }
+        document.querySelectorAll("#page-persiapan .subtab").forEach(function(button){button.classList.toggle("active",button.dataset.tab===id);});
+        document.querySelectorAll("#page-persiapan .tab-content").forEach(function(section){section.classList.toggle("active",section.id==="tab-"+id);});
+        var target=document.getElementById("tab-"+id);
+        if(target && id!=="pk-data") setTimeout(function(){target.scrollIntoView({behavior:"smooth",block:"start"});},20);
+      };
+      activateV99.__pkWorkspaceV99=true;
+      window.activateTab=activateV99;
+    }
+    var currentGo=window.goPage;
+    if(!currentGo || !currentGo.__pkWorkspaceV99){
+      var baseGo=currentGo;
+      var goV99=async function(page){
+        var result;
+        if(typeof baseGo==="function") result=await baseGo.apply(this,arguments);
+        if(page==="persiapan"){
+          installShell99();
+          enterIndex99();
+          bindActions99();
+        }
+        return result;
+      };
+      goV99.__pkWorkspaceV99=true;
+      window.goPage=goV99;
+    }
+  }
+
+  /* Semua bagian form tetap mounted agar satu halaman dapat discroll.
+     Tab lama dipertahankan sebagai anchor kompatibilitas, bukan submenu. */
+  window.activateTab=function activateTabV99(id){
+    if(!String(id||"").indexOf("pk-")===0 || !document.getElementById("page-persiapan")?.classList.contains("active") || activeView!=="detail"){
+      if(typeof originalActivateTab==="function") return originalActivateTab(id);
+      return;
+    }
+    document.querySelectorAll("#page-persiapan .subtab").forEach(function(button){button.classList.toggle("active",button.dataset.tab===id);});
+    document.querySelectorAll("#page-persiapan .tab-content").forEach(function(section){section.classList.toggle("active",section.id==="tab-"+id);});
+    var target=document.getElementById("tab-"+id);
+    if(target && id!=="pk-data") setTimeout(function(){target.scrollIntoView({behavior:"smooth",block:"start"});},20);
+  };
+
+  /* Perbaiki guard ekspresi startsWith tanpa mengubah perilaku tab lain. */
+  window.activateTab=function activateTabV99Safe(id){
+    var isPk=String(id||"").indexOf("pk-")===0;
+    var page=document.getElementById("page-persiapan");
+    if(!isPk || !page || !page.classList.contains("active") || activeView!=="detail"){
+      if(typeof originalActivateTab==="function") return originalActivateTab(id);
+      return;
+    }
+    document.querySelectorAll("#page-persiapan .subtab").forEach(function(button){button.classList.toggle("active",button.dataset.tab===id);});
+    document.querySelectorAll("#page-persiapan .tab-content").forEach(function(section){section.classList.toggle("active",section.id==="tab-"+id);});
+    var target=document.getElementById("tab-"+id);
+    if(target && id!=="pk-data") setTimeout(function(){target.scrollIntoView({behavior:"smooth",block:"start"});},20);
+  };
+
+  window.renderPersiapan=function renderPersiapanV99(){
+    if(typeof originalRenderPersiapan==="function") originalRenderPersiapan();
+    ensureActivities99();
+    renderHub99();
+  };
+
+  /* Saat kegiatan RAP dipilih, pindahkan perubahan lama ke snapshot lama
+     dan buka snapshot kegiatan tujuan bila sudah pernah disimpan. */
+  if(typeof originalRapLoader==="function"){
+    window._pkLoadRap49=function loadRapActivityV99(index,month){
+      ensureActivities99();
+      saveActive99();
+      var id=rapId99(month,index,{});
+      originalRapLoader.apply(this,arguments);
+      ensureActivities99();
+      var items=p99().activities, target=items.find(function(item){return item.id===id;});
+      if(!target){
+        target=createRecord99(id,withoutIndex99(p99()),{source:"rap",rapRef:{month:month,index:index}});
+        p99().activities.push(target);
+      }
+      openActivity99(id,{skipSave:true});
+    };
+  }
+
+  /* Input yang berubah dalam workspace disimpan ke record aktif setelah
+     jeda singkat agar tidak membangun ulang DOM saat pengguna mengetik. */
+  document.addEventListener("input",function(event){
+    if(activeView!=="detail" || !event.target.closest("#page-persiapan")) return;
+    if(!event.target.matches("input,textarea,select,[data-pkpes],[data-pkact]")) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer=setTimeout(function(){
+      saveActive99(); persist99(); renderHub99();
+    },500);
+  },true);
+  document.addEventListener("change",function(event){
+    if(activeView!=="detail" || !event.target.closest("#page-persiapan")) return;
+    if(!event.target.matches("input,textarea,select,[data-pkpes],[data-pkact]")) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer=setTimeout(function(){
+      saveActive99(); persist99(); renderHub99();
+    },250);
+  },true);
+
+  function bindActions99(){
+    var save=document.getElementById("savePersiapan");
+    if(save) save.onclick=function(){
+      saveActive99(); persist99(); renderHub99(); updateWorkspaceBar99(activeRecord99());
+      toast99("Kegiatan tersimpan","Data kegiatan dan formulir SPJ sudah tersimpan.","success");
+    };
+    var history=document.getElementById("savePkHistory");
+    if(history) history.onclick=function(){
+      saveActive99(); persist99();
+      var docType=(typeof currentPkDoc!=="undefined" && currentPkDoc) || window.currentPkDoc || "pk-hadir";
+      if(typeof previewPkDoc==="function") previewPkDoc(docType);
+      if(typeof addHistory==="function") addHistory("Persiapan Kegiatan",docType,"Bukti SPJ - "+(p99().nama||"Kegiatan"),document.getElementById("pkDocOutput")?.innerHTML||"");
+    };
+    var print=document.getElementById("printPkDoc");
+    if(print) print.onclick=function(){
+      saveActive99(); persist99();
+      if(typeof cleanPrintPk==="function") cleanPrintPk();
+      else if(typeof cleanPrint==="function") cleanPrint("pk");
+    };
+  }
+  var originalGoPageV99=originalGoPage;
+  window.goPage=async function goPageV99(page){
+    var result;
+    if(typeof originalGoPageV99==="function") result=await originalGoPageV99.apply(this,arguments);
+    if(page==="persiapan"){
+      installShell99();
+      enterIndex99();
+      bindActions99();
+    }
+    return result;
+  };
+  function init99(){
+    installRuntimeOverrides99();
+    ensureActivities99();
+    installShell99();
+    bindActions99();
+    renderHub99();
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",function(){setTimeout(init99,180);});
+  else setTimeout(init99,180);
+  window.openActivityV99=openActivity99;
+  window.renderActivityWorkspaceV99=renderHub99;
+  console.log("[BOP v1.99] Workspace kegiatan per record + kartu 3D aktif.");
+})();
+/* END PATCH v1.99 */

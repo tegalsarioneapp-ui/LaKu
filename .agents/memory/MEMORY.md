@@ -12,3 +12,4 @@
 - [MoKu index.html CRLF line endings](moku-crlf-line-endings.md) — this file uses CRLF; edit tool needs LF conversion first or it silently fails to match.
 - [Global print handler](global-print-handler.md) — Document Studio print uses addEventListener, so onclick replacement alone cannot override the legacy popup path.
 - [Single document print pipeline](single-document-print-pipeline.md) — Generate 7 Dokumen uses one modal print action routed through Global Print KOP; avoid parallel popup/download handlers.
+- [Activity workspace model](activity-workspace.md) — Persiapan activities snapshot the legacy form per activity; late-loaded modules require final runtime override reinstallation.

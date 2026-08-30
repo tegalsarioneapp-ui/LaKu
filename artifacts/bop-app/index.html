@@ -747,7 +747,22 @@
             <div class="form-grid">
               <label>Tanggal Cetak <input id="lpjTanggalCetak" placeholder="Otomatis jika kosong"></label>
               <label>Dicetak Oleh <input id="lpjDicetakOleh" value="Kelurahan Tegalsari RW 12 RT 5"></label>
-              <label>Periode Bulan/Tahun <input id="lpjPeriode" value="08 / 2026"></label>
+              <label>Bulan LPJ / Periode Pengeluaran
+                <select id="lpjPeriode">
+                  <option>Januari 2026</option>
+                  <option>Februari 2026</option>
+                  <option>Maret 2026</option>
+                  <option>April 2026</option>
+                  <option>Mei 2026</option>
+                  <option>Juni 2026</option>
+                  <option>Juli 2026</option>
+                  <option>Agustus 2026</option>
+                  <option>September 2026</option>
+                  <option>Oktober 2026</option>
+                  <option>November 2026</option>
+                  <option>Desember 2026</option>
+                </select>
+              </label>
               <label>Saldo Awal <input id="lpjSaldoAwal" type="number" value="25000000"></label>
               <label>Saldo Bulan Lalu <input id="lpjSaldoBulanLalu" type="number" value="0"></label>
               <label>Ketua RT <input id="lpjKetua" placeholder="Nama Ketua RT"></label>
@@ -761,11 +776,12 @@
             <h3>Rincian Pengeluaran</h3>
             <button class="primary" id="addExpense">+ Tambah Pengeluaran</button>
           </div>
+          <div id="lpjPeriodSummary" class="lpj-period-summary-v201"></div>
           <div class="table-wrap">
-            <table id="expenseTable">
-              <thead><tr><th>No</th><th>Tanggal</th><th>Kegiatan/Pengeluaran</th><th>Jumlah</th><th>Keterangan</th><th>Aksi</th></tr></thead>
+              <table id="expenseTable">
+                <thead><tr><th>No</th><th>Tanggal</th><th>Kegiatan/Pengeluaran</th><th>Mata Anggaran RAP</th><th>Jumlah</th><th>Keterangan</th><th>Aksi</th></tr></thead>
               <tbody></tbody>
-              <tfoot><tr><td colspan="3">Jumlah Pengeluaran</td><td id="expenseTotalCell">Rp0</td><td colspan="2"></td></tr></tfoot>
+                <tfoot><tr><td colspan="4">Jumlah Pengeluaran</td><td id="expenseTotalCell">Rp0</td><td colspan="2"></td></tr></tfoot>
             </table>
           </div>
         </div>
@@ -1118,7 +1134,7 @@
         <div class="panel">
           <div class="panel-head">
             <h3>Rincian per Mata Anggaran RAP</h3>
-            <small class="hint">Realisasi dicocokkan otomatis dari deskripsi pengeluaran LPJ</small>
+             <small class="hint">Realisasi mengikuti bulan LPJ aktif dan mata anggaran RAP yang dipilih</small>
           </div>
           <div class="table-wrap">
             <table id="rapRealTable">
@@ -1162,6 +1178,7 @@
                   <th>No</th>
                   <th>Tanggal</th>
                   <th>Kegiatan / Pengeluaran</th>
+                  <th>Mata Anggaran RAP</th>
                   <th>Jumlah</th>
                   <th>Keterangan</th>
                 </tr>
@@ -1169,7 +1186,7 @@
               <tbody id="rapRealLpjTbody"></tbody>
               <tfoot>
                 <tr>
-                  <td colspan="3"><b>Total Pengeluaran</b></td>
+                  <td colspan="4"><b>Total Pengeluaran</b></td>
                   <td id="rrLpjTotal"><b>Rp0</b></td>
                   <td></td>
                 </tr>

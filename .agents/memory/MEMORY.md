@@ -12,3 +12,4 @@
 - [MoKu index.html CRLF line endings](moku-crlf-line-endings.md) — this file uses CRLF; edit tool needs LF conversion first or it silently fails to match.
 - [Global print handler](global-print-handler.md) — Document Studio print uses addEventListener, so onclick replacement alone cannot override the legacy popup path.
 - [Single document print pipeline](single-document-print-pipeline.md) — Generate 7 Dokumen uses one modal print action routed through Global Print KOP; avoid parallel popup/download handlers.
+- [GitHub push authentication](github-push-auth.md) — GitHub connector access does not automatically authenticate the shell Git remote; reconnect Git Providers before retrying a push.

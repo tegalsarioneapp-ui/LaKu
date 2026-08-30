@@ -399,7 +399,7 @@
             <div class="panel">
               <h3>Data Undangan Rapat/Kegiatan</h3>
               <div class="form-grid one">
-                <label>Nomor Undangan <input id="undNomor" placeholder=".../RT005/.../2026"></label>
+                <label>Nomor Undangan <input id="undNomor" class="auto-number-field-v202" readonly aria-readonly="true" title="Nomor dibuat otomatis berdasarkan jenis surat dan tanggal"></label>
                 <label>Tanggal Surat Undangan <input id="undTanggalSurat" value="Semarang, 01 Juli 2026"></label>
                 <label>Kepada/Yth. <input id="undKepada" value="Warga RT 005 RW 012"></label>
                 <label>Perihal <input id="undPerihal" value="Undangan Rapat/Kegiatan Warga"></label>
@@ -941,7 +941,7 @@
             <p class="hint">Semua data pembayaran/kuitansi dipusatkan di tab ini agar tidak tercampur dengan data kegiatan.</p>
             <div class="form-grid" id="pkKuitansiDataV20"></div>
             <div class="form-grid">
-              <label>Nomor Kuitansi / Tanda Terima <input id="pkNomorKuitansi" placeholder=".../TT/RT005/.../2026"></label>
+              <label>Nomor Kuitansi / Tanda Terima <input id="pkNomorKuitansi" class="auto-number-field-v202" readonly aria-readonly="true" title="Nomor dibuat otomatis berdasarkan jenis surat dan tanggal"></label>
               <label>Metode Pembayaran <select id="pkMetode"><option>Tunai</option><option>Transfer</option><option>QRIS</option></select></label>
               <label>NPWP/NIK Penerima <input id="pkNikPenerima" placeholder="Opsional"></label>
               <label>Keterangan Pajak <input id="pkPajak" placeholder="Opsional: PPh/PPN jika ada"></label>

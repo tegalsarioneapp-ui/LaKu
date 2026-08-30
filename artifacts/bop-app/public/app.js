@@ -321,7 +321,7 @@ function parseDateParts(str){
 function suratBaseCode(){ return `RT${data.master.rt||'005'}-RW${data.master.rw||'012'}`; }
 function autoNumber(type,dateStr){
   const dp=parseDateParts(dateStr); const rm=romanMonth(dp.month); const y=dp.year; const base=suratBaseCode();
-  const map={permohonan:`001/BOP/${base}/${rm}/${y}`,ba:`002/BA-RAP/${base}/${rm}/${y}`,undangan:`003/UND/${base}/${rm}/${y}`,sptjm:`004/SPTJM/${base}/${rm}/${y}`,pkundangan:`005/UND-KEG/${base}/${rm}/${y}`,kuitansi:`006/KWT/${base}/${rm}/${y}`};
+  const map={permohonan:`001/BOP/${base}/${rm}/${y}`,ba:`002/BA-RAP/${base}/${rm}/${y}`,undangan:`003/UND/${base}/${rm}/${y}`,sptjm:`004/SPTJM/${base}/${rm}/${y}`,pkundangan:`005/UND/${base}/${rm}/${y}`,kuitansi:`006/KWT/${base}/${rm}/${y}`};
   return map[type]||`000/${base}/${rm}/${y}`;
 }
 function getCoreParticipants(){
@@ -785,7 +785,7 @@ function addPkAction(){collectPersiapan();data.persiapan.action.push(["","",""])
 function deletePkAction(i){collectPersiapan();data.persiapan.action.splice(i,1);localStorage.setItem(STORE,JSON.stringify(data));renderPersiapan();activateTab("pk-notulen")}
 function docPkUndangan(){
   const m=data.master,p=data.persiapan;return official(`<p style="text-align:right">${p.tanggalTerima||"Semarang, ................. 2026"}</p>
-  <table class="no-border"><tr><td style="width:90px">Nomor</td><td>: ${p.nomorKuitansi||"........."}</td></tr><tr><td>Lampiran</td><td>: -</td></tr><tr><td>Perihal</td><td>: Undangan ${esc(p.nama)}</td></tr></table>
+  <table class="no-border"><tr><td style="width:90px">Nomor</td><td>: ${autoNumber('pkundangan', p.tanggalTerima)}</td></tr><tr><td>Lampiran</td><td>: -</td></tr><tr><td>Perihal</td><td>: Undangan ${esc(p.nama)}</td></tr></table>
   <p>Kepada<br>Yth. Warga/Peserta Kegiatan ${masterTitle()}<br>di Tempat</p>
   <p>Dengan hormat,</p><p>Dalam rangka pelaksanaan kegiatan operasional RT, kami mengundang Bapak/Ibu/Saudara/i untuk hadir pada:</p>
   <table class="no-border"><tr><td style="width:150px">Jenis Kegiatan</td><td>: ${esc(p.jenis)}</td></tr><tr><td>Nama Kegiatan</td><td>: ${esc(p.nama)}</td></tr><tr><td>Hari/Tanggal</td><td>: ${esc(p.hariTanggal)}</td></tr><tr><td>Waktu</td><td>: ${esc(p.waktu)}</td></tr><tr><td>Tempat</td><td>: ${esc(p.tempat)}</td></tr><tr><td>Agenda</td><td>: ${esc(p.agenda)}</td></tr></table>
@@ -6583,7 +6583,7 @@ ${KOP_PDF_CSS}
     if(typeof collectPersiapan==="function") collectPersiapan();
     var m=m49(), p=p49();
     var rt=m.rt||"005", rw=m.rw||"012";
-    var noUnd=safe49(p.nomorKuitansi,".../UND/RT"+rt+"/.../2026");
+    var noUnd=autoNumber("pkundangan",p.tanggalTerima);
     var tgl=safe49(p.tanggalTerima,"Semarang, ................. 2026");
     var body=
       '<p class="date-right-v37">'+esc49(tgl)+'</p>'+
@@ -6692,7 +6692,7 @@ ${KOP_PDF_CSS}
     var m=m49(), p=p49();
     var rt=m.rt||"005", rw=m.rw||"012";
     var nominal=Number(p.nominal||0);
-    var noKuit=safe49(p.nomorKuitansi,".../TT/RT"+rt+"/.../2026");
+    var noKuit=autoNumber("kuitansi",p.tanggalTerima);
     var tgl=safe49(p.tanggalTerima,"Semarang, ................. 2026");
     var nikRow=p.nikPenerima?'<tr><td>NPWP / NIK Penerima</td><td>:</td><td>'+esc49(p.nikPenerima)+'</td></tr>':"";
     var pajakRow=p.pajak?'<tr><td>Keterangan Pajak</td><td>:</td><td>'+esc49(p.pajak)+'</td></tr>':"";
@@ -15077,3 +15077,64 @@ ${KOP_PDF_CSS}
   console.log("[BOP v2.01] LPJ memakai satu tombol Cetak / Simpan PDF.");
 })();
 /* END PATCH v2.01 */
+
+/* PATCH v2.02 — Nomor Undangan & Kuitansi selalu otomatis
+   Field nomor hanya menjadi tampilan baca-saja. Nilai dihitung ulang
+   saat tanggal surat/kegiatan atau identitas RT/RW berubah, sehingga
+   preview dan dokumen cetak tidak pernah memakai nomor manual lama. */
+(function installAutomaticLetterNumberingV202(){
+  if(window.__automaticLetterNumberingV202) return;
+  window.__automaticLetterNumberingV202 = true;
+
+  var watchedIds = {
+    undTanggalSurat: true,
+    pkTanggalTerima: true,
+    masterRt: true,
+    masterRw: true
+  };
+
+  function refreshFields(){
+    try{
+      if(typeof ensurePersiapan === "function") ensurePersiapan();
+      if(typeof syncAutoNomorSurat === "function") syncAutoNomorSurat();
+
+      var meeting = data && data.pengajuan && data.pengajuan.meeting;
+      var undangan = meeting ? meeting.undNomor : "";
+      var kuitansi = data && data.persiapan ? data.persiapan.nomorKuitansi : "";
+      var undanganField = document.getElementById("undNomor");
+      var kuitansiField = document.getElementById("pkNomorKuitansi");
+
+      [undanganField, kuitansiField].forEach(function(field){
+        if(!field) return;
+        field.readOnly = true;
+        field.setAttribute("aria-readonly","true");
+        field.classList.add("auto-number-field-v202");
+      });
+      if(undanganField) undanganField.value = undangan || "";
+      if(kuitansiField) kuitansiField.value = kuitansi || "";
+    }catch(error){
+      console.warn("[BOP v2.02] Gagal menyegarkan nomor otomatis:", error);
+    }
+  }
+
+  document.addEventListener("input", function(event){
+    if(event.target && watchedIds[event.target.id]){
+      setTimeout(refreshFields, 0);
+    }
+  }, true);
+  document.addEventListener("change", function(event){
+    if(event.target && watchedIds[event.target.id]){
+      setTimeout(refreshFields, 0);
+    }
+  }, true);
+
+  window.__refreshAutomaticLetterNumbersV202 = refreshFields;
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", function(){ setTimeout(refreshFields, 50); });
+  }else{
+    setTimeout(refreshFields, 50);
+  }
+  setTimeout(refreshFields, 900);
+  console.log("[BOP v2.02] Nomor Undangan (UND) dan Kuitansi (KWT) otomatis aktif.");
+})();
+/* END PATCH v2.02 */

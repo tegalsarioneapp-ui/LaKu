@@ -2232,6 +2232,14 @@ a.primary,a.secondary{text-decoration:none;display:inline-flex;align-items:cente
 #nomorSuratPanelV40 table td { border-bottom: 1px solid var(--line,#d9e2ee); vertical-align: middle; }
 #nomorSuratPanelV40 table tr:last-child td { border-bottom: none; }
 
+/* Nomor surat Undangan/Kwitansi berasal dari generator jenis surat. */
+.auto-number-field-v202 {
+  background: #f1f5f9;
+  color: #0f3d68;
+  font-weight: 700;
+  cursor: not-allowed;
+}
+
 /* ── M4: Tracker Kirim ──────────────────────────────────── */
 .tracker-kirim-table-v40 { width: 100%; border-collapse: collapse; }
 .tracker-kirim-table-v40 th,

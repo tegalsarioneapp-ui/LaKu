@@ -1,8 +1,10 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "python-3.11"]
 
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd artifacts/api-server && PORT=${PORT:-80} node --enable-source-maps ./dist/index.mjs"]
+build = ["bash", "-c", "pnpm run typecheck:libs && pnpm --filter @workspace/bop-app run build && pnpm --filter @workspace/api-server run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -74,3 +76,4 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+packages = ["nano"]

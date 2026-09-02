@@ -3,10 +3,14 @@
 - [MoKu IndexedDB + BOP Sync](moku-idb-sync.md) — Photos stored in IndexedDB (db.js) + photoCache Map; BOP sync reads bop_rt005_data_v1_25; PostgreSQL tables: moku_photos, bop_snapshots, moku_results_sync.
 - [BOP PostgreSQL Sync Bugs Fixed](bop-pg-sync-fixes.md) — 5 critical multi-device sync bugs fixed; see file for details.
 - [MoKu initEvents crash fix](moku-init-crash.md) — importActivityFile null crash kills clock+GPS; always null-guard DOM queries in initEvents before addEventListener.
-- [KOP PDF Fix v1.85](kop-pdf-v85.md) — kopHTML() v85: logo KIRI (flex stretch = tinggi blok text), spacer kanan, CSS .kop-v85-* di semua print paths. DS observer guard via __bopPreviewDocActive flag.
+- [Global Print KOP](kop-pdf-v85.md) — seluruh jalur cetak memakai public/print-kop.js + print-kop.css; modul terakhir menampilkan Logo RT saja.
 - [BOP Patch v1.58-v1.59 Fixes](bop-v58-v59-fixes.md) — annualIndex fix, debounce cursor, Ringkasan Anggaran, Pengambilan Bank multi-bulan, mobile CSS.
 - [MoKu Watermark Premium v2](moku-watermark-v2.md) — drawWatermark redesigned: 3 font tiers, gold accent bar, address gold/coords small, RT always shown both corners.
 - [BOP dm-card60 Output Unwrap](bop-dm-card60-unwrap.md) — docOutput/pkDocOutput/lpjOutput show content directly; dm-card60 hidden via ID CSS override in v1.62.
 - [MoKu BOP Sync Safety Rules](moku-bop-sync-safety.md) — isAll excludes bulan===""; stale cleanup skips activities with linked results (hasLinkedData guard).
 - [Cursor-safe autosave and sync](cursor-autosave-sync.md) — never rebuild active form DOM on input; debounce local writes and apply remote snapshots only when newer.
 - [MoKu index.html CRLF line endings](moku-crlf-line-endings.md) — this file uses CRLF; edit tool needs LF conversion first or it silently fails to match.
+- [Global print handler](global-print-handler.md) — Document Studio print uses addEventListener, so onclick replacement alone cannot override the legacy popup path.
+- [Single document print pipeline](single-document-print-pipeline.md) — Generate 7 Dokumen uses one modal print action routed through Global Print KOP; avoid parallel popup/download handlers.
+- [Activity workspace model](activity-workspace.md) — Persiapan activities snapshot the legacy form per activity; late-loaded modules require final runtime override reinstallation.
+- [GitHub push authentication](github-push-auth.md) — GitHub connector access does not automatically authenticate the shell Git remote; reconnect Git Providers before retrying a push.

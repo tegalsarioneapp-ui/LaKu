@@ -10,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css" />
   <link rel="stylesheet" href="/document-studio/document-studio.css" />
+  <link rel="stylesheet" href="/print-kop.css" />
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script src="/document-studio/letter-rendering.js"></script>
 
@@ -92,89 +93,99 @@
       </section>
 
       <section class="page" id="page-dashboard">
-
-        <!-- Hero Banner -->
         <div class="dbx-hero">
           <div class="dbx-hero-left">
-            <span class="dbx-hero-eyebrow">RT 005 · RW 012 · Tegalsari, Semarang</span>
-            <h2 class="dbx-hero-title">BOP Dashboard</h2>
-            <p class="dbx-hero-sub">Bantuan Operasional RT — Tahun Anggaran 2026</p>
+            <span class="dbx-hero-eyebrow" id="dashEyebrow">RT 005 · RW 012 · Tegalsari, Semarang</span>
+            <h2 class="dbx-hero-title">Dashboard Pelaporan BOP</h2>
+            <p class="dbx-hero-sub">Satu ringkasan untuk RAP, breakdown, realisasi LPJ, dan kesiapan laporan.</p>
           </div>
           <div class="dbx-hero-actions">
-            <button class="dbx-btn-primary" data-go="pengajuan">＋ Pengajuan</button>
-            <button class="dbx-btn-secondary" data-go="lpj">＋ LPJ</button>
+            <button class="dbx-btn-primary" id="dashRefreshBtn">↻ Perbarui</button>
+            <button class="dbx-btn-secondary" data-go="rapreal">📊 RAP vs Realisasi</button>
           </div>
         </div>
 
-        <!-- KPI Cards -->
-        <div class="dbx-kpi-row">
-          <div class="dbx-kpi-card" style="--kpi-accent:#3b82f6">
-            <div class="dbx-kpi-icon" style="background:rgba(59,130,246,.15);color:#3b82f6">💰</div>
-            <div class="dbx-kpi-body">
-              <span class="dbx-kpi-label">Total Anggaran BOP</span>
-              <strong class="dbx-kpi-val" id="dashTotal">Rp25.000.000</strong>
-              <small class="dbx-kpi-sub">Tahun 2026</small>
-            </div>
+        <div class="dbx-dashboard-note" id="dashValidationNote">
+          <span class="dbx-dashboard-note-icon">✓</span>
+          <div><strong>Angka dashboard menggunakan data tervalidasi.</strong><br><small>Teralokasi RAP hanya menghitung item yang total breakdown bulanannya sudah sama dengan nilai RAP.</small></div>
+        </div>
+
+        <div class="dbx-kpi-row dbx-kpi-row-v2">
+          <div class="dbx-kpi-card" style="--kpi-accent:#2563eb">
+            <div class="dbx-kpi-icon" style="background:rgba(37,99,235,.15);color:#2563eb">💰</div>
+            <div class="dbx-kpi-body"><span class="dbx-kpi-label">Pagu BOP</span><strong class="dbx-kpi-val" id="dashTotal">Rp25.000.000</strong><small class="dbx-kpi-sub">Tahun anggaran 2026</small></div>
           </div>
-          <div class="dbx-kpi-card" style="--kpi-accent:#10b981">
-            <div class="dbx-kpi-icon" style="background:rgba(16,185,129,.15);color:#10b981">📊</div>
-            <div class="dbx-kpi-body">
-              <span class="dbx-kpi-label">Teralokasi RAP</span>
-              <strong class="dbx-kpi-val" id="dashAllocated">Rp0</strong>
-              <small class="dbx-kpi-sub" id="dashPercent">0% dari total</small>
-            </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#059669">
+            <div class="dbx-kpi-icon" style="background:rgba(5,150,105,.15);color:#059669">✅</div>
+            <div class="dbx-kpi-body"><span class="dbx-kpi-label">Teralokasi RAP Valid</span><strong class="dbx-kpi-val" id="dashAllocated">Rp0</strong><small class="dbx-kpi-sub" id="dashPercent">0% dari pagu</small></div>
           </div>
           <div class="dbx-kpi-card" style="--kpi-accent:#f59e0b">
             <div class="dbx-kpi-icon" style="background:rgba(245,158,11,.15);color:#f59e0b">📋</div>
             <div class="dbx-kpi-body">
-              <span class="dbx-kpi-label">Sisa Anggaran</span>
-              <strong class="dbx-kpi-val" id="dashSisa">Rp25.000.000</strong>
-              <small class="dbx-kpi-sub">Validasi otomatis</small>
+               <span class="dbx-kpi-label">Sisa Saldo</span>
+              <strong class="dbx-kpi-val" id="dashRemaining">Rp25.000.000</strong>
+               <small class="dbx-kpi-sub">Pagu − realisasi LPJ</small>
             </div>
           </div>
-          <div class="dbx-kpi-card" style="--kpi-accent:#8b5cf6">
-            <div class="dbx-kpi-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6">🗂</div>
-            <div class="dbx-kpi-body">
-              <span class="dbx-kpi-label">Riwayat Dokumen</span>
-              <strong class="dbx-kpi-val" id="dashHistory">0</strong>
-              <small class="dbx-kpi-sub">Pengajuan & LPJ</small>
-            </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#d97706">
+            <div class="dbx-kpi-icon" style="background:rgba(217,119,6,.15);color:#d97706">💸</div>
+            <div class="dbx-kpi-body"><span class="dbx-kpi-label">Realisasi LPJ</span><strong class="dbx-kpi-val" id="dashRealized">Rp0</strong><small class="dbx-kpi-sub" id="dashRealizedPercent">0% dari RAP valid</small></div>
+          </div>
+          <div class="dbx-kpi-card" style="--kpi-accent:#7c3aed">
+            <div class="dbx-kpi-icon" style="background:rgba(124,58,237,.15);color:#7c3aed">📋</div>
+            <div class="dbx-kpi-body"><span class="dbx-kpi-label">Sisa Pagu</span><strong class="dbx-kpi-val" id="dashUnallocated">Rp25.000.000</strong><small class="dbx-kpi-sub">Pagu − RAP tervalidasi</small></div>
           </div>
         </div>
 
-        <!-- Content Grid -->
-        <div class="dbx-grid">
+        <div class="dbx-dashboard-grid-v2">
+          <div class="dbx-panel dbx-breakdown-status-panel">
+            <div class="dbx-panel-head">
+              <div><h3 class="dbx-panel-title">Status Breakdown RAP</h3><p class="dbx-panel-sub">Kesiapan setiap mata anggaran sebelum dianggap teralokasi.</p></div>
+              <span id="dashBreakdownProgress" class="dbx-badge">0 / 0</span>
+            </div>
+            <div class="dbx-progress-line"><div id="dashBreakdownBar" class="dbx-progress-line-fill" style="width:0%"></div></div>
+            <div class="dbx-status-summary" id="dashBreakdownSummary"></div>
+            <div id="dashBreakdownIssues" class="dash-breakdown-issues"></div>
+          </div>
           <div class="dbx-panel">
             <div class="dbx-panel-head">
-              <div>
-                <h3 class="dbx-panel-title">Checklist 7 Syarat Pengajuan</h3>
-                <p class="dbx-panel-sub">Kelengkapan dokumen pengajuan dana BOP</p>
-              </div>
+              <div><h3 class="dbx-panel-title">Kelengkapan Administrasi</h3><p class="dbx-panel-sub">Checklist dokumen pengajuan dan riwayat laporan.</p></div>
               <span id="checkProgress" class="dbx-badge">0 / 7</span>
             </div>
             <div class="checklist" id="dashboardChecklist"></div>
+            <div class="dash-history-mini"><span>Dokumen di riwayat</span><strong id="dashHistory">0</strong></div>
           </div>
+        </div>
 
-          <div class="dbx-panel">
-            <div class="dbx-panel-head">
-              <div>
-                <h3 class="dbx-panel-title">Aktivitas Terbaru</h3>
-                <p class="dbx-panel-sub">Dokumen yang terakhir dibuat atau diperbarui</p>
-              </div>
-              <button class="dbx-btn-ghost" id="clearDashboardFilter">Lihat Semua</button>
-            </div>
-            <div id="recentHistory" class="history-list"></div>
+        <div class="dbx-panel">
+          <div class="dbx-panel-head">
+            <div><h3 class="dbx-panel-title">Ringkasan Anggaran per Kategori</h3><p class="dbx-panel-sub">RAP tervalidasi dibandingkan realisasi LPJ.</p></div>
+            <button class="dbx-btn-ghost" id="clearDashboardFilter">Lihat Riwayat</button>
           </div>
+          <div class="table-wrap dash-category-wrap">
+            <table class="dash-category-table"><thead><tr><th>Kategori</th><th>RAP Valid</th><th>Realisasi LPJ</th><th>Sisa</th><th>Status</th></tr></thead><tbody id="dashCategoryTbody"></tbody></table>
+          </div>
+        </div>
+
+        <div class="dbx-panel">
+          <div class="dbx-panel-head">
+            <div><h3 class="dbx-panel-title">Aktivitas Terbaru</h3><p class="dbx-panel-sub">Dokumen yang terakhir dibuat atau diperbarui.</p></div>
+          </div>
+          <div id="recentHistory" class="history-list"></div>
         </div>
       </section>
 
-      <section class="page" id="page-pengajuan">
-        <div class="section-title">
+      <section class="page pengajuan-page-v2" id="page-pengajuan">
+        <div class="section-title pengajuan-title-v2">
           <div>
+            <span class="eyebrow-v2">BOP ADMINISTRASI · TAHUN ANGGARAN 2026</span>
             <h2>Pengajuan Dana Operasional</h2>
             <p>Semua 7 syarat pengajuan dibuat dan dikelola dalam satu menu.</p>
           </div>
-          <button class="primary" id="savePengajuan">Simpan Pengajuan</button>
+          <div class="pengajuan-title-actions-v2">
+            <span class="save-state-v2"><span class="save-dot-v2"></span> Tersimpan di perangkat</span>
+            <button class="primary save-button-v2" id="savePengajuan">Simpan Pengajuan</button>
+          </div>
         </div>
 
         <!-- Guided flow: lapisan navigasi di atas form/pipeline dokumen lama. -->
@@ -312,7 +323,31 @@
               </div>
             </div>
 
-            <!-- ── Kolom Kanan: Pratinjau Langsung (hidden per permintaan) ── -->
+             <aside class="pengajuan-aside-v2" aria-label="Ringkasan pengajuan">
+               <div class="aside-intro-v2">
+                 <div class="aside-icon-v2">01</div>
+                 <div>
+                   <span class="aside-kicker-v2">PROGRES PENGAJUAN</span>
+                   <h3>Siap untuk dilengkapi</h3>
+                 </div>
+               </div>
+               <div class="progress-card-v2">
+                 <div class="progress-card-head-v2"><span>Kelengkapan dokumen</span><strong>0 / 7</strong></div>
+                 <div class="progress-track-v2"><span style="width:0%"></span></div>
+                 <p>Centang dokumen yang sudah tersedia. Status akan tersimpan otomatis di perangkat.</p>
+               </div>
+               <div class="aside-block-v2">
+                 <span class="aside-label-v2">ALUR PENGAJUAN</span>
+                 <div class="flow-list-v2">
+                   <div class="flow-item-v2 active"><span>01</span><div><b>Data pengajuan</b><small>Surat, rekening, dan pejabat terkait</small></div></div>
+                   <div class="flow-item-v2"><span>02</span><div><b>RAP & jadwal</b><small>Rencana anggaran satu tahun</small></div></div>
+                   <div class="flow-item-v2"><span>03</span><div><b>Rapat & dokumen</b><small>BA, hadir, dan berkas resmi</small></div></div>
+                 </div>
+               </div>
+               <div class="aside-tip-v2"><span>i</span><p><b>Tips pengisian</b><br>Lengkapi data surat dan rekening terlebih dahulu agar dokumen resmi dapat dibuat tanpa input ulang.</p></div>
+             </aside>
+
+             <!-- ── Kolom Kanan: Pratinjau Langsung (hidden per permintaan) ── -->
             <div class="pq-right" style="display:none">
               <div class="pq-preview-panel">
                 <div class="pq-preview-header">
@@ -449,7 +484,7 @@
             <div class="panel">
               <h3>Data Undangan Rapat/Kegiatan</h3>
               <div class="form-grid one">
-                <label>Nomor Undangan <input id="undNomor" placeholder=".../RT005/.../2026"></label>
+                <label>Nomor Undangan <input id="undNomor" class="auto-number-field-v202" readonly aria-readonly="true" title="Nomor dibuat otomatis berdasarkan jenis surat dan tanggal"></label>
                 <label>Tanggal Surat Undangan <input id="undTanggalSurat" value="Semarang, 01 Juli 2026"></label>
                 <label>Kepada/Yth. <input id="undKepada" value="Warga RT 005 RW 012"></label>
                 <label>Perihal <input id="undPerihal" value="Undangan Rapat/Kegiatan Warga"></label>
@@ -524,25 +559,12 @@
                       <select id="dsDocSelectV43" class="ds-doc-select-v43">
                         <optgroup label="— Pengajuan Dana Operasional —">
                           <option value="permohonan">1. Surat Permohonan Pencairan</option>
-                          <option value="rap">2. RAP 1 Tahun</option>
-                          <option value="rapbulanan">2A. RAP Bulanan Otomatis</option>
-                          <option value="ba">3. Berita Acara Kesepakatan RAP</option>
-                          <option value="hadir">4. Daftar Hadir Rapat RAP</option>
-                          <option value="sptjm">5. SPTJM Ketua RT</option>
-                          <option value="sk">6. SK Lurah / Dokumentasi</option>
-                          <option value="rekening">7. Rekening Bank Jateng</option>
-                          <option value="rbb">RBB - Rencana Belanja Bulanan</option>
-                          <option value="perubahanRap">5A. Perubahan RAP</option>
-                          <option value="baPerubahanRap">5B. BA Perubahan RAP</option>
-                          <option value="tandaTerima">Tanda Terima Penyaluran</option>
-                          <option value="paket7pengajuan">📦 Paket 7 Dokumen 2026</option>
-                        </optgroup>
-                        <optgroup label="— Rapat &amp; Notulen —">
-                          <option value="undangan">Undangan Rapat RAP</option>
-                          <option value="notulen">Notulen Resmi RAP</option>
-                        </optgroup>
-                        <optgroup label="— LPJ / SPJ —">
-                          <option value="lpj">LPJ / SPJ Lengkap</option>
+                          <option value="sk">2. SK Lurah Pembentukan RT</option>
+                          <option value="rekening">3. Rekening Bank Lembaga RT</option>
+                          <option value="rap">4. Rencana Anggaran Penggunaan</option>
+                          <option value="ba">5. Berita Acara RT</option>
+                          <option value="hadir">6. Daftar Hadir serta Dokumentasi Pembahasan RAP</option>
+                          <option value="sptjm">7. Surat Pertanggungjawaban Mutlak</option>
                         </optgroup>
                       </select>
                       <button class="ds-doc-gen-btn-v43" id="dsDocGenBtnV43" type="button">
@@ -810,7 +832,22 @@
             <div class="form-grid">
               <label>Tanggal Cetak <input id="lpjTanggalCetak" placeholder="Otomatis jika kosong"></label>
               <label>Dicetak Oleh <input id="lpjDicetakOleh" value="Kelurahan Tegalsari RW 12 RT 5"></label>
-              <label>Periode Bulan/Tahun <input id="lpjPeriode" value="08 / 2026"></label>
+              <label>Bulan LPJ / Periode Pengeluaran
+                <select id="lpjPeriode">
+                  <option>Januari 2026</option>
+                  <option>Februari 2026</option>
+                  <option>Maret 2026</option>
+                  <option>April 2026</option>
+                  <option>Mei 2026</option>
+                  <option>Juni 2026</option>
+                  <option>Juli 2026</option>
+                  <option>Agustus 2026</option>
+                  <option>September 2026</option>
+                  <option>Oktober 2026</option>
+                  <option>November 2026</option>
+                  <option>Desember 2026</option>
+                </select>
+              </label>
               <label>Saldo Awal <input id="lpjSaldoAwal" type="number" value="25000000"></label>
               <label>Saldo Bulan Lalu <input id="lpjSaldoBulanLalu" type="number" value="0"></label>
               <label>Ketua RT <input id="lpjKetua" placeholder="Nama Ketua RT"></label>
@@ -824,20 +861,19 @@
             <h3>Rincian Pengeluaran</h3>
             <button class="primary" id="addExpense">+ Tambah Pengeluaran</button>
           </div>
+          <div id="lpjPeriodSummary" class="lpj-period-summary-v201"></div>
           <div class="table-wrap">
-            <table id="expenseTable">
-              <thead><tr><th>No</th><th>Tanggal</th><th>Kegiatan/Pengeluaran</th><th>Jumlah</th><th>Keterangan</th><th>Aksi</th></tr></thead>
+              <table id="expenseTable">
+                <thead><tr><th>No</th><th>Tanggal</th><th>Kegiatan/Pengeluaran</th><th>Mata Anggaran RAP</th><th>Jumlah</th><th>Keterangan</th><th>Aksi</th></tr></thead>
               <tbody></tbody>
-              <tfoot><tr><td colspan="3">Jumlah Pengeluaran</td><td id="expenseTotalCell">Rp0</td><td colspan="2"></td></tr></tfoot>
+                <tfoot><tr><td colspan="4">Jumlah Pengeluaran</td><td id="expenseTotalCell">Rp0</td><td colspan="2"></td></tr></tfoot>
             </table>
           </div>
         </div>
 
         <div class="tab-content" id="tab-lpj-preview">
           <div class="action-row">
-            <button class="primary" id="saveLpjHistory">Simpan LPJ ke Riwayat</button>
             <button class="secondary" id="printLpj">Cetak / Simpan PDF</button>
-            <button class="primary" id="exportPdfLpjV38">⬇ Export PDF LPJ</button>
           </div>
           <div class="doc-paper" id="lpjOutput"></div>
           <div id="lpjFotoSheets"></div>
@@ -990,7 +1026,7 @@
             <p class="hint">Semua data pembayaran/kuitansi dipusatkan di tab ini agar tidak tercampur dengan data kegiatan.</p>
             <div class="form-grid" id="pkKuitansiDataV20"></div>
             <div class="form-grid">
-              <label>Nomor Kuitansi / Tanda Terima <input id="pkNomorKuitansi" placeholder=".../TT/RT005/.../2026"></label>
+              <label>Nomor Kuitansi / Tanda Terima <input id="pkNomorKuitansi" class="auto-number-field-v202" readonly aria-readonly="true" title="Nomor dibuat otomatis berdasarkan jenis surat dan tanggal"></label>
               <label>Metode Pembayaran <select id="pkMetode"><option>Tunai</option><option>Transfer</option><option>QRIS</option></select></label>
               <label>NPWP/NIK Penerima <input id="pkNikPenerima" placeholder="Opsional"></label>
               <label>Keterangan Pajak <input id="pkPajak" placeholder="Opsional: PPh/PPN jika ada"></label>
@@ -1183,7 +1219,7 @@
         <div class="panel">
           <div class="panel-head">
             <h3>Rincian per Mata Anggaran RAP</h3>
-            <small class="hint">Realisasi dicocokkan otomatis dari deskripsi pengeluaran LPJ</small>
+             <small class="hint">Realisasi mengikuti bulan LPJ aktif dan mata anggaran RAP yang dipilih</small>
           </div>
           <div class="table-wrap">
             <table id="rapRealTable">
@@ -1227,6 +1263,7 @@
                   <th>No</th>
                   <th>Tanggal</th>
                   <th>Kegiatan / Pengeluaran</th>
+                  <th>Mata Anggaran RAP</th>
                   <th>Jumlah</th>
                   <th>Keterangan</th>
                 </tr>
@@ -1234,7 +1271,7 @@
               <tbody id="rapRealLpjTbody"></tbody>
               <tfoot>
                 <tr>
-                  <td colspan="3"><b>Total Pengeluaran</b></td>
+                  <td colspan="4"><b>Total Pengeluaran</b></td>
                   <td id="rrLpjTotal"><b>Rp0</b></td>
                   <td></td>
                 </tr>
@@ -1352,9 +1389,12 @@
     /* Load legacy scripts in-order without Vite HTML bundling warnings. */
     (function loadLegacyScripts() {
       var list = [
-        "/app.js?v=20260809c",
+        "/sync-state.js",
+        "/app.js?v=20260830c",
+        "/app.js?v=20260824-v200",
         "/document-studio/document-studio.js",
-        "/patches/modules-v40.js"
+        "/patches/modules-v40.js",
+        "/print-kop.js?v=20260824a"
       ];
 
       function injectAt(i) {

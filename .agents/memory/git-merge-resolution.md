@@ -20,3 +20,4 @@ Saat merge conflict di `app.js` antara local patch dan remote patch:
 ## Catatan teknis
 - Jangan pakai `if "=======" in resolved` untuk cek sisa conflict — banyak comment `/* ===... */` di app.js yang akan false-positive
 - Pakai regex `r'^={7}$'` (exactly 7 equals, full line) untuk deteksi marker yang akurat
+- Setelah resolusi, selalu jalankan parser JavaScript. Potongan patch yang tampak berurutan dapat meninggalkan wrapper IIFE atau deklarasi global ganda walaupun marker konflik sudah hilang.

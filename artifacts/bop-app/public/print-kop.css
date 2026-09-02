@@ -1,0 +1,388 @@
+/*
+ * Global print system for LaKu Warga.
+ * Semua dokumen resmi yang dicetak harus dibungkus .print-area.
+ */
+
+@page {
+  /*
+   * Margin surat resmi sesuai pedoman tata naskah:
+   * atas 3 cm, kanan 2 cm, bawah 2 cm, kiri 3 cm.
+   * size:auto sengaja dipakai agar pilihan kertas A4 maupun Folio/F4
+   * dari dialog printer tetap dihormati.
+   */
+  size: auto;
+  margin: 3cm 2cm 2cm 3cm;
+}
+
+.print-area {
+  width: 100%;
+  box-sizing: border-box;
+  color: #000;
+  background: #fff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.print-area *,
+.print-area *::before,
+.print-area *::after {
+  box-sizing: border-box;
+}
+
+.print-kop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 98px;
+  padding: 0 0 15px;
+  margin: 0 0 18px;
+  color: #000;
+  background: #fff;
+  text-align: center;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.print-kop-global {
+  display: grid !important;
+  grid-template-columns: 24mm minmax(0, 1fr) 24mm !important;
+  align-items: center !important;
+  min-height: 32mm !important;
+  padding: 0 0 4mm !important;
+  margin: 0 0 5mm !important;
+}
+
+/* Garis ganda presisi: garis tebal di atas, garis tipis di bawah. */
+.print-kop::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  content: "";
+  border-top: 2px solid #000;
+  border-bottom: 1px solid #000;
+}
+
+.print-kop__side {
+  display: flex;
+  flex: 0 0 90px;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  min-width: 90px;
+  height: 90px;
+}
+
+.print-kop__side--left {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  justify-content: flex-start;
+  transform: translateY(-50%);
+}
+
+.print-kop-global .print-kop__side--left {
+  position: static !important;
+  grid-column: 1;
+  grid-row: 1;
+  width: 24mm !important;
+  min-width: 24mm !important;
+  height: 24mm !important;
+  transform: none !important;
+  justify-content: flex-start !important;
+}
+
+.print-kop__logo {
+  display: block;
+  width: 90px;
+  height: 90px;
+  max-width: 90px;
+  max-height: 90px;
+  object-fit: contain;
+}
+
+.print-kop-global .print-kop__logo {
+  width: 22mm !important;
+  height: 22mm !important;
+  max-width: 22mm !important;
+  max-height: 22mm !important;
+}
+
+.print-kop__center {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 100%;
+  padding: 0 12px;
+  text-align: center;
+}
+
+.print-kop-global .print-kop__center {
+  grid-column: 2;
+  grid-row: 1;
+  width: auto !important;
+  padding: 0 2mm !important;
+}
+
+.print-kop-global::before {
+  grid-column: 3;
+  grid-row: 1;
+  width: 24mm;
+  height: 24mm;
+  content: "";
+}
+
+.print-kop__line {
+  margin: 0;
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-size: 13pt;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.print-kop__line--city {
+  font-size: 15pt;
+}
+
+.print-kop__line--rt {
+  font-size: 13pt;
+}
+
+.print-kop__address {
+  margin: 5px 0 0;
+  font-family: Arial, "Helvetica Neue", sans-serif;
+  font-size: 9pt;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.print-document {
+  width: 100%;
+  color: #000;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.15;
+}
+
+.print-document .official {
+  width: 100%;
+  color: #000;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.15;
+  text-align: justify;
+}
+
+.print-document .print-kop {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.print-document table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  page-break-inside: auto;
+}
+
+.print-document th,
+.print-document td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* Nomor columns stay only as wide as their content; other columns receive
+ * the remaining printable width automatically. */
+.print-document .official table:not(.no-border) td:first-child,
+.print-document .official table:not(.no-border) th:first-child,
+.print-document .official .col-no,
+.print-document .official .col-no-v37 {
+  width: 1% !important;
+  min-width: 9mm;
+  white-space: nowrap !important;
+  text-align: center;
+  overflow-wrap: normal;
+}
+
+.print-document .official .ttd-grid {
+  display: grid !important;
+  width: 100% !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 18mm !important;
+  margin-top: 10mm !important;
+  text-align: center !important;
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+}
+
+.print-document .official .ttd-grid > div:last-child {
+  grid-column: 2;
+}
+
+.print-document .official .ttd-3,
+.print-document .official .ttd-4 {
+  width: 100% !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8mm !important;
+  text-align: center !important;
+  page-break-inside: avoid !important;
+  break-inside: avoid !important;
+}
+
+.print-document .official .ttd-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+.print-document tr,
+.print-document p,
+.print-document .print-kop {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/*
+ * Preview and print must use the same signature geometry. The more specific
+ * selector intentionally wins over historical inline patch styles in app.js.
+ */
+.doc-paper .official .sign-space-v37,
+.doc-paper .official .signature-space,
+.doc-paper .official .signature-space-v37 {
+  display: block !important;
+  height: 30mm !important;
+  min-height: 30mm !important;
+}
+
+.doc-paper .official .sign-two-v37 b,
+.doc-paper .official .sign-right-v37 b,
+.doc-paper .official .ttd-2 b,
+.doc-paper .official .ttd-grid b,
+.doc-paper .official .ttd-3 b,
+.doc-paper .official .ttd-4 b,
+.doc-paper .official .signature-name {
+  font-weight: 700 !important;
+  text-decoration: underline !important;
+  display: inline-block !important;
+  margin-top: 2mm !important;
+  line-height: 1.2 !important;
+}
+
+@media print {
+  @page {
+    size: auto;
+    margin: 3cm 2cm 2cm 3cm;
+  }
+
+  html,
+  body {
+    width: 100%;
+    min-height: 100%;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-area {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-kop {
+    display: flex !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-kop::after {
+    display: block !important;
+    visibility: visible !important;
+    border-top: 2px solid #000 !important;
+    border-bottom: 1px solid #000 !important;
+  }
+
+  .print-kop__logo {
+    width: 90px !important;
+    height: 90px !important;
+    max-width: 90px !important;
+    max-height: 90px !important;
+  }
+
+  .print-document {
+    color: #000 !important;
+    background: #fff !important;
+    font-family: "Times New Roman", Times, serif !important;
+    font-size: 12pt !important;
+    line-height: 1.15 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .print-document .official {
+    font-family: "Times New Roman", Times, serif !important;
+    font-size: 12pt !important;
+    line-height: 1.15 !important;
+  }
+
+  /*
+   * Ruang tanda tangan surat resmi.
+   * 3 cm memberi ruang untuk paraf/tanda tangan sebelum nama tercetak.
+   */
+  .print-document .sign-space-v37,
+  .print-document .signature-space,
+  .print-document .signature-space-v37 {
+    display: block !important;
+    height: 30mm !important;
+    min-height: 30mm !important;
+  }
+
+  .print-document .sign-two-v37 b,
+  .print-document .sign-right-v37 b,
+  .print-document .ttd-2 b,
+  .print-document .ttd-grid b,
+  .print-document .ttd-3 b,
+  .print-document .ttd-4 b,
+  .print-document .signature-name {
+    display: inline-block !important;
+    margin-top: 2mm !important;
+    line-height: 1.2 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .print-kop__side,
+  .print-kop__logo {
+    width: 64px;
+    min-width: 64px;
+    max-width: 64px;
+    height: 64px;
+    max-height: 64px;
+  }
+
+  .print-kop__line {
+    font-size: 9pt;
+  }
+
+  .print-kop__line--city {
+    font-size: 10pt;
+  }
+
+  .print-kop__address {
+    font-size: 7pt;
+  }
+}

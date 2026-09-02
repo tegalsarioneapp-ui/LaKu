@@ -1,19 +1,6 @@
 import { Router } from "express";
 import { pool } from "../lib/db.js";
 const router = Router();
-/* ── Pastikan unique index ada agar UPSERT bisa berjalan ─────── */
-/* Dijalankan lazy saat pertama kali route dipanggil, bukan saat module load */
-let indexEnsured = false;
-async function ensureIndex() {
-    if (indexEnsured)
-        return;
-    indexEnsured = true;
-    try {
-        await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS moku_results_sync_act_idx
-       ON moku_results_sync(activity_id)`);
-    }
-    catch (_) { /* tabel mungkin belum ada, akan dibuat via init-db */ }
-}
 /* ── POST /api/db/bop-sync ──────────────────────────────────────
    Simpan snapshot data BOP ke PostgreSQL untuk cloud backup.
    Body: { data: object, label?: string }
@@ -86,7 +73,6 @@ router.post("/db/photos", async (req, res) => {
    Sinkronkan ringkasan hasil MoKu per kegiatan.
 ─────────────────────────────────────────────────────────────── */
 router.post("/db/results-sync", async (req, res) => {
-    await ensureIndex();
     try {
         const { results } = req.body;
         if (!Array.isArray(results) || !results.length) {
@@ -97,19 +83,36 @@ router.post("/db/results-sync", async (req, res) => {
         try {
             await client.query("BEGIN");
             for (const r of results) {
-                await client.query(`INSERT INTO moku_results_sync
-             (activity_id, activity_name, status, photo_count, note, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (activity_id) DO UPDATE SET
-             activity_name = EXCLUDED.activity_name,
-             status        = EXCLUDED.status,
-             photo_count   = EXCLUDED.photo_count,
-             note          = EXCLUDED.note,
-             updated_at    = EXCLUDED.updated_at`, [
-                    r.activityId, r.activityName || null, r.status || null,
+                const activityId = String(r.activityId || "").trim();
+                if (!activityId)
+                    continue;
+                /* Compatible upsert for databases created before the unique
+                   activity_id constraint existed. */
+                await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [activityId]);
+                const existing = await client.query(`SELECT id FROM moku_results_sync
+           WHERE activity_id = $1
+           ORDER BY updated_at DESC NULLS LAST, id DESC
+           LIMIT 1
+           FOR UPDATE`, [activityId]);
+                const values = [
+                    activityId, r.activityName || null, r.status || null,
                     r.photoCount || 0, r.note || null,
                     r.updatedAt ? new Date(r.updatedAt) : null
-                ]);
+                ];
+                if (existing.rows.length) {
+                    await client.query(`UPDATE moku_results_sync
+             SET activity_name = $2,
+                 status        = $3,
+                 photo_count   = $4,
+                 note          = $5,
+                 updated_at    = $6
+             WHERE id = $1`, [existing.rows[0].id, ...values.slice(1)]);
+                }
+                else {
+                    await client.query(`INSERT INTO moku_results_sync
+               (activity_id, activity_name, status, photo_count, note, updated_at)
+             VALUES ($1,$2,$3,$4,$5,$6)`, values);
+                }
             }
             await client.query("COMMIT");
             res.json({ ok: true, saved: results.length });

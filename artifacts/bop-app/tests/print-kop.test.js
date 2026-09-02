@@ -45,8 +45,8 @@ test("global KOP renders only the RT logo and identity hierarchy", () => {
   assert.match(html, /RW 012 RT 005/);
 });
 
-test("print CSS centralizes A4 margins, color adjustment, flex layout, and double rule", () => {
-  assert.match(css, /margin:\s*2cm\s+2cm\s+2cm\s+3cm/);
+test("print CSS centralizes official margins, color adjustment, flex layout, and double rule", () => {
+  assert.match(css, /margin:\s*3cm\s+2cm\s+2cm\s+3cm/);
   assert.match(css, /-webkit-print-color-adjust:\s*exact/);
   assert.match(css, /\.print-kop\s*\{/);
   assert.match(css, /display:\s*flex/);

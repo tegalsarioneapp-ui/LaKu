@@ -11,7 +11,7 @@ KOP resmi dipusatkan di `public/print-kop.js` dan `public/print-kop.css`. Script
 
 ## Global print contract
 
-- `.print-area` memakai A4 portrait dengan margin atas 2cm, kanan 2cm, bawah 2cm, kiri 3cm.
+- `.print-area` memakai ukuran kertas otomatis dengan margin atas 3cm, kanan 2cm, bawah 2cm, kiri 3cm.
 - `-webkit-print-color-adjust: exact` dan `print-color-adjust: exact` diterapkan pada area cetak.
 - `.print-kop` memakai layout Flexbox dengan Logo RT 005 saja di kiri dan teks KOP tetap terpusat.
 - Logo utama memakai ukuran tetap 90px.
@@ -38,7 +38,7 @@ Iframe cetak harus memuat `styles.css`, `document-studio.css`, dan `print-kop.cs
 
 ## Official margins and signatures
 
-Jalur cetak memakai margin atas 4 cm, kanan/kiri/bawah 3 cm, dan tidak memaksa ukuran kertas agar A4 maupun Folio/F4 dari dialog printer tetap didukung; ruang tanda tangan 3 cm.
+Jalur cetak memakai margin atas 3 cm, kanan 2 cm, bawah 2 cm, kiri 3 cm, dan tidak memaksa ukuran kertas agar A4 maupun Folio/F4 dari dialog printer tetap didukung; ruang tanda tangan 3 cm.
 
 **Why:** Margin 2 cm membuat surat terlalu rapat, sementara ruang tanda tangan pendek menempatkan nama terlalu dekat dengan posisi tanda tangan.
 

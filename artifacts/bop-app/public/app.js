@@ -459,6 +459,16 @@ function renderChecklist(){
   ];
   $("syaratChecklist").innerHTML = items.map(([k,t])=>`<label class="doc-check"><input type="checkbox" data-check="${k}" ${data.pengajuan.checklist[k]?"checked":""}> ${t}</label>`).join("");
   $("dashboardChecklist").innerHTML = items.map(([k,t])=>`<div class="check-item"><label><input type="checkbox" data-check="${k}" ${data.pengajuan.checklist[k]?"checked":""}> ${t}</label><span>${data.pengajuan.checklist[k]?"Selesai":"Belum"}</span></div>`).join("");
+  const done = items.filter(([k])=>Boolean(data.pengajuan.checklist[k])).length;
+  const progress = Math.round(done / items.length * 100);
+  document.querySelectorAll(".progress-card-head-v2 strong").forEach(el=>{
+    el.textContent = `${done} / ${items.length}`;
+  });
+  document.querySelectorAll(".progress-track-v2 span").forEach(el=>{
+    el.style.width = `${progress}%`;
+  });
+  const asideTitle = document.querySelector(".aside-intro-v2 h3");
+  if(asideTitle) asideTitle.textContent = done === items.length ? "Siap diajukan" : `${items.length - done} dokumen perlu dilengkapi`;
 }
 
 
@@ -703,9 +713,10 @@ function updateDashboard(){
   const lpjTotal=totalExpense();
   const budget=25000000;
   const sisaRap=budget-rapTotal;
-  const sisaActual=sisaRap-lpjTotal;
+  const sisaActual=budget-lpjTotal;
   $("dashAllocated").textContent=rupiah(rapTotal);
-  $("dashSisa").textContent=rupiah(sisaActual);
+  $("dashRemaining").textContent=rupiah(sisaActual);
+  $("dashUnallocated").textContent=rupiah(sisaRap);
   $("dashPercent").textContent=Math.round(rapTotal/budget*100)+"%";
   $("dashHistory").textContent=data.history.length;
   const done=Object.values(data.pengajuan.checklist).filter(Boolean).length;
@@ -11517,7 +11528,8 @@ ${KOP_PDF_CSS}
       var rupiahFn = typeof rupiah === "function" ? rupiah : function(n){ return "Rp"+n; };
 
       safeSet("dashAllocated", rupiahFn(total));
-      safeSet("dashSisa",      rupiahFn(sisa));
+       safeSet("dashRemaining",  rupiahFn(sisa));
+       safeSet("dashUnallocated",rupiahFn(budget-total));
 
       /* Progress bar */
       var cls74 = pct < 75 ? "safe" : (pct < 95 ? "warn" : "danger");
@@ -14054,10 +14066,12 @@ ${KOP_PDF_CSS}
      /* RAP is a plan, not cash already spent. Saldo only subtracts LPJ. */
      var sisa=budget-lpjTotal;
     var allocated=document.getElementById("dashAllocated");
-    var remaining=document.getElementById("dashSisa");
+     var remaining=document.getElementById("dashRemaining");
+     var unallocated=document.getElementById("dashUnallocated");
     var percent=document.getElementById("dashPercent");
     if(allocated) allocated.textContent=typeof window.rupiah==="function"?window.rupiah(rapTotal):String(rapTotal);
     if(remaining) remaining.textContent=typeof window.rupiah==="function"?window.rupiah(sisa):String(sisa);
+     if(unallocated) unallocated.textContent=typeof window.rupiah==="function"?window.rupiah(budget-rapTotal):String(budget-rapTotal);
     if(percent) percent.textContent=Math.round(rapTotal/budget*100)+"%";
   }
 
@@ -14151,7 +14165,8 @@ ${KOP_PDF_CSS}
 
     setText("dashTotal", rupiah(BUDGET));
     setText("dashAllocated", rupiah(rap));
-    setText("dashSisa", rupiah(sisa));
+     setText("dashRemaining", rupiah(sisa));
+     setText("dashUnallocated", rupiah(BUDGET - rap));
     setText("dashPercent", `${allocatedPercent}% dari total`);
     setText("dashHistory", history);
     setText("checkProgress", `${selesai} / ${checklistKeys.length || 7}`);
@@ -14859,7 +14874,8 @@ ${KOP_PDF_CSS}
 
     set99("dashTotal", format(BUDGET_99));
     set99("dashAllocated", format(rap));
-    set99("dashSisa", format(sisa));
+     set99("dashRemaining", format(BUDGET_99 - realisasi));
+     set99("dashUnallocated", format(sisa));
     set99("dashPercent", persen + "% dari total");
     set99("dashHistory", history);
     set99("checkProgress", selesai + " / " + (checklistKeys.length || 7));
@@ -15061,7 +15077,8 @@ ${KOP_PDF_CSS}
     setText("dashPercent",Math.round(result.validRap/BUDGET*100)+"% dari pagu • "+result.validCount+"/"+result.totalCount+" item valid");
     setText("dashRealized",money(result.realisasi));
     setText("dashRealizedPercent",result.validRap > 0 ? result.realizationPercent+"% dari RAP valid" : "Belum ada RAP valid");
-    setText("dashSisa",money(result.sisa));
+     setText("dashRemaining",money(BUDGET-result.realisasi));
+     setText("dashUnallocated",money(result.sisa));
     renderBreakdownStatus(result);
     renderCategories(result);
     var note = document.getElementById("dashValidationNote");

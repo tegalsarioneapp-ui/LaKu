@@ -1,0 +1,336 @@
+Audit Alur Pengajuan Dana, RAP, Kegiatan, LPJ, dan Pengambilan Bank
+Status audit: selesai
+
+Tanggal audit: 2 September 2026
+
+Jenis pekerjaan: read-only
+
+Perubahan fungsional aplikasi: tidak ada
+
+1. Ringkasan eksekutif
+Aplikasi saat ini sudah memiliki fondasi untuk:
+
+data master RT,
+data Pengajuan Dana,
+RAP 1 Tahun,
+RAP Bulanan,
+dokumen pengajuan,
+Persiapan Kegiatan/SPJ,
+LPJ,
+dokumentasi MoKu,
+monitoring administrasi,
+penyimpanan lokal dan sinkronisasi PostgreSQL.
+Namun struktur existing masih dibangun sebagai satu aplikasi legacy yang menyimpan sebagian besar data dalam satu blob JSON. Konsep bisnis baru belum dipisahkan secara eksplisit menjadi:
+
+Pengajuan Awal Dana satu kali per tahun.
+RAP tahunan dan daftar kegiatan bulanan.
+LPJ per kegiatan.
+Pengambilan Operasional Bank satu record per bulan.
+Benturan terbesar saat ini adalah RBB / Pengambilan Operasional masih terdaftar sebagai salah satu dari 7 dokumen pengajuan, padahal menurut aturan bisnis baru RBB hanya dibuat satu lembar setiap bulan setelah persyaratan LPJ bulan sebelumnya terpenuhi.
+
+2. Kontrak bisnis yang harus menjadi target refactor
+Tujuh dokumen hanya dibuat pada Pengajuan Awal Dana, satu kali per tahun.
+Dana Rp25.000.000 masuk ke rekening BPD atas nama RT satu kali.
+RAP menjadi rencana tahunan dan sumber kegiatan bulanan.
+Pengambilan bulanan bukan pencairan dana baru.
+Setiap tahun dan bulan hanya boleh memiliki satu record pengambilan.
+Pengambilan bulan berikutnya mensyaratkan LPJ seluruh kegiatan yang sudah selesai pada bulan sebelumnya sudah lengkap.
+Pengambilan pertama adalah pengecualian dari gate LPJ.
+LPJ harus terhubung ke kegiatan tertentu, bukan hanya checklist global.
+3. Pemetaan data existing
+3.1 Penyimpanan utama frontend
+File: artifacts/bop-app/public/app.js
+
+Key penyimpanan utama adalah bop_rt005_data_v1_25 pada sekitar baris 151.
+Data utama dimuat ke variabel global data pada sekitar baris 223.
+Struktur default utama berisi master, kop, pengajuan, lpj, dan history pada sekitar baris 173–221.
+data.pengajuan saat ini berisi data surat, rekening, checklist, RAP, peserta, dan meeting.
+data.lpj saat ini berisi satu periode, saldo, dan array flat pengeluaran.
+Belum ada struktur khusus yang eksplisit untuk status Pengajuan Awal, dana sudah masuk rekening, pengambilan bulanan, atau gate LPJ.
+3.2 Migrasi data lama
+File: artifacts/bop-app/public/app.js, sekitar baris 227–264.
+
+Existing memiliki migrateOld() dan beberapa key localStorage lama. Migrasi lama membantu membaca format legacy, tetapi belum merupakan migrasi domain yang berversi untuk:
+
+pengajuan awal satu kali per tahun,
+activity ID,
+LPJ per aktivitas,
+pengambilan unik per bulan.
+Catatan penting:
+
+Jika data sudah memiliki old.master, migrasi menggunakan shallow merge return {...d,...old}. Nested default dapat tertimpa seluruhnya oleh struktur lama yang tidak lengkap.
+Migrasi lama belum membedakan data contoh/default dengan bukti dana benar-benar telah dicairkan.
+Migrasi baru harus idempotent dan tidak boleh menafsirkan riwayat RBB lama sebagai pengambilan bulanan baru secara otomatis.
+3.3 RAP
+File: artifacts/bop-app/index.html, sekitar baris 376–431.
+
+RAP 1 Tahun menggunakan tabel rapTable dan RAP Bulanan menggunakan selector monthlyDocMonth.
+
+File: artifacts/bop-app/public/app.js.
+
+data.pengajuan.rap dapat berisi format array lama maupun object baru.
+Adapter rapRowsV36() sekitar baris 3323–3337 menormalisasi beberapa format RAP saat merender dokumen.
+RAP Bulanan membaca rentang bulanMulai dan bulanSelesai.
+Breakdown bulanan disimpan pada beberapa nama/format yang berbeda, termasuk monthlyBreakdown dan format legacy lain yang dipertahankan oleh patch berikutnya.
+Kunci breakdown saat ini menggabungkan bulan dan index array RAP.
+Fondasi RAP sudah cukup untuk menjadi sumber kegiatan, tetapi activity ID yang stabil harus ditambahkan agar relasi LPJ, foto MoKu, dokumen SPJ, dan pengambilan bank tidak bergantung pada index array.
+
+3.4 Tujuh dokumen pengajuan
+File: artifacts/bop-app/public/app.js, sekitar baris 2189–2197.
+
+PENGAJUAN_DOCS_V24 saat ini berisi:
+
+Surat Permohonan Pencairan.
+RAP BOP RT 1 Tahun.
+RAP Bulanan.
+Berita Acara RAP.
+Daftar Hadir RAP.
+SPTJM.
+RBB / Pengambilan Operasional.
+Benturan bisnis:
+
+Item nomor 7 adalah dokumen bulanan menurut konsep baru, tetapi saat ini dimasukkan ke daftar 7 dokumen pengajuan.
+Guided checklist memetakan rbb ke key rekening pada sekitar baris 13951–13959.
+Validasi Guided pada sekitar baris 14066–14085 mengharuskan semua item PENGAJUAN_DOCS_V24 ditandai lengkap agar pengajuan dapat diajukan.
+Dengan struktur ini, RBB secara logika dianggap syarat pengajuan awal, bukan dokumen operasional per bulan.
+Ini adalah perubahan domain paling penting pada TASK 02.
+
+3.5 Pengambilan Bank/RBB
+File: artifacts/bop-app/index.html, sekitar baris 780–808.
+
+UI saat ini memiliki:
+
+selector Bulan Mulai,
+selector Bulan Selesai,
+tombol Preview,
+tombol Cetak/Simpan PDF.
+File: artifacts/bop-app/public/app.js, sekitar baris 9081–9136.
+
+docPengambilanBank(mulai, selesai) saat ini:
+
+menerima rentang bulan,
+mengambil kegiatan dari getMonthlyRapRows() untuk setiap bulan,
+menggabungkan semua baris,
+menghitung grand total,
+menghasilkan dokumen langsung dari data RAP.
+Handler tombol pada sekitar baris 9141–9165 hanya:
+
+membuat HTML preview,
+membuka jendela cetak,
+tidak membuat record pengambilan,
+tidak melakukan validasi LPJ,
+tidak mencegah duplicate bulan,
+tidak menyimpan status draft/final.
+Kesimpulan:
+
+Renderer dokumen sudah tersedia dan sebaiknya dipertahankan, tetapi harus dipanggil oleh model monthlyWithdrawal yang baru. Selector Bulan Mulai/Selesai tidak cocok untuk aturan “satu lembar per bulan” dan perlu diarahkan menjadi satu bulan aktif pada tahap implementasi.
+
+3.6 LPJ existing
+File: artifacts/bop-app/index.html, sekitar baris 811–894.
+
+UI LPJ saat ini memiliki:
+
+Identitas laporan,
+satu selector periode,
+saldo awal dan saldo bulan lalu,
+tabel rincian pengeluaran,
+preview,
+riwayat LPJ,
+daftar dokumentasi kegiatan.
+File: artifacts/bop-app/public/app.js, sekitar baris 212–219 dan 413–454.
+
+Model existing:
+
+data.lpj.periode hanya satu periode aktif.
+data.lpj.pengeluaran adalah array flat.
+Setiap baris pengeluaran dapat menyimpan index RAP pada posisi array ke-5 (r[4]), bukan activity ID.
+renderExpenses() mencoba mencocokkan pengeluaran ke RAP berdasarkan index atau pencarian teks.
+Kekurangan terhadap konsep baru:
+
+Belum ada LPJ per activity ID.
+Belum ada status LPJ per kegiatan.
+Belum ada status “selesai” pada kegiatan yang menjadi pemicu kewajiban LPJ.
+Belum ada daftar bukti upload yang diwajibkan per kegiatan.
+Belum ada fungsi resmi untuk memeriksa apakah semua kegiatan selesai pada bulan sebelumnya sudah memiliki LPJ lengkap.
+3.7 Checklist monitoring
+File: artifacts/bop-app/public/app.js, sekitar baris 2178–2238.
+
+ensureMonitoringV24() membuat data:
+
+data.monitoring.selectedMonth
+data.monitoring.months[bulan].pengajuan
+data.monitoring.months[bulan].lpj
+data.monitoring.months[bulan].notes
+
+PENGAJUAN_DOCS_V24 dan LPJ_DOCS_V24 dipakai untuk setiap bulan.
+
+Masalah:
+
+Monitoring menganggap 7 dokumen pengajuan berlaku pada setiap bulan.
+Status monitoring adalah status manual, bukan status domain transaksi.
+Tombol “Upload” pada renderMonitorRowV24() hanya mengubah status menjadi upload; belum terlihat sebagai upload file yang terhubung ke kegiatan.
+Data monitoring dapat berbeda dari data.lpj dan data Persiapan Kegiatan.
+Monitoring sebaiknya menjadi tampilan agregat dari sumber data resmi, bukan sumber data kedua yang berdiri sendiri.
+3.8 Persiapan Kegiatan dan MoKu
+File: artifacts/bop-app/public/app.js, patch Workspace Kegiatan sekitar baris 14646–15150.
+
+Workspace v1.99 sudah memiliki fondasi yang berguna:
+
+data.persiapan.activities.
+activeActivityId.
+record aktivitas dengan id, source, rapRef, createdAt, updatedAt, data, dan archived.
+ID RAP memakai pola berbasis bulan dan index.
+Aktivitas manual juga dapat dibuat.
+Snapshot form per kegiatan sudah dipisahkan.
+Progress aktivitas saat ini memeriksa data dasar, peserta, notulen, serta nominal/penerima.
+Yang belum ada:
+
+relasi LPJ formal per aktivitas,
+tanggal selesai sebagai pemicu gate,
+status LPJ,
+daftar file/bukti LPJ per aktivitas,
+relasi langsung record pengambilan bulanan ke aktivitas,
+validasi LPJ bulan sebelumnya sebelum pengambilan difinalisasi.
+Integrasi MoKu sudah menggunakan activity ID:
+
+tabel moku_photos menyimpan activity_id,
+tabel moku_results_sync menyimpan activity_id.
+Karena itu activity ID existing harus dipertahankan dan dijadikan referensi utama, bukan diganti dengan index baru.
+
+4. Navigasi dan renderer yang harus dipertahankan
+File: artifacts/bop-app/public/app.js.
+
+activateTab() legacy berada sekitar baris 616–620.
+
+Card hub runtime dibuat oleh patch v1.44 sekitar baris 5607–5752. Patch berikutnya membungkus kembali goPage dan activateTab pada banyak titik, termasuk sekitar:
+
+baris 5710–5735,
+baris 7025–7064,
+baris 7348–7375,
+baris 12660–12669,
+baris 15145–15150,
+baris 15471–15489,
+baris 15889–15900.
+Risiko:
+
+Wrapper terakhir dapat menimpa perilaku wrapper sebelumnya.
+Memanggil goPage() dan activateTab() dalam urutan yang salah dapat menampilkan kembali hub atau membuka tab yang salah.
+Guided saat ini adalah lapisan di atas renderer lama, sehingga penggantian renderer secara langsung berisiko terhadap dokumen dan sinkronisasi.
+Yang harus dipertahankan:
+
+ID tab legacy seperti tab-rap, tab-rap-bulanan, tab-pengambilan-bank, dan tab LPJ.
+docRbb(), docPengambilanBank(), dan renderer dokumen yang telah diperbaiki, dengan cara mengubah sumber datanya secara bertahap.
+Proxy input Guided ke field lama.
+Strategi cursor-safe: jangan rebuild DOM input aktif saat mengetik.
+Integrasi MoKu dan activity ID.
+5. Arsitektur API dan PostgreSQL existing
+File: artifacts/api-server/src/routes/bop.ts.
+
+Tabel utama:
+
+bop_data: satu baris unik berdasarkan rt_key, berisi seluruh data aplikasi sebagai JSONB.
+bop_history: riwayat dokumen.
+bop_snapshots: snapshot backup.
+moku_photos: metadata foto dengan activity_id.
+moku_results_sync: ringkasan hasil MoKu dengan activity_id.
+Endpoint utama:
+
+GET /api/bop/data.
+PUT /api/bop/data.
+POST /api/bop/data-beacon.
+endpoint history.
+PUT /api/bop/data sudah memakai optimistic concurrency:
+
+menerima baseVersion atau clientVersion,
+mengembalikan HTTP 409 jika versi server lebih baru,
+mengembalikan snapshot server pada payload konflik.
+File: artifacts/api-server/src/routes/sync.ts.
+
+Endpoint lama /api/sync/push masih melakukan upsert langsung tanpa kontrol baseVersion. Frontend sinkronisasi terbaru menggunakan /api/bop/data, tetapi endpoint lama harus tetap diperhatikan agar tidak dipakai oleh kode baru tanpa sengaja.
+
+Implikasi refactor:
+
+Tahap awal sebaiknya menambahkan model baru di dalam blob JSONB secara backward-compatible.
+Jangan langsung memecah menjadi banyak tabel PostgreSQL sebelum model frontend dan migrasinya stabil.
+Setiap field baru harus ikut tersimpan melalui bop_data.
+Conflict resolver harus mempertahankan record kegiatan, LPJ, dan pengambilan yang lebih baru; jangan mengganti seluruh blob secara membabi buta.
+Jika nanti diperlukan uniqueness database untuk pengambilan bulanan, lakukan setelah kontrak data dan migrasi terbukti stabil.
+6. Risiko migrasi
+Risiko tinggi
+RBB lama sudah tersimpan sebagai bagian dari 7 dokumen atau riwayat. Jangan menghapus riwayat tersebut; hanya ubah klasifikasi untuk data baru.
+data.lpj.pengeluaran masih flat dan terhubung ke RAP berdasarkan index. Migrasi harus mempertahankan baris lama sekaligus menambahkan activity ID jika dapat dipetakan.
+data.persiapan memiliki data legacy global dan workspace aktivitas baru. Jangan langsung menghapus field global.
+Monitoring memiliki status manual yang dapat berbeda dari LPJ/kegiatan.
+Data lokal dan server sama-sama dapat menjadi sumber data saat boot, pull, push, atau conflict.
+Risiko sedang
+Banyak patch runtime membungkus fungsi global yang sama.
+RAP memiliki beberapa format data dan nama breakdown legacy.
+Pengguna dapat memiliki data tanpa tahun anggaran eksplisit.
+Data contoh saldoAwal: 25000000 tidak boleh dianggap sebagai bukti dana sudah masuk rekening.
+Pengambilan lama dapat mencakup rentang bulan, sedangkan model baru harus satu bulan.
+7. Batas refactor yang aman
+Refactor sebaiknya dilakukan dengan urutan berikut:
+
+Tahap pertama: adapter data
+Tambahkan normalizer dan migrasi idempotent untuk:
+
+Pengajuan Awal Dana,
+RAP tahunan,
+aktivitas,
+LPJ,
+pengambilan bulanan.
+Jangan menghapus field legacy.
+
+Tahap kedua: pisahkan klasifikasi dokumen
+Tetapkan tujuh dokumen awal secara eksplisit.
+Keluarkan RBB dari validasi 7 dokumen baru.
+Tetap pertahankan history RBB lama.
+Tahap ketiga: activity ID dan LPJ
+Hubungkan RAP dan Persiapan Kegiatan melalui activity ID.
+Hubungkan pengeluaran lama jika dapat dipetakan.
+Tambahkan status LPJ dan bukti per kegiatan.
+Tahap keempat: record pengambilan unik
+Satu record untuk satu tahun dan bulan.
+Draft dapat disiapkan.
+Finalisasi/cetak final memakai gate LPJ bulan sebelumnya.
+Tahap kelima: UI dan monitoring
+Ubah label menu.
+Jadikan monitoring sebagai agregasi.
+Tampilkan alasan pengambilan terblokir.
+Pertahankan tab legacy sebagai target kompatibilitas.
+8. Daftar test yang belum tersedia
+Test existing yang ditemukan:
+
+artifacts/bop-app/tests/letter-rendering.test.js
+artifacts/bop-app/tests/print-kop.test.js
+artifacts/bop-app/tests/sync-state.test.js
+Belum ditemukan test domain untuk:
+
+satu pengajuan awal per tahun,
+seven-document validation tanpa RBB bulanan,
+total RAP maksimal Rp25 juta,
+activity ID stabil,
+LPJ per aktivitas,
+gate LPJ bulan sebelumnya,
+pengambilan duplicate bulan,
+pengecualian pengambilan pertama,
+saldo setelah pengambilan,
+conflict sync pada record LPJ/pengambilan.
+9. Kesimpulan audit
+Fondasi yang dapat dipakai ulang sudah cukup banyak, terutama:
+
+renderer dokumen,
+RAP dan breakdown bulanan,
+workspace kegiatan v1.99,
+activity ID untuk MoKu,
+localStorage offline,
+API bop_data dengan optimistic concurrency.
+Namun alur bisnis belum aman untuk langsung diberi gate LPJ karena model Pengajuan, Monitoring, LPJ, dan Pengambilan masih bercampur.
+
+TASK berikutnya yang paling aman adalah membangun model data dan adapter backward-compatible terlebih dahulu. Setelah itu baru memisahkan 7 dokumen pengajuan dari RBB bulanan. Jangan mulai dari perubahan tampilan atau menghapus renderer legacy.
+
+Catatan operasional di luar scope audit:
+
+Workflow artifacts/api-server: API Server aktif.
+Workflow API Server terpisah sempat berstatus failed.
+Kondisi ini tidak mengubah hasil audit domain, tetapi konfigurasi workflow API ganda perlu dibereskan sebelum pengujian integrasi final.

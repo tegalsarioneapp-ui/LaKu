@@ -226,27 +226,50 @@ let currentHistoryFilter = "all";
 
 function migrateOld(old){
   const d = clone(defaultData);
-  if(!old || typeof old !== "object") return d;
-  if(old.master) return {...d,...old};
-  d.pengajuan.rap = Array.isArray(old.rap)? old.rap : d.pengajuan.rap;
-  d.pengajuan.peserta = Array.isArray(old.peserta)? old.peserta : d.pengajuan.peserta;
-  d.master.rt = old.rt || d.master.rt; d.master.rw = old.rw || d.master.rw;
-  d.master.kelurahan = old.kelurahan || d.master.kelurahan; d.master.kecamatan = old.kecamatan || d.master.kecamatan; d.master.kota = old.kota || d.master.kota;
-  d.master.ketua = old.ketua || d.master.ketua; d.master.sekretaris = old.sekretaris || d.master.sekretaris; d.master.bendahara = old.bendahara || d.master.bendahara;
-  d.master.alamat = old.alamat || d.master.alamat;
-  d.kop.baris1 = old.kop1 || d.kop.baris1; d.kop.baris2 = old.kop2 || d.kop.baris2; d.kop.baris3 = old.kop3 || d.kop.baris3; d.kop.alamat = old.kopAlamat || d.kop.alamat;
-  d.pengajuan.namaLurah = old.lurah || old.namaLurah || ""; d.pengajuan.namaKetuaRw = old.ketuaRw || "";
-  d.pengajuan.namaRekening = old.namaRek || ""; d.pengajuan.nomorRekening = old.noRek || "";
-  d.pengajuan.nomorSurat = old.spNomor || ""; d.pengajuan.tanggalSurat = old.spTanggal || d.pengajuan.tanggalSurat;
-  d.pengajuan.baNomor = old.baNomor || ""; d.pengajuan.baHari = old.baHari || d.pengajuan.baHari; d.pengajuan.baTanggal = old.baTanggal || d.pengajuan.baTanggal; d.pengajuan.baBulan = old.baBulan || d.pengajuan.baBulan;
-  d.pengajuan.baTahun = old.baTahun || d.pengajuan.baTahun; d.pengajuan.baTempat = old.baTempat || d.pengajuan.baTempat; d.pengajuan.baPukul = old.baPukul || d.pengajuan.baPukul; d.pengajuan.baPimpinan = old.baPimpinan || "";
-  if(Array.isArray(old.rbb) && old.rbb[0]) { d.lpj.periode = (old.rbb[0].bulan||"Januari 2026"); }
+  if(!old || typeof old !== "object") old = {};
+  const source = clone(old);
+  if(!source.master){
+    d.pengajuan.rap = Array.isArray(source.rap)? source.rap : d.pengajuan.rap;
+    d.pengajuan.peserta = Array.isArray(source.peserta)? source.peserta : d.pengajuan.peserta;
+    d.master.rt = source.rt || d.master.rt; d.master.rw = source.rw || d.master.rw;
+    d.master.kelurahan = source.kelurahan || d.master.kelurahan; d.master.kecamatan = source.kecamatan || d.master.kecamatan; d.master.kota = source.kota || d.master.kota;
+    d.master.ketua = source.ketua || d.master.ketua; d.master.sekretaris = source.sekretaris || d.master.sekretaris; d.master.bendahara = source.bendahara || d.master.bendahara;
+    d.master.alamat = source.alamat || d.master.alamat;
+    d.kop.baris1 = source.kop1 || d.kop.baris1; d.kop.baris2 = source.kop2 || d.kop.baris2; d.kop.baris3 = source.kop3 || d.kop.baris3; d.kop.alamat = source.kopAlamat || d.kop.alamat;
+    d.pengajuan.namaLurah = source.lurah || source.namaLurah || ""; d.pengajuan.namaKetuaRw = source.ketuaRw || "";
+    d.pengajuan.namaRekening = source.namaRek || ""; d.pengajuan.nomorRekening = source.noRek || "";
+    d.pengajuan.nomorSurat = source.spNomor || ""; d.pengajuan.tanggalSurat = source.spTanggal || d.pengajuan.tanggalSurat;
+    d.pengajuan.baNomor = source.baNomor || ""; d.pengajuan.baHari = source.baHari || d.pengajuan.baHari; d.pengajuan.baTanggal = source.baTanggal || d.pengajuan.baTanggal; d.pengajuan.baBulan = source.baBulan || d.pengajuan.baBulan;
+    d.pengajuan.baTahun = source.baTahun || d.pengajuan.baTahun; d.pengajuan.baTempat = source.baTempat || d.pengajuan.baTempat; d.pengajuan.baPukul = source.baPukul || d.pengajuan.baPukul; d.pengajuan.baPimpinan = source.baPimpinan || "";
+    if(Array.isArray(source.rbb) && source.rbb[0]) { d.lpj.periode = (source.rbb[0].bulan||"Januari 2026"); }
+  }
+  const merge = (base, incoming) => Object.keys(incoming || {}).reduce((target, key) => {
+    const value = incoming[key];
+    if(value && typeof value === "object" && !Array.isArray(value)){
+      target[key] = merge(target[key] && typeof target[key] === "object" ? target[key] : {}, value);
+    }else if(value !== undefined) target[key] = clone(value);
+    return target;
+  }, base);
+  merge(d, source);
+  try{
+    const model = typeof window !== "undefined" ? window.PengajuanAwalModel : null;
+    if(model && typeof model.migrate === "function"){
+      return model.migrate(d, 2026);
+    }
+  }catch(error){
+    console.warn("[BOP] Migrasi model Pengajuan Awal ditunda:", error);
+  }
   return d;
 }
 function loadData(){
   try{
     const raw = localStorage.getItem(STORE);
-    if(raw) return migrateOld(JSON.parse(raw));
+    if(raw){
+      const migrated = migrateOld(JSON.parse(raw));
+      const serialized = JSON.stringify(migrated);
+      if(serialized !== raw) localStorage.setItem(STORE, serialized);
+      return migrated;
+    }
   }catch(e){ console.warn("[BOP] Gagal memuat data utama:",e); }
   for(const k of OLD_KEYS){
     try{
@@ -260,7 +283,7 @@ function loadData(){
       }
     }catch(e){ console.warn("[BOP] Gagal membaca key lama:",k,e); }
   }
-  return clone(defaultData);
+  return migrateOld({});
 }
 function saveData(){
   collectAll();
@@ -641,7 +664,7 @@ function resetAll(){
   bopConfirm("Reset Semua Data","Seluruh data lokal akan dikembalikan ke data awal. Tindakan ini tidak dapat dibatalkan!","warning","Ya, Reset","Batal").then(ok=>{
     if(!ok) return;
     Object.keys(localStorage).forEach(k=>{if(k.startsWith("bop_rt005_data"))localStorage.removeItem(k)});
-    data=clone(defaultData);
+    data=migrateOld({});
     try{ localStorage.setItem(STORE,JSON.stringify(data)); }catch(e){}
     render();
     bopAlert("Reset Selesai","Semua data aplikasi telah direset ke kondisi awal.","success");

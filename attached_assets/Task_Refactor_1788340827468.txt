@@ -1,0 +1,691 @@
+PROMPT REFACTOR BERTAHAP
+ALUR PENGAJUAN DANA OPERASIONAL RT
+============================================================
+
+Tujuan:
+Melakukan refactor aplikasi secara bertahap berdasarkan task.
+Setiap task harus dikerjakan, diuji, dan divalidasi terlebih dahulu
+sebelum melanjutkan ke task berikutnya.
+
+
+KONTRAK BISNIS UTAMA
+============================================================
+
+1. 7 dokumen hanya untuk Pengajuan Awal Dana, satu kali per tahun.
+2. Dana Rp25.000.000 masuk ke rekening BPD atas nama RT satu kali.
+3. RAP dibuat untuk satu tahun dan dibagi ke kegiatan bulanan.
+4. Setiap bulan hanya ada satu dokumen:
+   "Pengambilan Operasional RT Melalui Bank BPD Jateng".
+5. Satu bulan hanya boleh memiliki satu record pengambilan.
+6. Pengambilan bulan berikutnya mensyaratkan LPJ kegiatan yang selesai
+   pada bulan sebelumnya sudah lengkap.
+7. Pengambilan pertama menjadi pengecualian karena dana awal baru masuk
+   rekening.
+8. Renderer lama, ID lama, sinkronisasi, dokumen, dan data existing
+   harus tetap kompatibel.
+9. Refactor dilakukan bertahap, bukan menulis ulang seluruh aplikasi.
+10. Draft pengambilan boleh dibuat saat LPJ belum lengkap, tetapi
+    finalisasi dan cetak final harus diblokir.
+
+
+PERINTAH UMUM UNTUK SETIAP TASK
+============================================================
+
+Kerjakan hanya task yang saya berikan sekarang.
+
+Jangan mengerjakan task berikutnya, jangan melakukan refactor besar
+di luar scope, dan jangan menghapus renderer lama, ID lama,
+localStorage existing, atau data pengguna.
+
+Sebelum mengubah kode:
+
+1. Baca replit.md jika tersedia.
+2. Baca .agents/memory/MEMORY.md dan topic yang relevan.
+3. Periksa git status.
+4. Cari implementasi existing dengan rg atau grep.
+5. Pahami hubungan antara frontend, API, localStorage, PostgreSQL,
+   renderer dokumen, dan sinkronisasi.
+
+Pertahankan kompatibilitas backward dengan data yang sudah ada.
+
+Setelah selesai:
+
+1. Jalankan syntax check.
+2. Jalankan type check, build, dan test yang tersedia.
+3. Jalankan git diff --check.
+4. Laporkan file yang berubah.
+5. Laporkan risiko atau hal yang belum dikerjakan.
+6. Jangan lanjut ke task berikutnya.
+
+
+URUTAN TASK
+============================================================
+
+TASK 00 -> TASK 01 -> TASK 02 -> TASK 03 -> TASK 04
+        -> TASK 05 -> TASK 06 -> TASK 07 -> TASK 08
+
+Dependensi:
+
+- TASK 01 harus selesai sebelum TASK 02.
+- TASK 03 harus selesai sebelum TASK 04.
+- TASK 04 harus selesai sebelum TASK 05.
+- TASK 05 harus selesai sebelum TASK 06 dan TASK 07.
+- TASK 08 hanya dilakukan setelah seluruh alur utama stabil.
+
+
+TASK 00 — AUDIT DAN PEMBEKUAN KONTRAK EXISTING
+============================================================
+
+Kerjakan TASK 00 — Audit alur Pengajuan, RAP, Kegiatan, LPJ, dan
+Pengambilan Bank.
+
+Lakukan audit read-only terlebih dahulu. Jangan mengubah kode aplikasi.
+
+Telusuri dan dokumentasikan:
+
+1. Di mana data pengajuan disimpan.
+2. Di mana 7 dokumen pengajuan didefinisikan.
+3. Bagaimana Guided Pengajuan bekerja.
+4. Bagaimana tab legacy RAP 1 Tahun dan RAP Bulanan dibuka.
+5. Bagaimana RAP tahunan disimpan.
+6. Bagaimana kegiatan bulanan dibuat dari RAP.
+7. Bagaimana Persiapan Kegiatan menyimpan data.
+8. Apakah LPJ saat ini sudah memiliki status atau upload file.
+9. Bagaimana dokumen Pengambilan Bank dibuat.
+10. Apakah sudah ada mekanisme satu record per bulan.
+11. Bagaimana localStorage, API, PostgreSQL, dan sinkronisasi bekerja.
+12. Wrapper activateTab, goPage, renderPersiapan, dan renderer
+    dokumen yang harus dipertahankan.
+
+File utama yang perlu diperiksa minimal:
+
+- artifacts/bop-app/index.html
+- artifacts/bop-app/public/app.js
+- artifacts/bop-app/public/styles.css
+- artifacts/api-server
+- konfigurasi database atau schema yang terkait
+
+Buat laporan audit yang berisi:
+
+- alur existing,
+- bagian yang harus dipertahankan,
+- bagian yang bentrok dengan konsep baru,
+- risiko migrasi data,
+- rekomendasi urutan implementasi.
+
+Jangan membuat perubahan fungsional pada task ini.
+
+Kriteria selesai:
+
+- Tidak ada perubahan fungsi.
+- Ada peta alur existing.
+- Diketahui lokasi penyimpanan data dan renderer.
+- Diketahui titik aman untuk menambahkan model baru.
+
+
+TASK 01 — MODEL DATA PENGAJUAN AWAL DANA
+============================================================
+
+Kerjakan TASK 01 — Tambahkan model Pengajuan Awal Dana satu kali
+per tahun.
+
+Gunakan hasil audit TASK 00.
+
+Tambahkan struktur data backward-compatible untuk merepresentasikan:
+
+- tahun anggaran,
+- nominal alokasi dana,
+- status pengajuan awal,
+- status 7 dokumen,
+- tanggal pengajuan,
+- tanggal persetujuan,
+- tanggal dana masuk rekening,
+- status penguncian setelah disetujui atau dicairkan.
+
+Konsep status minimal:
+
+- draft
+- incomplete
+- ready
+- submitted
+- revision
+- approved
+- disbursed
+
+Aturan wajib:
+
+1. Pengajuan awal hanya boleh dibuat satu kali untuk satu tahun anggaran.
+2. Nominal awal adalah Rp25.000.000.
+3. Setelah status approved atau disbursed, data tidak boleh
+   diam-diam dibuat ulang.
+4. Jika data existing belum memiliki struktur baru, buat migrasi
+   idempotent.
+5. Jangan menghapus atau mengganti data pengajuan lama.
+6. Jangan mengubah renderer dokumen lama pada task ini.
+7. Jangan membuat proses pengambilan bulanan dulu.
+
+Jika struktur data terbaik berbeda dari nama yang disebutkan di atas,
+ikuti pola existing aplikasi, tetapi tetap pisahkan konsep:
+
+- pengajuan awal,
+- RAP tahunan,
+- pengambilan bulanan,
+- LPJ kegiatan.
+
+Tambahkan test untuk:
+
+- data baru,
+- data existing,
+- migrasi dua kali,
+- nominal tidak valid,
+- pengajuan duplicate pada tahun yang sama.
+
+Kerjakan hanya model data dan migrasi dasar.
+
+Kriteria selesai:
+
+- Data existing tetap bisa dibaca.
+- Migrasi aman dan idempotent.
+- Pengajuan awal memiliki status dan identitas tahun.
+- Belum ada perubahan pada alur bulanan.
+
+
+TASK 02 — 7 DOKUMEN HANYA UNTUK TAHAP AWAL
+============================================================
+
+Kerjakan TASK 02 — Refactor alur 7 dokumen menjadi Pengajuan Awal
+Dana.
+
+Gunakan model data dari TASK 01.
+
+Atur Guided Pengajuan agar secara jelas menjadi:
+
+"Pengajuan Awal Dana Operasional — 1 kali per tahun"
+
+Aturan:
+
+1. 7 dokumen hanya muncul pada proses Pengajuan Awal Dana.
+2. Checklist wajib menggunakan definisi dokumen existing
+   PENGAJUAN_DOCS_V24.
+3. Status setiap dokumen harus jelas:
+   - belum lengkap,
+   - siap,
+   - perlu revisi,
+   - terverifikasi jika status tersebut sudah didukung existing.
+4. Tombol ajukan harus disabled jika 7 dokumen belum lengkap.
+5. Setelah pengajuan approved atau disbursed:
+   - jangan membuat ulang 7 dokumen,
+   - tampilkan status selesai,
+   - arahkan pengguna ke RAP dan Siklus Bulanan.
+6. Jangan menghapus renderer lama.
+7. Jangan mengubah dokumen Pengambilan Bank menjadi bagian dari
+   7 dokumen awal.
+8. Jangan membuat LPJ menjadi bagian dari 7 dokumen awal.
+9. Pertahankan proxy input Guided ke field legacy yang sama.
+10. Jangan rebuild DOM input aktif ketika pengguna sedang mengetik.
+
+Perbaiki copywriting UI agar tidak menimbulkan kesan bahwa 7 dokumen
+dibuat setiap bulan.
+
+Tambahkan test untuk:
+
+- checklist belum lengkap,
+- checklist lengkap,
+- pengajuan sudah approved,
+- percobaan membuat pengajuan kedua pada tahun yang sama,
+- perpindahan dari pengajuan awal ke RAP.
+
+Jangan mengerjakan gate LPJ atau record pengambilan bulanan pada task ini.
+
+Kriteria selesai:
+
+- 7 dokumen hanya berada pada Pengajuan Awal.
+- UI memberi label satu kali per tahun.
+- Setelah selesai, pengguna diarahkan ke proses RAP/bulanan.
+- Tidak ada duplikasi 7 dokumen tiap bulan.
+
+
+TASK 03 — RAP TAHUNAN DAN KEGIATAN BULANAN
+============================================================
+
+Kerjakan TASK 03 — Tegaskan RAP Tahunan sebagai sumber kegiatan
+bulanan.
+
+Gunakan data RAP existing dan struktur aplikasi saat ini.
+
+Aturan:
+
+1. RAP memiliki tahun anggaran.
+2. Setiap item RAP minimal memiliki:
+   - uraian kegiatan,
+   - kategori,
+   - bulan pelaksanaan,
+   - nominal,
+   - volume/satuan jika sudah didukung,
+   - keterangan,
+   - status.
+3. RAP tahunan dapat dibagi ke beberapa bulan.
+4. Total RAP tidak boleh melebihi Rp25.000.000.
+5. Jangan mengubah arti data RAP existing secara destruktif.
+6. Jika ada format RAP lama, buat normalisasi atau adapter.
+7. Setiap kegiatan harus memiliki identitas stabil agar dapat
+   dihubungkan ke:
+   - LPJ,
+   - foto MoKu,
+   - dokumen SPJ,
+   - pengambilan bank bulanan.
+8. Kegiatan yang tertunda tidak boleh langsung dianggap selesai.
+9. Kegiatan yang selesai harus memiliki tanggal realisasi.
+10. Jangan membuat dokumen pengambilan bank pada task ini.
+
+Perbaiki validasi dan tampilan RAP agar pengguna dapat melihat:
+
+- total RAP tahunan,
+- total per bulan,
+- sisa alokasi,
+- kegiatan yang belum memiliki bulan,
+- kegiatan yang belum memiliki nominal.
+
+Pertahankan loader RAP, renderer legacy, dan kompatibilitas data lama.
+Tambahkan test perhitungan total tahunan dan bulanan.
+
+Kriteria selesai:
+
+- RAP menjadi sumber resmi kegiatan.
+- Total RAP tervalidasi terhadap Rp25.000.000.
+- Setiap kegiatan memiliki ID stabil.
+- Data RAP dapat digunakan oleh task LPJ dan pengambilan bulanan.
+
+
+TASK 04 — KEGIATAN DAN LPJ PER AKTIVITAS
+============================================================
+
+Kerjakan TASK 04 — Tambahkan siklus LPJ per kegiatan.
+
+Gunakan kegiatan yang berasal dari RAP pada TASK 03.
+
+Setiap kegiatan harus memiliki status LPJ:
+
+- not_started
+- in_progress
+- uploaded
+- needs_revision
+- verified
+
+Tambahkan atau sesuaikan model LPJ agar dapat menyimpan:
+
+- activityId,
+- bulan kegiatan,
+- tanggal selesai,
+- status LPJ,
+- daftar file atau bukti,
+- catatan pemeriksa,
+- tanggal upload,
+- tanggal verifikasi.
+
+Bukti LPJ harus terhubung ke kegiatan tertentu. Jangan hanya menyimpan
+satu checklist global untuk semua kegiatan.
+
+Jika aplikasi belum memiliki upload file lengkap, buat adapter/interface
+yang mengikuti pola penyimpanan existing. Jangan mengganti sistem
+storage tanpa audit dan tanpa alasan.
+
+Aturan:
+
+1. Kegiatan yang belum selesai belum wajib memiliki LPJ final.
+2. Kegiatan yang sudah selesai wajib memiliki LPJ lengkap.
+3. Status checkbox tidak boleh dianggap sama dengan file sudah di-upload
+   jika sistem mendukung upload.
+4. Tampilkan kegiatan yang masih memiliki kekurangan.
+5. Pertahankan integrasi foto MoKu dan renderer dokumen lama.
+6. Jangan membuat gate pengambilan bulan berikutnya pada task ini;
+   hanya siapkan fungsi pemeriksaan kelengkapan LPJ.
+
+Tambahkan fungsi pemeriksaan yang mengembalikan:
+
+- apakah LPJ bulan tertentu lengkap,
+- jumlah kegiatan belum lengkap,
+- daftar kegiatan yang bermasalah,
+- alasan kekurangannya.
+
+Tambahkan test untuk:
+
+- kegiatan selesai,
+- kegiatan tertunda,
+- LPJ kosong,
+- LPJ lengkap,
+- LPJ perlu revisi.
+
+Kriteria selesai:
+
+- LPJ terhubung ke activityId.
+- Status LPJ jelas.
+- Sistem dapat menghitung kelengkapan LPJ per bulan.
+- Daftar kegiatan bermasalah dapat ditampilkan.
+
+
+TASK 05 — PENGAMBILAN OPERASIONAL SATU RECORD PER BULAN
+============================================================
+
+Kerjakan TASK 05 — Implementasikan Pengambilan Operasional bulanan.
+
+Gunakan RAP dari TASK 03 dan pemeriksaan LPJ dari TASK 04.
+
+Dokumen bulanan yang digunakan hanya:
+
+"Pengambilan Operasional RT Melalui Bank BPD Jateng"
+
+Aturan wajib:
+
+1. Satu tahun dan satu bulan hanya boleh memiliki satu record
+   pengambilan.
+2. Gunakan kunci unik berbasis tahun anggaran dan bulan.
+3. Jika record sudah ada, buka record yang sama, jangan membuat duplikat.
+4. Record pengambilan terhubung ke kegiatan RAP pada bulan tersebut.
+5. Nominal pengambilan berasal dari kegiatan/anggaran bulan tersebut.
+6. Pengambilan mengurangi saldo dana awal Rp25.000.000.
+7. Pengambilan bukan pencairan dana baru.
+8. Pengambilan pertama adalah pengecualian dari gate LPJ bulan sebelumnya.
+9. Pengambilan bulan berikutnya hanya boleh difinalisasi jika LPJ
+   kegiatan yang selesai pada bulan sebelumnya lengkap.
+10. Draft boleh dibuat, tetapi finalisasi/cetak final harus diblokir
+    jika LPJ belum lengkap.
+11. Tampilkan alasan pemblokiran dan daftar kegiatan yang LPJ-nya kurang.
+12. Jika tidak ada kegiatan selesai pada bulan sebelumnya, gate LPJ
+    dianggap terpenuhi.
+13. Jangan membuat 7 dokumen pengajuan pada proses ini.
+14. Pertahankan renderer dokumen Pengambilan Bank existing jika ada.
+
+Status minimal:
+
+- draft
+- blocked_by_lpj
+- ready
+- finalized
+- cancelled
+
+Tambahkan API atau local persistence sesuai pola existing.
+Jangan membuat data ganda antara frontend, API, dan PostgreSQL.
+Pastikan sync multi-device tetap aman.
+
+Tambahkan test:
+
+- record pertama,
+- duplicate bulan,
+- draft saat LPJ belum lengkap,
+- finalisasi saat LPJ lengkap,
+- finalisasi saat LPJ belum lengkap,
+- bulan tanpa kegiatan selesai,
+- saldo setelah pengambilan.
+
+Kriteria selesai:
+
+- Satu bulan hanya memiliki satu dokumen pengambilan.
+- Gate LPJ aktif sebelum finalisasi.
+- Pengambilan pertama dapat diproses.
+- Pengambilan tidak dihitung sebagai pencairan dana baru.
+
+
+TASK 06 — REFACTOR NAVIGASI DAN GUIDED UI
+============================================================
+
+Kerjakan TASK 06 — Sesuaikan navigasi dan Guided UI dengan alur
+bisnis baru.
+
+Gunakan seluruh fitur dari TASK 01 sampai TASK 05.
+
+Struktur menu yang diinginkan:
+
+1. Pengajuan Awal Dana
+   - 7 dokumen.
+   - Label satu kali per tahun.
+
+2. RAP Tahunan
+   - Rencana anggaran dan kegiatan satu tahun.
+
+3. Kegiatan & LPJ
+   - Daftar kegiatan.
+   - Status LPJ per kegiatan.
+   - Upload dan perbaikan bukti.
+
+4. Pengambilan Operasional
+   - Satu dokumen per bulan.
+   - Status gate LPJ.
+
+5. Monitoring Dana
+   - Total alokasi.
+   - Total RAP.
+   - Total pengambilan.
+   - Saldo.
+   - LPJ lengkap dan belum lengkap.
+
+Perbaiki Guided UI agar:
+
+- tidak menampilkan 7 dokumen sebagai proses bulanan,
+- memiliki penjelasan jelas mengenai status dana,
+- menampilkan bulan yang sedang diproses,
+- menampilkan status LPJ sebagai gate,
+- menyediakan tombol Lengkapi LPJ dari daftar kekurangan,
+- membuka RAP 1 Tahun ke tab legacy yang tepat,
+- membuka RAP Bulanan ke tab legacy yang tepat,
+- tidak membiarkan hub card muncul di bawah editor,
+- tidak mengganti DOM input aktif saat mengetik.
+
+Pertahankan:
+
+- ID tab legacy,
+- renderer lama,
+- kontrak dokumen,
+- sinkronisasi existing,
+- wrapper yang masih dibutuhkan.
+
+Jangan menghapus komponen legacy sebelum seluruh test dan alur baru
+terbukti stabil.
+
+Tambahkan responsive layout untuk mobile.
+
+Kriteria selesai:
+
+- UI mencerminkan alur bisnis baru.
+- Navigasi RAP bekerja.
+- Hub card tidak bocor.
+- Pengguna dapat melihat alasan LPJ terblokir.
+- Tidak ada proses 7 dokumen bulanan.
+
+
+TASK 07 — DASHBOARD MONITORING DAN KONTROL KEPATUHAN
+============================================================
+
+Kerjakan TASK 07 — Buat monitoring dana dan kepatuhan bulanan.
+
+Gunakan data Pengajuan Awal, RAP, kegiatan, LPJ, dan pengambilan bank.
+
+Dashboard harus menampilkan:
+
+1. Status Pengajuan Awal:
+   - draft,
+   - submitted,
+   - approved,
+   - disbursed.
+
+2. Dana:
+   - alokasi awal Rp25.000.000,
+   - total RAP,
+   - total pengambilan,
+   - saldo tersisa.
+
+3. Kepatuhan:
+   - bulan aktif,
+   - LPJ lengkap,
+   - LPJ belum lengkap,
+   - kegiatan perlu revisi,
+   - bulan yang terblokir.
+
+4. Status kegiatan:
+   - direncanakan,
+   - berjalan,
+   - selesai,
+   - LPJ belum lengkap,
+   - terverifikasi.
+
+5. Status pengambilan:
+   - belum dibuat,
+   - draft,
+   - terblokir LPJ,
+   - siap,
+   - final.
+
+Aturan perhitungan:
+
+- Jangan mengurangi alokasi dengan total realisasi dua kali.
+- Pengambilan bulanan adalah penggunaan dari dana awal.
+- Jangan menghitung pengambilan sebagai dana masuk baru.
+- Pastikan total bulanan sama dengan total tahunan.
+- Tampilkan sumber setiap angka jika memungkinkan.
+
+Tambahkan test untuk:
+
+- perhitungan saldo,
+- bulan kosong,
+- LPJ terblokir,
+- pengambilan duplicate.
+
+Pertahankan dashboard existing dan lakukan perubahan secara incremental.
+
+Kriteria selesai:
+
+- Saldo dan total dana benar.
+- Status kepatuhan terlihat jelas.
+- Pengguna tahu mengapa bulan tertentu belum bisa difinalisasi.
+- Tidak ada perhitungan dana ganda.
+
+
+TASK 08 — HARDENING, MIGRASI, DAN PEMBERSIHAN ALUR LAMA
+============================================================
+
+Kerjakan TASK 08 — Hardening final setelah seluruh task sebelumnya
+selesai.
+
+Audit kembali seluruh aplikasi untuk mencari perilaku lama yang
+bertentangan dengan aturan baru.
+
+Cari dan perbaiki:
+
+1. Tombol yang masih membuat 7 dokumen setiap bulan.
+2. Tombol pengambilan yang dapat membuat duplicate pada bulan yang sama.
+3. Finalisasi pengambilan yang tidak memeriksa LPJ.
+4. Perhitungan saldo yang mengurangi dana dua kali.
+5. Tab yang membuka halaman atau panel yang salah.
+6. Wrapper activateTab atau goPage yang mengembalikan hub card.
+7. Checklist yang hanya mengubah status tanpa memeriksa bukti.
+8. Data lama yang gagal dimigrasikan.
+9. Sync yang menimpa data LPJ atau pengambilan terbaru.
+10. Input aktif yang kehilangan kursor akibat rebuild DOM.
+
+Jangan menghapus renderer legacy atau data lama kecuali:
+
+- sudah ada pengganti,
+- sudah ada migrasi,
+- sudah ada test,
+- dan tidak ada referensi aktif yang bergantung kepadanya.
+
+Jalankan:
+
+- syntax check,
+- type check,
+- build,
+- seluruh test,
+- git diff --check,
+- smoke test workflow,
+- pemeriksaan browser console.
+
+Buat laporan akhir berisi:
+
+- aturan bisnis yang sudah diterapkan,
+- data lama yang didukung,
+- batasan yang masih ada,
+- risiko deployment,
+- rekomendasi task lanjutan jika diperlukan.
+
+
+CONTOH PERINTAH MENJALANKAN TASK BERURUTAN
+============================================================
+
+Setelah TASK 00 selesai:
+
+Audit TASK 00 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 01 saja sesuai prompt sebelumnya.
+Jangan mengerjakan TASK 02 atau task lain.
+Pertahankan semua guardrail dan lakukan seluruh validasi setelah selesai.
+
+Setelah TASK 01 selesai:
+
+TASK 01 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 02 saja.
+Jangan menyentuh scope TASK 03 sampai TASK 08.
+
+Setelah TASK 02 selesai:
+
+TASK 02 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 03 saja.
+Jangan mengerjakan TASK 04 atau task lain.
+
+Setelah TASK 03 selesai:
+
+TASK 03 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 04 saja.
+Jangan mengerjakan TASK 05 atau task lain.
+
+Setelah TASK 04 selesai:
+
+TASK 04 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 05 saja.
+Jangan mengerjakan TASK 06, TASK 07, atau TASK 08.
+
+Setelah TASK 05 selesai:
+
+TASK 05 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 06 saja.
+Jangan mengerjakan TASK 07 atau TASK 08.
+
+Setelah TASK 06 selesai:
+
+TASK 06 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 07 saja.
+Jangan mengerjakan TASK 08.
+
+Setelah TASK 07 selesai:
+
+TASK 07 sudah selesai dan hasil validasinya sudah saya terima.
+Sekarang kerjakan TASK 08 saja sebagai hardening final.
+
+
+PERINTAH SAAT HASIL TASK BELUM AMAN
+============================================================
+
+Task belum dianggap selesai karena masih ada error atau test gagal.
+Jangan lanjut ke task berikutnya.
+Analisis hanya masalah pada task saat ini, perbaiki secara minimal,
+lalu ulangi validasi yang relevan.
+
+
+PERINTAH SAAT INGIN REVIEW SEBELUM LANJUT
+============================================================
+
+Jangan mengubah kode.
+Review hasil implementasi task terakhir terhadap:
+
+1. kontrak bisnis,
+2. backward compatibility,
+3. data existing,
+4. renderer legacy,
+5. sinkronisasi,
+6. test,
+7. risiko task berikutnya.
+
+Berikan daftar:
+
+- yang sudah benar,
+- yang belum benar,
+- risiko,
+- rekomendasi apakah aman lanjut ke task berikutnya.

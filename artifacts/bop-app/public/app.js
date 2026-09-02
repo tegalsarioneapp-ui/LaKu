@@ -5780,7 +5780,9 @@ function insertAiNotulenPanelsV25(){
     const nav = page.querySelector('.subnav');
     page.querySelectorAll('.tab-content').forEach(c=>c.style.display='');
     page.querySelectorAll('.module-guide-v20').forEach(g=>g.style.display='');
-    if(hub) hub.style.display='';
+    /* Saat card dibuka, landing hub harus benar-benar hilang.
+       Inline display kosong sebelumnya membocorkan card di bawah editor. */
+    if(hub) hub.style.display='none';
     if(nav) nav.style.display='';
     if(typeof activateTab === 'function') activateTab(tabId);
   }
@@ -14036,10 +14038,11 @@ ${KOP_PDF_CSS}
     var p = pengajuan();
     var list = docs();
     if(!host || !p) return;
-    host.innerHTML = list.map(function(doc){
+    host.innerHTML = list.map(function(doc, index){
       var key = CHECK_KEYS[doc.id];
       var checked = mappedChecked(doc);
       return '<label class="guided-check-item '+(checked ? "checked" : "")+'">' +
+        '<span class="guided-check-index">'+String(index + 1).padStart(2, "0")+'</span>' +
         '<input type="checkbox" data-guided-check="'+doc.id+'" data-guided-check-key="'+key+'" '+(checked ? "checked" : "")+'>' +
         '<span><b>'+esc(doc.name)+'</b><small>'+esc(doc.desc)+'</small></span></label>';
     }).join("");
@@ -14137,9 +14140,22 @@ ${KOP_PDF_CSS}
   function openLegacyTab(tab){
     if(!tab) return;
     try{
-      if(typeof activateTab === "function") activateTab(tab);
-      var legacy = byId("tab-"+tab);
-      if(legacy) legacy.scrollIntoView({behavior:"smooth",block:"start"});
+      var page = byId("page-pengajuan");
+      var hub = byId("bop-hub-pengajuan");
+      var nav = page && page.querySelector(".subnav");
+      var target = byId("tab-"+tab);
+      if(page){
+        page.classList.add("has-hub","hub-active");
+        if(hub) hub.style.display = "none";
+        if(nav) nav.style.display = "";
+      }
+      if(typeof window.activateTab === "function") window.activateTab(tab);
+      /* Pastikan target tetap aktif walau ada wrapper activateTab lama. */
+      if(target){
+        target.classList.add("active");
+        target.style.display = "";
+        setTimeout(function(){ target.scrollIntoView({behavior:"smooth",block:"start"}); }, 30);
+      }
     }catch(_e){}
   }
   function saveDraft(showToast){

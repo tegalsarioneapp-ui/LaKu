@@ -177,6 +177,83 @@
           <button class="primary" id="savePengajuan">Simpan Pengajuan</button>
         </div>
 
+        <!-- Guided flow: lapisan navigasi di atas form/pipeline dokumen lama. -->
+        <section class="guided-shell" id="guidedPengajuan" aria-labelledby="guidedPengajuanTitle">
+          <div class="guided-head">
+            <div>
+              <span class="guided-eyebrow">ALUR TERPANDU</span>
+              <h3 id="guidedPengajuanTitle">Pengajuan Dana Operasional</h3>
+              <p class="guided-lead">Lengkapi empat tahap berikut. Data yang diisi tetap terhubung ke editor lama, dokumen, dan sinkronisasi server.</p>
+            </div>
+            <div class="guided-status" id="guidedStatus" data-status="draft">
+              <span class="guided-status-dot"></span>
+              <span id="guidedStatusText">Draft</span>
+            </div>
+          </div>
+
+          <nav class="guided-stepper" aria-label="Tahap pengajuan">
+            <button type="button" class="guided-step active" data-guided-step="1">
+              <span class="guided-step-number">1</span><span><b>Data Pengajuan</b><small>Identitas & rekening</small></span>
+            </button>
+            <button type="button" class="guided-step" data-guided-step="2">
+              <span class="guided-step-number">2</span><span><b>Rencana Anggaran</b><small>RAP & total dana</small></span>
+            </button>
+            <button type="button" class="guided-step" data-guided-step="3">
+              <span class="guided-step-number">3</span><span><b>Kelengkapan Dokumen</b><small>7 syarat pengajuan</small></span>
+            </button>
+            <button type="button" class="guided-step" data-guided-step="4">
+              <span class="guided-step-number">4</span><span><b>Tinjau & Ajukan</b><small>Validasi akhir</small></span>
+            </button>
+          </nav>
+
+          <div class="guided-stage active" data-guided-panel="1">
+            <div class="guided-stage-title">
+              <div><span class="guided-stage-kicker">TAHAP 1 DARI 4</span><h4>Data dasar pengajuan</h4><p>Isi identitas surat dan rekening tujuan pencairan.</p></div>
+              <span class="guided-required">* wajib untuk mengajukan</span>
+            </div>
+            <div class="guided-form-grid">
+              <label>Nomor Surat <input class="guided-input" data-guided-target="nomorSurat" readonly aria-readonly="true" title="Nomor surat dibuat otomatis"></label>
+              <label>Tanggal Surat <input class="guided-input" data-guided-target="tanggalSurat"></label>
+              <label>Sifat <input class="guided-input" data-guided-target="sifatSurat"></label>
+              <label>Lampiran <input class="guided-input" data-guided-target="lampiranSurat"></label>
+              <label>Nama Rekening Bank Jateng <input class="guided-input" data-guided-target="namaRekening" required></label>
+              <label>Nomor Rekening <input class="guided-input" data-guided-target="nomorRekening" required></label>
+              <label>Nama Lurah <input class="guided-input" data-guided-target="namaLurah" required></label>
+              <label>Nama Ketua RW <input class="guided-input" data-guided-target="namaKetuaRw" required></label>
+            </div>
+            <div class="guided-tip"><span>i</span><span>Nomor surat mengikuti nomor otomatis aplikasi. Untuk mengubah data lebih lengkap, gunakan <button type="button" class="guided-inline-link" data-guided-legacy-tab="data-pengajuan">formulir lengkap Data Pengajuan</button>.</span></div>
+          </div>
+
+          <div class="guided-stage" data-guided-panel="2">
+            <div class="guided-stage-title">
+              <div><span class="guided-stage-kicker">TAHAP 2 DARI 4</span><h4>Rencana anggaran penggunaan</h4><p>Pastikan seluruh kegiatan dan total RAP sesuai pagu bantuan operasional.</p></div>
+            </div>
+            <div id="guidedBudgetSummary" class="guided-budget-summary"></div>
+            <div class="guided-stage-actions"><button type="button" class="secondary" data-guided-legacy-tab="rap">Buka Editor RAP</button><button type="button" class="secondary" data-guided-legacy-tab="rap-bulanan">Atur RAP Bulanan</button></div>
+          </div>
+
+          <div class="guided-stage" data-guided-panel="3">
+            <div class="guided-stage-title">
+              <div><span class="guided-stage-kicker">TAHAP 3 DARI 4</span><h4>Kelengkapan dokumen</h4><p>Tandai dokumen yang sudah tersedia. Status ini memakai checklist pengajuan yang sama dengan menu lama.</p></div>
+            </div>
+            <div id="guidedChecklist" class="guided-checklist"></div>
+            <div class="guided-progress"><div class="guided-progress-head"><b id="guidedChecklistCount">0 dari 7 selesai</b><span id="guidedChecklistPercent">0%</span></div><div class="guided-progress-track"><div id="guidedChecklistBar" class="guided-progress-bar" style="width:0%"></div></div></div>
+          </div>
+
+          <div class="guided-stage" data-guided-panel="4">
+            <div class="guided-stage-title">
+              <div><span class="guided-stage-kicker">TAHAP 4 DARI 4</span><h4>Tinjau & ajukan</h4><p>Periksa ringkasan sebelum status pengajuan diubah menjadi diajukan.</p></div>
+            </div>
+            <div id="guidedReview" class="guided-review"></div>
+            <div id="guidedValidation" class="guided-validation" role="status" aria-live="polite"></div>
+          </div>
+
+          <div class="guided-footer">
+            <button type="button" class="secondary" id="guidedBack">Kembali</button>
+            <div class="guided-footer-right"><button type="button" class="secondary" id="guidedSaveDraft">Simpan Draft</button><button type="button" class="primary" id="guidedNext">Lanjut</button><button type="button" class="primary guided-submit" id="guidedSubmit" hidden>Ajukan Pengajuan</button></div>
+          </div>
+        </section>
+
         <div class="subnav-wrapper-v30">
           <div class="subnav">
             <button class="subtab active" data-tab="data-pengajuan">Data Pengajuan</button>

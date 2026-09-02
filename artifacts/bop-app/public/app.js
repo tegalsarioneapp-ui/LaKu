@@ -1967,6 +1967,9 @@ function setupNotificationsV19(){
   document.addEventListener("change",e=>{
     const t=e.target;
     if(!t||!t.matches||!t.matches("input,select,textarea")) return;
+    /* Jangan memberi notifikasi untuk input teks. Event change dapat muncul
+       ketika fokus terlepas dan membuat proses ketik terasa seperti reset. */
+    if(t.matches("input:not([type='checkbox']):not([type='radio']),textarea")) return;
     let label=t.closest("label")?.childNodes?.[0]?.textContent?.trim() || t.placeholder || "Data";
     if(t.dataset?.rap) label="RAP 1 Tahun";
     if(t.dataset?.breakdown) label="Breakdown RAP Bulanan";
@@ -13684,3 +13687,342 @@ ${KOP_PDF_CSS}
   console.log("[BOP v1.95] Sync pending visibility aktif.");
 })();
 /* END PATCH v1.95 */
+
+/* ================================================================
+   PATCH v1.96 — Pengajuan Guided empat tahap + cursor-safe notifications
+
+   Guided hanya menjadi lapisan navigasi/ringkasan di atas form lama:
+   - proxy input Guided menulis ke field lama yang sama;
+   - checklist memakai data.pengajuan.checklist;
+   - perpindahan tahap menyimpan tanpa rebuild DOM input aktif;
+   - submit hanya mengubah status setelah validasi lengkap.
+   ================================================================ */
+(function bopGuidedPengajuanV96(){
+  if(window.__bopGuidedPengajuanV96) return;
+  window.__bopGuidedPengajuanV96 = true;
+
+  var BUDGET = 25000000;
+  var FIELD_IDS = [
+    "nomorSurat","tanggalSurat","sifatSurat","lampiranSurat",
+    "namaRekening","nomorRekening","namaLurah","namaKetuaRw"
+  ];
+  var CHECK_KEYS = {
+    permohonan:"permohonan",
+    rap:"rap",
+    rapbulanan:"rap",
+    ba:"ba",
+    hadir:"hadir",
+    sptjm:"sptjm",
+    rbb:"rekening"
+  };
+
+  function byId(id){ return document.getElementById(id); }
+  function pengajuan(){
+    if(typeof data === "undefined") return null;
+    if(!data.pengajuan) data.pengajuan = {};
+    if(!data.pengajuan.checklist) data.pengajuan.checklist = {};
+    if(typeof data.pengajuan.guidedStep !== "number") data.pengajuan.guidedStep = 1;
+    if(!data.pengajuan.guidedStatus) data.pengajuan.guidedStatus = "draft";
+    return data.pengajuan;
+  }
+  function docs(){
+    return (typeof PENGAJUAN_DOCS_V24 !== "undefined" && Array.isArray(PENGAJUAN_DOCS_V24))
+      ? PENGAJUAN_DOCS_V24 : [];
+  }
+  function mappedChecked(doc){
+    var p = pengajuan();
+    if(!p) return false;
+    return !!(p.checklist && p.checklist[CHECK_KEYS[doc.id]]);
+  }
+  function safeRupiah(n){
+    return typeof rupiah === "function" ? rupiah(Number(n||0)) : ("Rp" + Number(n||0).toLocaleString("id-ID"));
+  }
+  function currentTotal(){
+    try{
+      if(typeof normalizeRapV17 === "function") normalizeRapV17();
+      return typeof totalRap === "function" ? Number(totalRap()||0) : 0;
+    }catch(_e){ return 0; }
+  }
+  function persistGuided(){
+    try{
+      if(typeof collectAll === "function") collectAll();
+    }catch(_e){}
+    try{
+      if(typeof scheduleLocalSave === "function") scheduleLocalSave();
+      else localStorage.setItem("bop_rt005_data_v1_25", JSON.stringify(data));
+    }catch(_e){}
+  }
+  function setStatus(status, label){
+    var wrap = byId("guidedStatus");
+    var text = byId("guidedStatusText");
+    if(wrap){
+      wrap.dataset.status = status || "draft";
+      wrap.classList.toggle("invalid", status === "invalid");
+    }
+    if(text) text.textContent = label || (status === "diajukan" ? "Diajukan" : status === "invalid" ? "Perlu dilengkapi" : "Draft");
+  }
+  function syncGuidedFields(){
+    var p = pengajuan();
+    if(!p) return;
+    FIELD_IDS.forEach(function(id){
+      var guided = document.querySelector('[data-guided-target="'+id+'"]');
+      var legacy = byId(id);
+      if(!guided || !legacy) return;
+      if(document.activeElement !== guided) guided.value = legacy.value || p[id] || "";
+    });
+  }
+  function syncLegacyChecks(key, checked){
+    document.querySelectorAll('[data-check="'+key+'"]').forEach(function(input){
+      if(document.activeElement !== input) input.checked = !!checked;
+    });
+  }
+  function updateGuidedProgress(){
+    var p = pengajuan();
+    var list = docs();
+    if(!p || !list.length) return;
+    var done = list.filter(mappedChecked).length;
+    var pct = Math.round(done / list.length * 100);
+    var count = byId("guidedChecklistCount");
+    var percent = byId("guidedChecklistPercent");
+    var bar = byId("guidedChecklistBar");
+    var old = byId("checkProgress");
+    if(count) count.textContent = done + " dari " + list.length + " selesai";
+    if(percent) percent.textContent = pct + "%";
+    if(bar) bar.style.width = pct + "%";
+    if(old) old.textContent = done + " / " + list.length;
+  }
+  function renderGuidedChecklist(){
+    var host = byId("guidedChecklist");
+    var p = pengajuan();
+    var list = docs();
+    if(!host || !p) return;
+    host.innerHTML = list.map(function(doc){
+      var key = CHECK_KEYS[doc.id];
+      var checked = mappedChecked(doc);
+      return '<label class="guided-check-item '+(checked ? "checked" : "")+'">' +
+        '<input type="checkbox" data-guided-check="'+doc.id+'" data-guided-check-key="'+key+'" '+(checked ? "checked" : "")+'>' +
+        '<span><b>'+esc(doc.name)+'</b><small>'+esc(doc.desc)+'</small></span></label>';
+    }).join("");
+    updateGuidedProgress();
+  }
+  function renderBudget(){
+    var host = byId("guidedBudgetSummary");
+    if(!host) return;
+    var total = currentTotal();
+    var remaining = BUDGET - total;
+    var rows = (pengajuan() && Array.isArray(pengajuan().rap)) ? pengajuan().rap.length : 0;
+    var state = total > BUDGET ? "warn" : total > 0 ? "good" : "";
+    host.innerHTML =
+      '<div class="guided-budget-card"><span>Total RAP</span><strong>'+safeRupiah(total)+'</strong></div>' +
+      '<div class="guided-budget-card '+state+'"><span>Sisa pagu</span><strong>'+safeRupiah(remaining)+'</strong></div>' +
+      '<div class="guided-budget-card"><span>Kegiatan</span><strong>'+rows+' kegiatan</strong></div>' +
+      '<p class="guided-budget-note">'+(total > BUDGET
+        ? "Total RAP melebihi pagu Rp25.000.000. Sesuaikan melalui Editor RAP sebelum mengajukan."
+        : "Ringkasan ini mengambil data langsung dari RAP 1 Tahun. Gunakan editor lama untuk menambah atau mengubah kegiatan.")+'</p>';
+  }
+  function validation(){
+    var p = pengajuan() || {};
+    var errors = [];
+    var required = [
+      ["tanggalSurat","Tanggal surat"],
+      ["namaRekening","Nama rekening Bank Jateng"],
+      ["nomorRekening","Nomor rekening"],
+      ["namaLurah","Nama Lurah"],
+      ["namaKetuaRw","Nama Ketua RW"]
+    ];
+    required.forEach(function(pair){
+      if(!String(p[pair[0]] || "").trim()) errors.push(pair[1] + " belum diisi.");
+    });
+    var total = currentTotal();
+    if(total <= 0) errors.push("RAP belum memiliki anggaran.");
+    if(total > BUDGET) errors.push("Total RAP melebihi pagu Rp25.000.000.");
+    docs().forEach(function(doc){
+      if(!mappedChecked(doc)) errors.push(doc.name + " belum ditandai lengkap.");
+    });
+    return errors;
+  }
+  function renderReview(){
+    var host = byId("guidedReview");
+    var message = byId("guidedValidation");
+    var p = pengajuan() || {};
+    if(!host) return;
+    var done = docs().filter(mappedChecked).length;
+    var errors = validation();
+    host.innerHTML =
+      '<div class="guided-review-card"><h5>DATA PENGAJUAN</h5>' +
+        '<p>Nomor surat<br><strong>'+esc(p.nomorSurat || "Otomatis")+'</strong></p>' +
+        '<p>Rekening<br><strong>'+esc(p.namaRekening || "Belum diisi")+'</strong> · '+esc(p.nomorRekening || "Belum diisi")+'</p>' +
+      '</div>' +
+      '<div class="guided-review-card"><h5>RENCANA ANGGARAN</h5>' +
+        '<p>Total RAP<br><strong>'+safeRupiah(currentTotal())+'</strong></p>' +
+        '<p>'+((p.rap || []).length)+' kegiatan tercatat</p>' +
+      '</div>' +
+      '<div class="guided-review-card"><h5>KELENGKAPAN DOKUMEN</h5>' +
+        '<p><strong>'+done+' dari '+docs().length+'</strong> dokumen ditandai lengkap.</p>' +
+      '</div>' +
+      '<div class="guided-review-card"><h5>STATUS</h5><p><strong>'+esc(p.guidedStatus === "diajukan" ? "Diajukan" : "Draft")+'</strong></p><p>Periksa kembali sebelum menekan tombol ajukan.</p></div>';
+    if(message){
+      message.className = "guided-validation " + (errors.length ? "invalid" : "valid");
+      message.innerHTML = errors.length
+        ? "<b>Belum dapat diajukan.</b><ul>"+errors.map(function(item){ return "<li>"+esc(item)+"</li>"; }).join("")+"</ul>"
+        : "<b>Semua persyaratan utama sudah lengkap.</b> Pengajuan siap diajukan.";
+    }
+    setStatus(errors.length ? (p.guidedStatus === "diajukan" ? "diajukan" : "invalid") : (p.guidedStatus || "draft"),
+      p.guidedStatus === "diajukan" ? "Diajukan" : errors.length ? "Perlu dilengkapi" : "Siap diajukan");
+  }
+  function renderGuidedStep(step){
+    var p = pengajuan();
+    if(!p) return;
+    step = Math.max(1, Math.min(4, Number(step || 1)));
+    p.guidedStep = step;
+    document.querySelectorAll("[data-guided-step]").forEach(function(btn){
+      var n = Number(btn.dataset.guidedStep);
+      btn.classList.toggle("active", n === step);
+      btn.classList.toggle("done", n < step);
+      btn.setAttribute("aria-current", n === step ? "step" : "false");
+    });
+    document.querySelectorAll("[data-guided-panel]").forEach(function(panel){
+      panel.classList.toggle("active", Number(panel.dataset.guidedPanel) === step);
+    });
+    var back = byId("guidedBack"), next = byId("guidedNext"), submit = byId("guidedSubmit");
+    if(back) back.disabled = step === 1;
+    if(next) next.hidden = step === 4;
+    if(submit) submit.hidden = step !== 4;
+    if(step === 1) syncGuidedFields();
+    if(step === 2) renderBudget();
+    if(step === 3) renderGuidedChecklist();
+    if(step === 4) renderReview();
+    updateGuidedProgress();
+  }
+  function openLegacyTab(tab){
+    if(!tab) return;
+    try{
+      if(typeof activateTab === "function") activateTab(tab);
+      var legacy = byId("tab-"+tab);
+      if(legacy) legacy.scrollIntoView({behavior:"smooth",block:"start"});
+    }catch(_e){}
+  }
+  function saveDraft(showToast){
+    var p = pengajuan();
+    if(!p) return;
+    persistGuided();
+    if(p.guidedStatus !== "diajukan") p.guidedStatus = "draft";
+    try{
+      localStorage.setItem("bop_rt005_data_v1_25", JSON.stringify(data));
+    }catch(_e){}
+    if(showToast && typeof bopToast === "function") bopToast("Draft tersimpan","Data pengajuan tersimpan di perangkat dan masuk antrean sinkronisasi server.","success");
+  }
+  function submitGuided(){
+    var p = pengajuan();
+    if(!p) return;
+    persistGuided();
+    var errors = validation();
+    if(errors.length){
+      p.guidedStatus = "draft";
+      renderReview();
+      if(typeof bopToast === "function") bopToast("Belum dapat diajukan","Lengkapi validasi pada tahap ini terlebih dahulu.","warning");
+      return;
+    }
+    p.guidedStatus = "diajukan";
+    p.guidedSubmittedAt = new Date().toISOString();
+    try{ localStorage.setItem("bop_rt005_data_v1_25", JSON.stringify(data)); }catch(_e){}
+    renderReview();
+    if(typeof bopToast === "function") bopToast("Pengajuan diajukan","Status pengajuan berhasil diubah setelah seluruh validasi terpenuhi.","success");
+  }
+  function bind(){
+    var shell = byId("guidedPengajuan");
+    if(!shell) return;
+    var p = pengajuan();
+    syncGuidedFields();
+    setStatus(p && p.guidedStatus === "diajukan" ? "diajukan" : "draft", p && p.guidedStatus === "diajukan" ? "Diajukan" : "Draft");
+    renderGuidedStep(p && p.guidedStep || 1);
+
+    shell.addEventListener("input", function(event){
+      var input = event.target.closest && event.target.closest("[data-guided-target]");
+      if(!input || input.readOnly) return;
+      var target = byId(input.dataset.guidedTarget);
+      var state = pengajuan();
+      if(target) target.value = input.value;
+      if(state) state[input.dataset.guidedTarget] = input.value;
+      /* Tidak memanggil render()/fillInputs() di sini: caret tetap berada di input. */
+      if(typeof scheduleLocalSave === "function") scheduleLocalSave();
+    });
+    shell.addEventListener("change", function(event){
+      var check = event.target.closest && event.target.closest("[data-guided-check]");
+      if(!check) return;
+      var state = pengajuan();
+      if(state){
+        state.checklist[check.dataset.guidedCheckKey] = !!check.checked;
+        syncLegacyChecks(check.dataset.guidedCheckKey, check.checked);
+      }
+      var item = check.closest(".guided-check-item");
+      if(item) item.classList.toggle("checked", check.checked);
+      updateGuidedProgress();
+      if(typeof scheduleLocalSave === "function") scheduleLocalSave();
+      setTimeout(updateGuidedProgress, 0);
+    });
+    shell.addEventListener("click", function(event){
+      var step = event.target.closest && event.target.closest("[data-guided-step]");
+      if(step){
+        event.preventDefault();
+        saveDraft(false);
+        renderGuidedStep(Number(step.dataset.guidedStep));
+        return;
+      }
+      var legacy = event.target.closest && event.target.closest("[data-guided-legacy-tab]");
+      if(legacy){
+        event.preventDefault();
+        saveDraft(false);
+        openLegacyTab(legacy.dataset.guidedLegacyTab);
+      }
+    });
+    var back = byId("guidedBack");
+    var next = byId("guidedNext");
+    var draft = byId("guidedSaveDraft");
+    var submit = byId("guidedSubmit");
+    if(back) back.addEventListener("click", function(){ saveDraft(false); renderGuidedStep((pengajuan().guidedStep || 1)-1); });
+    if(next) next.addEventListener("click", function(){ saveDraft(false); renderGuidedStep((pengajuan().guidedStep || 1)+1); });
+    if(draft) draft.addEventListener("click", function(){ saveDraft(true); });
+    if(submit) submit.addEventListener("click", submitGuided);
+
+    /* Perubahan pada editor lama ikut tercermin saat kembali ke Guided,
+       tetapi tidak membangun ulang field yang sedang diketik. */
+    document.addEventListener("blur", function(event){
+      if(event.target && event.target.matches && event.target.matches("#"+FIELD_IDS.join(",#"))){
+        syncGuidedFields();
+      }
+    }, true);
+    window.addEventListener("bop:server-data-applied", function(){ syncGuidedFields(); renderGuidedStep(pengajuan().guidedStep || 1); });
+    console.log("[BOP v1.96] Guided Pengajuan empat tahap aktif.");
+  }
+  function init(){
+    if(byId("guidedPengajuan")) bind();
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
+/* END PATCH v1.96 */
+
+/* PATCH v1.97 — Notifikasi tidak lagi terpicu oleh input teks.
+   Event change pada input yang kehilangan fokus di tengah ketikan dapat
+   terlihat seperti cursor jump; notifikasi hanya untuk checkbox/select. */
+(function bopNotificationCursorGuardV97(){
+  if(window.__bopNotificationCursorGuardV97) return;
+  window.__bopNotificationCursorGuardV97 = true;
+  function patch(){
+    var stack = document.getElementById("toastStackV19");
+    /* Listener lama tidak bisa dilepas tanpa referensi, jadi cegah efeknya
+       di level handler dengan menandai setup ulang yang aman untuk versi baru. */
+    if(typeof window.notifyChangeV19 === "function"){
+      var original = window.notifyChangeV19;
+      window.notifyChangeV19 = function(title, body, type){
+        if(title === "Perubahan tersimpan") return;
+        return original(title, body, type);
+      };
+    }
+    if(stack) stack.setAttribute("data-cursor-safe","true");
+  }
+  if(document.readyState === "loading") document.addEventListener("DOMContentLoaded", patch);
+  else patch();
+})();
+/* END PATCH v1.97 */

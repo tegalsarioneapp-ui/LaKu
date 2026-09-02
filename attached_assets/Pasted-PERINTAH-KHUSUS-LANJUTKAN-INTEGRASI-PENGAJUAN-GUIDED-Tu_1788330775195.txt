@@ -1,0 +1,85 @@
+PERINTAH KHUSUS — LANJUTKAN INTEGRASI PENGAJUAN GUIDED
+
+Tujuan
+------
+Lanjutkan dan selesaikan penerapan alur terpandu Pengajuan Dana Operasional
+empat tahap pada aplikasi LaKu Warga / BOP RT 005:
+1. Data Pengajuan
+2. Rencana Anggaran
+3. Kelengkapan Dokumen
+4. Tinjau & Ajukan
+
+Mulai dengan membaca file ini dan memeriksa kondisi terbaru repository. Jangan
+mengulang pekerjaan yang sudah ada dan jangan mengganti renderer lama secara
+besar-besaran. Guided harus menjadi lapisan navigasi, ringkasan, dan state di
+atas struktur lama supaya kompatibilitas tetap terjaga.
+
+File utama
+-----------
+- artifacts/bop-app/index.html
+- artifacts/bop-app/public/app.js
+- artifacts/bop-app/public/styles.css
+- artifacts/bop-app/public/print-kop.js
+- artifacts/bop-app/public/print-kop.css
+- artifacts/bop-app/tests/
+- .agents/memory/MEMORY.md dan topic memory yang relevan
+
+Kontrak yang tidak boleh rusak
+------------------------------
+- localStorage key: bop_rt005_data_v1_25
+- ID lama: nomorSurat, tanggalSurat, namaRekening, syaratChecklist,
+  docOutput, dsDocSelectV43, dsDocGenBtnV43
+- ID dashboard: dashRemaining, dashUnallocated, dashAllocated, dashPercent,
+  checkProgress
+- Fungsi inti: activateTab, goPage, collectAll, saveData, renderChecklist,
+  previewDoc, savePengajuan
+- Definisi tujuh dokumen aktual tetap mengikuti PENGAJUAN_DOCS_V24.
+- Jangan rebuild DOM input aktif setiap kali pengguna mengetik; caret harus tetap.
+- Autosave tetap debounce. Snapshot remote hanya boleh diterapkan bila lebih baru
+  dan tidak sedang diedit.
+- Preview dan cetak harus tetap menggunakan HTML dokumen yang sama dan pipeline
+  global print-kop.js / print-kop.css.
+- Jangan menghapus mockup sandbox atau frame canvas yang sudah disetujui.
+
+Ekspektasi fungsi Guided
+------------------------
+- Stepper membuka panel tahap yang benar.
+- Lanjut dan Kembali menyimpan state tanpa kehilangan input.
+- Form Guided harus menyinkronkan field lama, bukan membuat sumber data kedua.
+- Checklist Guided membaca dan menulis data.pengajuan.checklist.
+- Progres dan daftar dokumen kurang dihitung dari data aktual, bukan angka
+  hard-code.
+- Tinjau & Ajukan memvalidasi field inti dan kelengkapan dokumen, lalu hanya
+  menandai status diajukan jika valid.
+- Simpan Draft tetap menjalankan penyimpanan lokal dan jalur sync PostgreSQL.
+- Tombol editor RAP, RAP bulanan, Generate, preview, cetak, riwayat, backup,
+  dan Document Studio harus tetap dapat dibuka dari menu lengkap.
+
+Urutan validasi wajib
+---------------------
+1. Periksa diff dan status git; cari patch Guided yang sudah ada sebelum
+   menambah patch baru.
+2. Jalankan typecheck atau build BOP App.
+3. Jalankan seluruh test yang tersedia pada artifacts/bop-app/tests.
+4. Jalankan git diff --check.
+5. Pastikan workflow BOP App dan API Server aktif. Bila API gagal, baca log,
+   perbaiki penyebabnya, lalu restart workflow yang sama (jangan membuat duplikat).
+6. Refresh log dan pastikan tidak ada error browser/runtime baru.
+7. Ambil screenshot app utama setelah access gate dibuka bila mekanismenya
+   tersedia. Periksa desktop dan mobile.
+
+Jika pekerjaan terhenti di tengah jalan
+---------------------------------------
+- Jangan reset, force-push, atau menghapus data pengguna.
+- Baca status git dan diff terbaru lebih dahulu.
+- Jika markup Guided sudah ada tetapi belum aktif, lanjutkan dari binding
+  fungsi dan render state; jangan membuat markup kedua.
+- Jika binding sudah ada tetapi visual belum lengkap, lanjutkan di styles.css
+  dengan selector scoped guided-*. Jangan mengubah CSS cetak dokumen.
+- Jika validasi gagal, perbaiki error pertama yang terlihat, lalu ulangi
+  validasi lengkap setelah perubahan terakhir.
+- Jika ada konflik antara patch lama dan Guided, pertahankan ID/fungsi lama dan
+  tambahkan override runtime yang terukur di bagian patch paling akhir.
+- Setelah selesai, tulis ringkasan perubahan, validasi yang lulus/gagal, dan
+  sisa risiko yang nyata. Jangan menyatakan selesai hanya karena tampilan
+  berhasil dirender.

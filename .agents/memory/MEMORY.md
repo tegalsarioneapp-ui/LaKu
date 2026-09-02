@@ -15,3 +15,4 @@
 - [Single document print pipeline](single-document-print-pipeline.md) — Generate 7 Dokumen uses one modal print action routed through Global Print KOP; avoid parallel popup/download handlers.
 - [Activity workspace model](activity-workspace.md) — Persiapan activities snapshot the legacy form per activity; late-loaded modules require final runtime override reinstallation.
 - [GitHub push authentication](github-push-auth.md) — GitHub connector access does not automatically authenticate the shell Git remote; reconnect Git Providers before retrying a push.
+- [Alur Pengajuan Dana dan LPJ](pengajuan-dana-bulanan.md) — 7 dokumen hanya sekali; pengambilan bank satu lembar per bulan dan digate LPJ bulan sebelumnya.

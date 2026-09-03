@@ -4716,11 +4716,17 @@ async function goPage(page){
           Jangan render ulang form jika server belum punya versi baru. */
        const serverVersion = Number(result.version || 0);
        const currentVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+       const localDirty = localStorage.getItem(DIRTY_KEY) === "1";
        if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion){
-         setBadge("☁ ✓","#15803d");
-         setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),1200);
-         return;
-       }
+          const localRaw = localStorage.getItem(STORE);
+          if(localRaw && (currentVersion > serverVersion || localDirty)){
+            schedulePush(localRaw, serverVersion);
+            return;
+          }
+          setBadge("☁ ✓","#15803d");
+          setTimeout(()=>setBadge("☁","rgba(0,0,0,.55)"),1200);
+          return;
+        }
 
        /* Jika user sedang mengetik, tunggu polling berikutnya setelah blur.
           Mengganti DOM di tengah input akan memindahkan caret/fokus. */
@@ -4756,7 +4762,15 @@ async function goPage(page){
       if(!result.ok || !result.data) return;
        const serverVersion = Number(result.version || 0);
        const currentVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
-       if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion) return;
+        const localDirty = localStorage.getItem(DIRTY_KEY) === "1";
+        if(serverVersion > 0 && currentVersion > 0 && serverVersion <= currentVersion){
+          const localRaw = localStorage.getItem(STORE);
+          if(localRaw && (currentVersion > serverVersion || localDirty)){
+            schedulePush(localRaw, serverVersion);
+            return;
+          }
+          return;
+        }
        const active = document.activeElement;
        if(active && (active.matches("input,textarea,select") || active.isContentEditable)) return;
       /* Jangan percaya metadata versi lokal; terapkan snapshot server yang sama di semua device. */

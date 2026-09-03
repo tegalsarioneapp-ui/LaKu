@@ -3234,3 +3234,12 @@ tbody tr:hover {
 .guided-review{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.guided-review-card{padding:14px;border:1px solid #e2e8f0;border-radius:12px;background:#fff}.guided-review-card h5{margin:0 0 8px;color:#0b2e59;font-size:.8rem}.guided-review-card p{margin:4px 0;color:#475569;font-size:.83rem}.guided-review-card strong{color:#0f172a}.guided-validation{margin-top:16px;padding:13px 15px;border-radius:11px;font-size:.83rem;line-height:1.5}.guided-validation:empty{display:none}.guided-validation.valid{background:#ecfdf5;border:1px solid #bbf7d0;color:#166534}.guided-validation.invalid{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}.guided-validation ul{margin:7px 0 0 18px;padding:0}
 .guided-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid #e2e8f0}.guided-footer-right{display:flex;gap:10px;flex-wrap:wrap}.guided-submit{background:#15803d;border-color:#15803d}.guided-submit:hover{background:#166534}
 @media(max-width:700px){.guided-shell{padding:17px 14px;border-radius:16px}.guided-head,.guided-stage-title{display:block}.guided-status{margin-top:13px}.guided-stepper{grid-template-columns:repeat(2,1fr);gap:5px}.guided-step{padding:9px 8px}.guided-step b{font-size:.75rem}.guided-step small{font-size:.65rem}.guided-form-grid,.guided-checklist,.guided-review,.guided-budget-summary{grid-template-columns:1fr}.guided-check-item{min-height:0;padding:12px}.guided-check-item b{font-size:.82rem}.guided-check-item small{font-size:.72rem}.guided-footer{align-items:stretch;flex-direction:column}.guided-footer-right{width:100%}.guided-footer button{flex:1}.guided-footer-right button{min-width:0}.guided-required{display:inline-block;margin-top:12px}}
+
+/* PATCH mobile sidebar: menu-hidden adalah state layout mobile,
+   bukan perintah untuk menyembunyikan drawer yang sedang dibuka. */
+@media(max-width:1000px){
+  .app-shell.menu-hidden .sidebar.open{
+    transform:translateX(0);
+    overflow-y:auto;
+  }
+}

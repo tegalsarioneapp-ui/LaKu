@@ -4266,6 +4266,8 @@ async function goPage(page){
   const STORE    = "bop_rt005_data_v1_25";
   const VER_KEY  = "bop_pg_version_v40";
   const TS_KEY   = "bop_pg_updated_v40";
+  const DIRTY_KEY = "bop_pg_dirty_v41";
+  const LOCAL_EDIT_KEY = "bop_pg_local_edit_v41";
 
   /* ─── Topbar status (Online / Offline / Memeriksa) ────────── */
   let _lastOnline = null;
@@ -4448,18 +4450,41 @@ async function goPage(page){
   let pushTimer = null;
   let pushInFlight = false;
 
-  function schedulePush(jsonStr){
-    if(pushTimer) clearTimeout(pushTimer);
-    pushTimer = setTimeout(() => doPush(jsonStr), 2000);
+  function markLocalDirty(){
+    if(window.__bopApplyingServer) return;
+    try{
+      Storage.prototype.setItem.call(localStorage, DIRTY_KEY, "1");
+      Storage.prototype.setItem.call(localStorage, LOCAL_EDIT_KEY, new Date().toISOString());
+    }catch(_e){}
   }
 
-  async function doPush(jsonStr){
-    if(pushInFlight){ pushTimer = setTimeout(() => doPush(jsonStr), 1500); return; }
+  function clearLocalDirty(){
+    try{
+      Storage.prototype.removeItem.call(localStorage, DIRTY_KEY);
+      Storage.prototype.removeItem.call(localStorage, LOCAL_EDIT_KEY);
+    }catch(_e){}
+  }
+
+  function schedulePush(jsonStr, baseVersion){
+    if(pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => doPush(jsonStr, baseVersion), 2000);
+  }
+
+  async function doPush(jsonStr, forcedBaseVersion, conflictRetry=0){
+    if(pushInFlight){
+      pushTimer = setTimeout(() => doPush(jsonStr, forcedBaseVersion, conflictRetry), 1500);
+      return;
+    }
     pushInFlight = true;
     setBadge("☁ ↑", "#1e40af");
     try{
+      /* Timer lama tidak boleh mengirim snapshot yang tertinggal. */
+      const latestRaw = localStorage.getItem(STORE);
+      if(latestRaw) jsonStr = latestRaw;
       const parsed   = JSON.parse(jsonStr);
-      const localVer = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+      const localVer = Number.isInteger(forcedBaseVersion)
+        ? forcedBaseVersion
+        : parseInt(localStorage.getItem(VER_KEY) || "0", 10);
       const res = await fetch("/api/bop/data", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -4470,12 +4495,19 @@ async function goPage(page){
         let conflictPayload = null;
         try{ conflictPayload = await res.json(); }catch(_e){}
         if(conflictPayload?.data){
+          const serverVersion = Number(conflictPayload.serverVersion || 0);
+          const localVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
+          const isDirty = localStorage.getItem(DIRTY_KEY) === "1";
+          if(isDirty && localVersion > serverVersion && conflictRetry < 1){
+            pushInFlight = false;
+            return await doPush(localStorage.getItem(STORE) || jsonStr, serverVersion, conflictRetry + 1);
+          }
           applyServerData({
             ok: true,
             data: conflictPayload.data,
-            version: conflictPayload.serverVersion || localVer,
+            version: serverVersion || localVer,
             updatedAt: conflictPayload.updatedAt || new Date().toISOString()
-          });
+          }, {forceRemote:true});
           if(typeof bopToast === "function"){
             bopToast("Sinkronisasi Diperbarui","Perangkat ini tertinggal. Data terbaru server dimuat otomatis.","info");
           }
@@ -4485,8 +4517,15 @@ async function goPage(page){
       }
       if(!res.ok) throw new Error("HTTP " + res.status);
       const result = await res.json();
+      const payloadStillCurrent = localStorage.getItem(STORE) === jsonStr;
       localStorage.setItem(VER_KEY, String(result.version));
       localStorage.setItem(TS_KEY,  result.updatedAt || new Date().toISOString());
+      if(payloadStillCurrent){
+        clearLocalDirty();
+      }else{
+        markLocalDirty();
+        schedulePush(localStorage.getItem(STORE) || jsonStr, Number(result.version || 0));
+      }
       setBadge("☁ ✓", "#15803d");
       setTimeout(() => setBadge("☁", "rgba(0,0,0,.55)"), 3000);
       markProbeResult(true);
@@ -4506,6 +4545,7 @@ async function goPage(page){
   async function manualPush(){
     const raw = localStorage.getItem(STORE);
     if(!raw){ if(typeof bopAlert==="function") bopAlert("Tidak Ada Data","Tidak ada data lokal untuk disimpan.","warning"); return; }
+    markLocalDirty();
     setBadge("☁ ↑", "#1e40af");
     await doPush(raw);
   }
@@ -4530,7 +4570,7 @@ async function goPage(page){
         ? (await Swal.fire({title:"Ambil Data Server?",html:"Data lokal akan diganti data PostgreSQL.<br><b>Versi "+result.version+"</b>",icon:"question",showCancelButton:true,confirmButtonText:"Ya, Ambil",cancelButtonText:"Batal"})).isConfirmed
         : confirm("Ambil data dari server? Data lokal akan diganti.");
       if(!ok){ setBadge("☁","rgba(0,0,0,.55)"); return; }
-      applyServerData(result);
+      applyServerData(result, {forceRemote:true});
     } catch(e){
       console.warn(TAG,"Pull gagal:",e.message);
       setBadge("☁ !","#b91c1c");
@@ -4552,33 +4592,51 @@ async function goPage(page){
   }
 
   /* ─── Terapkan data server ke memori + cache ────────────────── */
-  function applyServerData(result){
+  function applyServerData(result, options){
     if(!result || !result.data) return;
+    const forceRemote = !!(options && options.forceRemote);
     const serverData = JSON.parse(JSON.stringify(result.data));
     const localRaw = localStorage.getItem(STORE);
     const localVersion = parseInt(localStorage.getItem(VER_KEY) || "0", 10);
     const serverVersion = parseInt(String(result.version || 0), 10);
     const localUpdatedAt = localStorage.getItem(TS_KEY) || null;
+    const localEditAt = localStorage.getItem(LOCAL_EDIT_KEY) || localUpdatedAt;
     const serverUpdatedAt = result.updatedAt || null;
     let resolvedData = serverData;
+    let localWon = false;
 
     try{
-      if (window.BOP_SYNC_HELPERS && typeof window.BOP_SYNC_HELPERS.resolveSyncSnapshot === "function" && localRaw) {
+      if (!forceRemote && window.BOP_SYNC_HELPERS && typeof window.BOP_SYNC_HELPERS.resolveSyncSnapshot === "function" && localRaw) {
         const parsedLocal = JSON.parse(localRaw);
         resolvedData = window.BOP_SYNC_HELPERS.resolveSyncSnapshot({
           localState: parsedLocal,
           remoteState: serverData,
           localVersion,
           serverVersion,
-          localUpdatedAt,
+          localUpdatedAt: localEditAt,
           serverUpdatedAt,
         });
+        localWon = resolvedData === parsedLocal;
       }
     } catch(e) {
       console.warn(TAG, "Gagal resolve konflik sync:", e.message);
     }
 
     const finalData = JSON.parse(JSON.stringify(resolvedData));
+
+    /* Jangan menulis versi server ke snapshot lokal yang dipilih sebagai
+       pemenang. Snapshot itu harus dikirim ulang dengan base version server. */
+    if(localWon && !forceRemote){
+      _origSetItem(STORE, JSON.stringify(finalData));
+      try{
+        Storage.prototype.setItem.call(localStorage, DIRTY_KEY, "1");
+        Storage.prototype.setItem.call(localStorage, LOCAL_EDIT_KEY, localEditAt || new Date().toISOString());
+      }catch(_e){}
+      schedulePush(JSON.stringify(finalData), serverVersion);
+      updateSidebarNote();
+      updateSyncPanel();
+      return;
+    }
 
     if(typeof data !== "undefined" && finalData && typeof finalData === "object"){
       try{
@@ -4589,6 +4647,7 @@ async function goPage(page){
     _origSetItem(STORE, JSON.stringify(finalData));
     localStorage.setItem(VER_KEY, String(serverVersion || localVersion || 0));
     localStorage.setItem(TS_KEY,  serverUpdatedAt || localUpdatedAt || new Date().toISOString());
+    clearLocalDirty();
     if(typeof render        ==="function"){ try{ render();           }catch(e){} }
     if(typeof updateDashboard==="function"){ try{ updateDashboard(); }catch(e){} }
     setBadge("☁ ✓","#15803d");
@@ -4604,7 +4663,10 @@ async function goPage(page){
   localStorage.setItem = function(key, value){
     const normalizedValue = typeof value === "string" ? value : String(value);
     _origSetItem(key, normalizedValue);
-    if(key === STORE && typeof normalizedValue === "string") schedulePush(normalizedValue);
+    if(key === STORE && typeof normalizedValue === "string" && !window.__bopApplyingServer){
+      markLocalDirty();
+      schedulePush(normalizedValue);
+    }
   };
 
   /* ─── Boot: load data dari server jika lebih baru ───────────── */
